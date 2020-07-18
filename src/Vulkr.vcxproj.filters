@@ -7,6 +7,7 @@
     <ClCompile Include="..\third_party\volk\volk.c">
       <Filter>volk</Filter>
     </ClCompile>
+    <ClCompile Include="physical_device.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="instance.h" />
@@ -14,6 +15,7 @@
     <ClInclude Include="..\third_party\volk\volk.h">
       <Filter>volk</Filter>
     </ClInclude>
+    <ClInclude Include="physical_device.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\build.bat" />
