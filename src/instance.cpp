@@ -24,7 +24,6 @@
 
 namespace vulkr
 {
-
 	Instance::Instance()
     {
 #ifdef VULKR_DEBUG
@@ -75,6 +74,8 @@ namespace vulkr
 #ifdef VULKR_DEBUG
         VK_CHECK(vkCreateDebugUtilsMessengerEXT(instance, &debugUtilsCreateInfo, nullptr, &debugUtilsMessenger));
 #endif // VULKR_DEBUG
+
+        selectGPU();
 	}
 
     Instance::~Instance() 
@@ -118,7 +119,7 @@ namespace vulkr
 
     std::vector<const char*> Instance::getRequiredInstanceExtensions() const
     {
-        uint32_t glfwExtensionCount = 0;
+        uint32_t glfwExtensionCount{ 0 };
         const char** glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
 
         std::vector<const char*> extensions(glfwExtensions, glfwExtensions + glfwExtensionCount);
@@ -152,14 +153,24 @@ namespace vulkr
             throw std::runtime_error("Instance::selectGPU: Couldn't find a physical device that supports Vulkan.");
         }
 
-        std::vector<VkPhysicalDevice> physical_devices;
-        physical_devices.resize(physicalDeviceCount);
-        VK_CHECK(vkEnumeratePhysicalDevices(instance, &physicalDeviceCount, physical_devices.data()));
+        std::vector<VkPhysicalDevice> physicalDevices;
+        physicalDevices.resize(physicalDeviceCount);
+        VK_CHECK(vkEnumeratePhysicalDevices(instance, &physicalDeviceCount, physicalDevices.data()));
 
-        // Create gpus wrapper objects from the VkPhysicalDevice's
-        for (auto& physical_device : physical_devices)
+
+        for (const VkPhysicalDevice &physicalDevice : physicalDevices)
         {
-            //gpus.push_back(std::make_unique<PhysicalDevice>(*this, physical_device));
-        } // TODO: complete
+            VkPhysicalDeviceProperties properties;
+            vkGetPhysicalDeviceProperties(physicalDevice, &properties);
+
+            if (properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
+            {
+                gpu = std::make_unique<PhysicalDevice>(*this, physicalDevice);
+                return;
+            }
+        }
+
+        // If a discrete GPU isn't found, we default to the first available one
+        gpu = std::make_unique<PhysicalDevice>(*this, physicalDevices[0]);
     }
 }

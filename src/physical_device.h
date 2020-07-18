@@ -21,10 +21,14 @@
  */
 
 #pragma once
+#include <vector>
 
-#include "instance.h"
+#include "vk_common.h"
 
 namespace vulkr {
+	/* Forward declare the Instance class */
+	class Instance;
+
 	class PhysicalDevice
 	{
 	public:

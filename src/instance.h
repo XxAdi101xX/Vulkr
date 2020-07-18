@@ -27,13 +27,11 @@
 #include <vector>
 
 #include "vk_common.h"
+#include "physical_device.h"
 
 #include <GLFW/glfw3.h>
 namespace vulkr 
 {
-	/* Forward declare PhysicalDevice */
-	class PhysicalDevice;
-
 	class Instance 
 	{
 	public:
@@ -61,6 +59,7 @@ namespace vulkr
 		/* The Vulkan instance */
 		VkInstance instance{ VK_NULL_HANDLE };
 
+		/* The GPU used for the Vulkan application */
 		std::unique_ptr<PhysicalDevice> gpu;
 
 		/* The required validation layers */
@@ -73,6 +72,7 @@ namespace vulkr
 		VkDebugUtilsMessengerEXT debugUtilsMessenger{ VK_NULL_HANDLE };
 	#endif // VULKR_DEBUG
 
+		/* Select a physical device for our application; will populate the gpu field */
 		void selectGPU();
 
 	}; // class Instance
