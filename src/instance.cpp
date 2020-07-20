@@ -87,7 +87,7 @@ namespace vulkr
         vkDestroyInstance(instance, nullptr);
     }
 
-    VkInstance Instance::getInstance() const {
+    VkInstance Instance::getHandle() const {
         return instance;
     }
 

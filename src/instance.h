@@ -53,7 +53,7 @@ namespace vulkr
 		);
 
 		/* Get the instance handle */
-		VkInstance getInstance() const;
+		VkInstance getHandle() const;
 
 	private:
 		/* The Vulkan instance */

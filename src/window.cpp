@@ -33,11 +33,11 @@ namespace vulkr
 		glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 
 		window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", nullptr, nullptr);
-		VK_CHECK(glfwCreateWindowSurface(instance.getInstance(), window, nullptr, &surface));
+		VK_CHECK(glfwCreateWindowSurface(instance.getHandle(), window, nullptr, &surface));
 	}
 
 	Window::~Window()
 	{
-		vkDestroySurfaceKHR(instance.getInstance(), surface, nullptr);
+		vkDestroySurfaceKHR(instance.getHandle(), surface, nullptr);
 	}
 }
