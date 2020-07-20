@@ -8,6 +8,7 @@
       <Filter>volk</Filter>
     </ClCompile>
     <ClCompile Include="physical_device.cpp" />
+    <ClCompile Include="window.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="instance.h" />
@@ -16,6 +17,7 @@
       <Filter>volk</Filter>
     </ClInclude>
     <ClInclude Include="physical_device.h" />
+    <ClInclude Include="window.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\build.bat" />
