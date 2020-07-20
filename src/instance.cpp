@@ -87,6 +87,10 @@ namespace vulkr
         vkDestroyInstance(instance, nullptr);
     }
 
+    VkInstance Instance::getInstance() const {
+        return instance;
+    }
+
     bool Instance::checkValidationLayerSupport() const
     {
         uint32_t layerCount;

@@ -44,16 +44,16 @@ namespace vulkr
 		Instance& operator=(const Instance&) = delete;
 		Instance& operator=(Instance&&) = delete;
 
-		bool checkValidationLayerSupport() const;
-
-		std::vector<const char *> getRequiredInstanceExtensions() const;
-
+		/* Validation layer callback */
 		static VKAPI_ATTR VkBool32 VKAPI_CALL debugUtilsMessengerCallback(
 			VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
 			VkDebugUtilsMessageTypeFlagsEXT messageType,
 			const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
 			void* pUserData
 		);
+
+		/* Get the instance handle */
+		VkInstance getInstance() const;
 
 	private:
 		/* The Vulkan instance */
@@ -71,6 +71,12 @@ namespace vulkr
 		/* Debug utils messenger callback for VK_EXT_Debug_Utils */
 		VkDebugUtilsMessengerEXT debugUtilsMessenger{ VK_NULL_HANDLE };
 	#endif // VULKR_DEBUG
+
+		/* Check if requiredValidationLayers are all available */
+		bool checkValidationLayerSupport() const;
+
+		/* Get all required instances */
+		std::vector<const char*> getRequiredInstanceExtensions() const;
 
 		/* Select a physical device for our application; will populate the gpu field */
 		void selectGPU();
