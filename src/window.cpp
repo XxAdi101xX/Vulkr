@@ -24,20 +24,22 @@
 
 namespace vulkr
 {
-	Window::Window(Instance& instance):
-		instance{instance}
-	{
-		glfwInit();
 
-		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-		glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+Window::Window(Instance& instance):
+	instance{instance}
+{
+	glfwInit();
 
-		window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", nullptr, nullptr);
-		VK_CHECK(glfwCreateWindowSurface(instance.getHandle(), window, nullptr, &surface));
-	}
+	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+	glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 
-	Window::~Window()
-	{
-		vkDestroySurfaceKHR(instance.getHandle(), surface, nullptr);
-	}
+	window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", nullptr, nullptr);
+	VK_CHECK(glfwCreateWindowSurface(instance.getHandle(), window, nullptr, &surface));
 }
+
+Window::~Window()
+{
+	vkDestroySurfaceKHR(instance.getHandle(), surface, nullptr);
+}
+
+} // namespace vulkr

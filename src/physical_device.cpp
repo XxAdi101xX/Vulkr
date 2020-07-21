@@ -22,43 +22,46 @@
 
 #include "physical_device.h"
 
-namespace vulkr {
-	PhysicalDevice::PhysicalDevice(Instance& instance, VkPhysicalDevice physicalDevice) :
-		instance{ instance },
-		physicalDevice{ physicalDevice }
-	{
-		vkGetPhysicalDeviceFeatures(physicalDevice, &features);
-		vkGetPhysicalDeviceProperties(physicalDevice, &properties);
-		vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memoryProperties);
+namespace vulkr
+{
 
-		uint32_t queueFamilyPropertiesCount = 0;
-		vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamilyPropertiesCount, nullptr);
-		queueFamilyProperties = std::vector<VkQueueFamilyProperties>(queueFamilyPropertiesCount);
-		vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamilyPropertiesCount, queueFamilyProperties.data());
-	}
+PhysicalDevice::PhysicalDevice(Instance& instance, VkPhysicalDevice gpu) :
+	instance{ instance },
+	gpu{ gpu }
+{
+	vkGetPhysicalDeviceFeatures(gpu, &features);
+	vkGetPhysicalDeviceProperties(gpu, &properties);
+	vkGetPhysicalDeviceMemoryProperties(gpu, &memoryProperties);
 
-	VkPhysicalDevice PhysicalDevice::getHandle() const
-	{
-		return physicalDevice;
-	}
-
-	const VkPhysicalDeviceFeatures& PhysicalDevice::getFeatures() const
-	{
-		return features;
-	}
-
-	const VkPhysicalDeviceProperties PhysicalDevice::getProperties() const
-	{
-		return properties;
-	}
-
-	const VkPhysicalDeviceMemoryProperties PhysicalDevice::getMemoryProperties() const
-	{
-		return memoryProperties;
-	}
-
-	const std::vector<VkQueueFamilyProperties>& PhysicalDevice::getQueueFamilyProperties() const
-	{
-		return queueFamilyProperties;
-	}
+	uint32_t queueFamilyPropertiesCount = 0;
+	vkGetPhysicalDeviceQueueFamilyProperties(gpu, &queueFamilyPropertiesCount, nullptr);
+	queueFamilyProperties = std::vector<VkQueueFamilyProperties>(queueFamilyPropertiesCount);
+	vkGetPhysicalDeviceQueueFamilyProperties(gpu, &queueFamilyPropertiesCount, queueFamilyProperties.data());
 }
+
+VkPhysicalDevice PhysicalDevice::getHandle() const
+{
+	return gpu;
+}
+
+const VkPhysicalDeviceFeatures& PhysicalDevice::getFeatures() const
+{
+	return features;
+}
+
+const VkPhysicalDeviceProperties PhysicalDevice::getProperties() const
+{
+	return properties;
+}
+
+const VkPhysicalDeviceMemoryProperties PhysicalDevice::getMemoryProperties() const
+{
+	return memoryProperties;
+}
+
+const std::vector<VkQueueFamilyProperties>& PhysicalDevice::getQueueFamilyProperties() const
+{
+	return queueFamilyProperties;
+}
+
+} // namespace vulkr

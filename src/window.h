@@ -22,27 +22,33 @@
 
 #pragma once
 
+#include "vk_common.h"
 #include "instance.h"
 
+#include <GLFW/glfw3.h>
 namespace vulkr
 {
-	class Window
-	{
-	public:
-		Window(Instance& instance);
-		~Window();
 
-		/* Disable unnecessary operators to prevent error prone usages */
-		Window(const Window&) = delete;
-		Window(Window&&) = delete;
-		Window& operator=(const Window&) = delete;
-		Window& operator=(Window&&) = delete;
-	private:
-		GLFWwindow* window;
-		VkSurfaceKHR surface;
-		Instance& instance;
+class Instance;
 
-		const int32_t WIDTH = 1280;
-		const int32_t HEIGHT = 720;
-	};
-}
+class Window
+{
+public:
+	Window(Instance& instance);
+	~Window();
+
+	/* Disable unnecessary operators to prevent error prone usages */
+	Window(const Window&) = delete;
+	Window(Window&&) = delete;
+	Window& operator=(const Window&) = delete;
+	Window& operator=(Window&&) = delete;
+private:
+	GLFWwindow* window;
+	VkSurfaceKHR surface;
+	Instance& instance;
+
+	const int32_t WIDTH{ 1280 };
+	const int32_t HEIGHT{ 720 };
+};
+
+} // namespace vulkr

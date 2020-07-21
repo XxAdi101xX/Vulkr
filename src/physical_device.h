@@ -26,47 +26,48 @@
 #include "vk_common.h"
 
 namespace vulkr {
-	/* Forward declare the Instance class */
-	class Instance;
 
-	class PhysicalDevice
-	{
-	public:
-		PhysicalDevice(Instance& instance, VkPhysicalDevice physicalDevice);
+/* Forward declare the Instance class */
+class Instance;
 
-		/* Disable unnecessary operators to prevent error prone usages */
-		PhysicalDevice(const PhysicalDevice&) = delete;
-		PhysicalDevice(PhysicalDevice&&) = delete;
-		PhysicalDevice& operator=(const PhysicalDevice&) = delete;
-		PhysicalDevice& operator=(PhysicalDevice&&) = delete;
+class PhysicalDevice
+{
+public:
+	PhysicalDevice(Instance& instance, VkPhysicalDevice physicalDevice);
 
-		VkPhysicalDevice getHandle() const;
+	/* Disable unnecessary operators to prevent error prone usages */
+	PhysicalDevice(const PhysicalDevice&) = delete;
+	PhysicalDevice(PhysicalDevice&&) = delete;
+	PhysicalDevice& operator=(const PhysicalDevice&) = delete;
+	PhysicalDevice& operator=(PhysicalDevice&&) = delete;
 
-		const VkPhysicalDeviceFeatures& getFeatures() const;
+	VkPhysicalDevice getHandle() const;
 
-		const VkPhysicalDeviceProperties getProperties() const;
+	const VkPhysicalDeviceFeatures& getFeatures() const;
 
-		const VkPhysicalDeviceMemoryProperties getMemoryProperties() const;
+	const VkPhysicalDeviceProperties getProperties() const;
 
-		const std::vector<VkQueueFamilyProperties>& getQueueFamilyProperties() const;
-	private:
-		// TODO: check for device extension support
-		/* The physical device handle */
-		VkPhysicalDevice physicalDevice { VK_NULL_HANDLE };
+	const VkPhysicalDeviceMemoryProperties getMemoryProperties() const;
 
-		/* The associated Vulkan instance */
-		Instance& instance;
+	const std::vector<VkQueueFamilyProperties>& getQueueFamilyProperties() const;
+private:
+	/* The physical device handle */
+	VkPhysicalDevice gpu { VK_NULL_HANDLE };
 
-		/* The features that the GPU supports */
-		VkPhysicalDeviceFeatures features{};
+	/* The associated Vulkan instance */
+	Instance& instance;
 
-		/* The GPU properties */
-		VkPhysicalDeviceProperties properties;
+	/* The features that the GPU supports */
+	VkPhysicalDeviceFeatures features{};
 
-		/* The GPU memory properties */
-		VkPhysicalDeviceMemoryProperties memoryProperties;
+	/* The GPU properties */
+	VkPhysicalDeviceProperties properties;
 
-		/* The GPU queue family properties */
-		std::vector<VkQueueFamilyProperties> queueFamilyProperties;
-	}; // class PhysicalDevice
+	/* The GPU memory properties */
+	VkPhysicalDeviceMemoryProperties memoryProperties;
+
+	/* The GPU queue family properties */
+	std::vector<VkQueueFamilyProperties> queueFamilyProperties;
+}; // class PhysicalDevice
+
 } // namespace vulkr

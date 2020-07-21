@@ -32,54 +32,55 @@
 #include <GLFW/glfw3.h>
 namespace vulkr 
 {
-	class Instance 
-	{
-	public:
-		Instance();
-		~Instance();
+
+class Instance 
+{
+public:
+	Instance();
+	~Instance();
 	
-		/* Disable unnecessary operators to prevent error prone usages */
-		Instance(const Instance&) = delete;
-		Instance(Instance&&) = delete;
-		Instance& operator=(const Instance&) = delete;
-		Instance& operator=(Instance&&) = delete;
+	/* Disable unnecessary operators to prevent error prone usages */
+	Instance(const Instance&) = delete;
+	Instance(Instance&&) = delete;
+	Instance& operator=(const Instance&) = delete;
+	Instance& operator=(Instance&&) = delete;
 
-		/* Validation layer callback */
-		static VKAPI_ATTR VkBool32 VKAPI_CALL debugUtilsMessengerCallback(
-			VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
-			VkDebugUtilsMessageTypeFlagsEXT messageType,
-			const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
-			void* pUserData
-		);
+	/* Validation layer callback */
+	static VKAPI_ATTR VkBool32 VKAPI_CALL debugUtilsMessengerCallback(
+		VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
+		VkDebugUtilsMessageTypeFlagsEXT messageType,
+		const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
+		void* pUserData
+	);
 
-		/* Get the instance handle */
-		VkInstance getHandle() const;
+	/* Get the instance handle */
+	VkInstance getHandle() const;
 
-	private:
-		/* The Vulkan instance */
-		VkInstance instance{ VK_NULL_HANDLE };
+private:
+	/* The Vulkan instance */
+	VkInstance instance{ VK_NULL_HANDLE };
 
-		/* The GPU used for the Vulkan application */
-		std::unique_ptr<PhysicalDevice> gpu;
+	/* The GPU used for the Vulkan application */
+	std::unique_ptr<PhysicalDevice> gpu;
 
-		/* The required validation layers */
-		const std::vector<const char *> requiredValidationLayers = {
-			"VK_LAYER_KHRONOS_validation"
-		};
+	/* The required validation layers */
+	const std::vector<const char *> requiredValidationLayers = {
+		"VK_LAYER_KHRONOS_validation"
+	};
 
-	#ifdef VULKR_DEBUG
-		/* Debug utils messenger callback for VK_EXT_Debug_Utils */
-		VkDebugUtilsMessengerEXT debugUtilsMessenger{ VK_NULL_HANDLE };
-	#endif // VULKR_DEBUG
+#ifdef VULKR_DEBUG
+	/* Debug utils messenger callback for VK_EXT_Debug_Utils */
+	VkDebugUtilsMessengerEXT debugUtilsMessenger{ VK_NULL_HANDLE };
+#endif // VULKR_DEBUG
 
-		/* Check if requiredValidationLayers are all available */
-		bool checkValidationLayerSupport() const;
+	/* Check if requiredValidationLayers are all available */
+	bool checkValidationLayerSupport() const;
 
-		/* Get all required instances */
-		std::vector<const char*> getRequiredInstanceExtensions() const;
+	/* Get all required instances */
+	std::vector<const char*> getRequiredInstanceExtensions() const;
 
-		/* Select a physical device for our application; will populate the gpu field */
-		void selectGPU();
+	/* Select a physical device for our application; will populate the gpu field */
+	void selectGPU();
+};
 
-	}; // class Instance
 } // namespace vulkr

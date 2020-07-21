@@ -27,18 +27,20 @@
 
 #include <volk.h>
 
+#include "logger.h"
+
 #define VULKR_DEBUG /* Enable the validation layers */
 
 /* @brief Assert whether an VkResult has returned an error */
-#define VK_CHECK(r)                                                          \
-	do                                                                       \
-	{                                                                        \
-		VkResult result = r;                                                 \
-		if (result != VK_SUCCESS)                                            \
-		{                                                                    \
-			std::cerr << "Error: received VkResult " << result << std::endl; \
-			std::abort();                                                    \
-		}                                                                    \
+#define VK_CHECK(r)                            \
+	do                                         \
+	{                                          \
+		VkResult result = r;                   \
+		if (result != VK_SUCCESS)              \
+		{                                      \
+			LOGE("Vulkan Error: {}", result);  \
+			std::abort();                      \
+		}                                      \
 	} while (0);
 
 /* @brief Overload the << operator to print out the VkResult enum name */
