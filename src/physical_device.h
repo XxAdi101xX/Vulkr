@@ -45,6 +45,8 @@ public:
 
 	const VkPhysicalDeviceFeatures& getFeatures() const;
 
+	const VkPhysicalDeviceFeatures& getRequestedFeatures() const;
+
 	const VkPhysicalDeviceProperties getProperties() const;
 
 	const VkPhysicalDeviceMemoryProperties getMemoryProperties() const;
@@ -59,6 +61,9 @@ private:
 
 	/* The features that the GPU supports */
 	VkPhysicalDeviceFeatures features{};
+
+	/* The requested features to be enabled within the logical device */
+	VkPhysicalDeviceFeatures requestedFeatures{};
 
 	/* The GPU properties */
 	VkPhysicalDeviceProperties properties;

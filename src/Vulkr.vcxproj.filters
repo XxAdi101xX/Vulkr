@@ -9,6 +9,8 @@
     </ClCompile>
     <ClCompile Include="physical_device.cpp" />
     <ClCompile Include="window.cpp" />
+    <ClCompile Include="device.cpp" />
+    <ClCompile Include="queue.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="instance.h" />
@@ -18,6 +20,9 @@
     </ClInclude>
     <ClInclude Include="physical_device.h" />
     <ClInclude Include="window.h" />
+    <ClInclude Include="device.h" />
+    <ClInclude Include="queue.h" />
+    <ClInclude Include="logger.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\build.bat" />

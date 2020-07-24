@@ -49,6 +49,11 @@ const VkPhysicalDeviceFeatures& PhysicalDevice::getFeatures() const
 	return features;
 }
 
+const VkPhysicalDeviceFeatures& PhysicalDevice::getRequestedFeatures() const
+{
+	return requestedFeatures;
+}
+
 const VkPhysicalDeviceProperties PhysicalDevice::getProperties() const
 {
 	return properties;
