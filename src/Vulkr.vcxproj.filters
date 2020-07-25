@@ -23,6 +23,7 @@
     <ClInclude Include="device.h" />
     <ClInclude Include="queue.h" />
     <ClInclude Include="logger.h" />
+    <ClInclude Include="helpers.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\build.bat" />
