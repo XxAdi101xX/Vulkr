@@ -27,7 +27,7 @@ namespace vulkr
 
 PhysicalDevice::PhysicalDevice(Instance& instance, VkPhysicalDevice gpu) :
 	instance{ instance },
-	gpu{ gpu }
+	handle{ gpu }
 {
 	vkGetPhysicalDeviceFeatures(gpu, &features);
 	vkGetPhysicalDeviceProperties(gpu, &properties);
@@ -41,7 +41,7 @@ PhysicalDevice::PhysicalDevice(Instance& instance, VkPhysicalDevice gpu) :
 
 VkPhysicalDevice PhysicalDevice::getHandle() const
 {
-	return gpu;
+	return handle;
 }
 
 const VkPhysicalDeviceFeatures& PhysicalDevice::getFeatures() const
@@ -67,6 +67,18 @@ const VkPhysicalDeviceMemoryProperties PhysicalDevice::getMemoryProperties() con
 const std::vector<VkQueueFamilyProperties>& PhysicalDevice::getQueueFamilyProperties() const
 {
 	return queueFamilyProperties;
+}
+
+VkBool32 PhysicalDevice::isPresentSupported(VkSurfaceKHR surface, uint32_t queue_family_index) const
+{
+	VkBool32 presentSupported { VK_FALSE };
+
+	if (surface != VK_NULL_HANDLE)
+	{
+		VK_CHECK(vkGetPhysicalDeviceSurfaceSupportKHR(handle, queue_family_index, surface, &presentSupported));
+	}
+
+	return presentSupported;
 }
 
 } // namespace vulkr

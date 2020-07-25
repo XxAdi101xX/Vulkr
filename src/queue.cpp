@@ -36,22 +36,24 @@ Queue::Queue(Device& device, uint32_t familyIndex, VkQueueFamilyProperties prope
 	//vkGetDeviceQueue(device.getHandle(), familyIndex, index, &handle);
 }
 
-//Queue::Queue(Queue&& other) :
-//	device{ other.device },
-//	handle{ other.handle },
-//	familyIndex{ other.familyIndex },
-//	index{ other.index },
-//	canPresent{ other.canPresent },
-//	properties{ other.properties }
-//{
-//	other.handle = VK_NULL_HANDLE;
-//	other.familyIndex = {};
-//	other.properties = {};
-//	other.canPresent = VK_FALSE;
-//	other.index = 0;
-//}
+Queue::Queue(Queue&& other) :
+	handle{ other.handle },
+	device{ other.device },
+	familyIndex{ other.familyIndex },
+	index{ other.index },
+	canPresent{ other.canPresent },
+	properties{ other.properties }
+{
+	other.handle = VK_NULL_HANDLE;
+	other.familyIndex = {};
+	other.properties = {};
+	other.canPresent = VK_FALSE;
+	other.index = 0;
 
-const Device& Queue::getDevice() const
+	LOGI("Queue's move constructor has been called!");
+}
+
+Device& Queue::getDevice() const
 {
 	return device;
 }
@@ -79,35 +81,6 @@ VkQueueFamilyProperties Queue::getProperties() const
 bool Queue::supportPresent() const
 {
 	return canPresent;
-}
-
-//VkResult Queue::submit(const std::vector<VkSubmitInfo>& submit_infos, VkFence fence) const
-//{
-//	return vkQueueSubmit(handle, to_u32(submit_infos.size()), submit_infos.data(), fence);
-//}
-
-//VkResult Queue::submit(const CommandBuffer& command_buffer, VkFence fence) const
-//{
-//	VkSubmitInfo submit_info{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
-//	submit_info.commandBufferCount = 1;
-//	submit_info.pCommandBuffers = &command_buffer.get_handle();
-
-//	return submit({ submit_info }, fence);
-//}
-
-//VkResult Queue::present(const VkPresentInfoKHR& present_info) const
-//{
-//	if (!canPresent)
-//	{
-//		return VK_ERROR_INCOMPATIBLE_DISPLAY_KHR;
-//	}
-//
-//	return vkQueuePresentKHR(handle, &present_info);
-//}
-
-VkResult Queue::waitIdle() const
-{
-	return vkQueueWaitIdle(handle);
 }
 
 } // namespace vulkr

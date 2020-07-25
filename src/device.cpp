@@ -20,19 +20,20 @@
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+#include "helpers.h"
 #include "device.h"
 
 namespace vulkr
 {
 
-Device::Device(PhysicalDevice& gpu, std::vector<const char *> requestedExtensions) :
-    gpu{ gpu }
+Device::Device(PhysicalDevice& physicalDevice, VkSurfaceKHR surface, std::vector<const char *> requestedExtensions) :
+	physicalDevice{ physicalDevice }
 {
 	// Get all device extension properties
 	uint32_t deviceExtensionCount;
-	vkEnumerateDeviceExtensionProperties(gpu.getHandle(), nullptr, &deviceExtensionCount, nullptr);
+	vkEnumerateDeviceExtensionProperties(physicalDevice.getHandle(), nullptr, &deviceExtensionCount, nullptr);
 	deviceExtensions.resize(deviceExtensionCount);
-	vkEnumerateDeviceExtensionProperties(gpu.getHandle(), nullptr, &deviceExtensionCount, deviceExtensions.data());
+	vkEnumerateDeviceExtensionProperties(physicalDevice.getHandle(), nullptr, &deviceExtensionCount, deviceExtensions.data());
 
 	// Check if all desired extensions are available
 	for (auto &requestedExtension : requestedExtensions)
@@ -41,17 +42,22 @@ Device::Device(PhysicalDevice& gpu, std::vector<const char *> requestedExtension
 		{
 			LOGE("Extension {} is not available!", requestedExtension);
 		}
+		else
+		{
+			enabledExtensions.emplace_back(requestedExtension);
+		}
 	}
 
 	// Prepare the device queues
-	uint32_t queueFamilyPropertiesCount{ static_cast<uint32_t>(gpu.getQueueFamilyProperties().size()) };
+	uint32_t queueFamilyPropertiesCount{ to_u32(physicalDevice.getQueueFamilyProperties().size()) };
 	std::vector<VkDeviceQueueCreateInfo> queueCreateInfos(queueFamilyPropertiesCount);
 	std::vector<std::vector<float>> queuePriorities(queueFamilyPropertiesCount);
 
 	for (uint32_t queueFamilyIndex = 0; queueFamilyIndex < queueFamilyPropertiesCount; ++queueFamilyIndex)
 	{
-		const VkQueueFamilyProperties& queueFamilyProperties = gpu.getQueueFamilyProperties()[queueFamilyIndex];
+		const VkQueueFamilyProperties& queueFamilyProperties = physicalDevice.getQueueFamilyProperties()[queueFamilyIndex];
 
+		// Populate queueCreateInfos
 		queuePriorities[queueFamilyIndex].resize(queueFamilyProperties.queueCount, 1.0f);
 
 		VkDeviceQueueCreateInfo queueCreateInfo { VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO };
@@ -60,20 +66,39 @@ Device::Device(PhysicalDevice& gpu, std::vector<const char *> requestedExtension
 		queueCreateInfo.pQueuePriorities = queuePriorities[queueFamilyIndex].data();
 
 		queueCreateInfos.emplace_back(queueCreateInfo);
+
+		// Populate the queues array
+		VkBool32 present_supported = physicalDevice.isPresentSupported(surface, queueFamilyIndex);
+
+		for (uint32_t queue_index = 0U; queue_index < queueFamilyProperties.queueCount; ++queue_index)
+		{
+			queues[queueFamilyIndex].emplace_back(*this, queueFamilyIndex, queueFamilyProperties, present_supported, queue_index);
+		}
 	}
 
-	//VkDeviceCreateInfo create_info { VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
-	//create_info.pQueueCreateInfos = queueCreateInfos.data();
-	//create_info.queueCreateInfoCount = queueCreateInfos.size();
-	//create_info.enabledExtensionCount = to_u32(enabled_extensions.size());
-	//create_info.ppEnabledExtensionNames = enabled_extensions.data();
+	// Create the device
+	const VkPhysicalDeviceFeatures &requestedFeatures = physicalDevice.getRequestedFeatures();
 
-	//const auto requested_gpu_features = gpu.get_requested_features();
-	//create_info.pEnabledFeatures = &requested_gpu_features;
+	VkDeviceCreateInfo createInfo { VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
+	createInfo.pQueueCreateInfos = queueCreateInfos.data();
+	createInfo.queueCreateInfoCount = to_u32(queueCreateInfos.size());
+	createInfo.enabledExtensionCount = to_u32(enabledExtensions.size());
+	createInfo.ppEnabledExtensionNames = enabledExtensions.data();
+	createInfo.pEnabledFeatures = &requestedFeatures;
 
-	//VK_CHECK(vkCreateDevice(gpu.getHandle(), &create_info, nullptr, &handle));
+	VK_CHECK(vkCreateDevice(physicalDevice.getHandle(), &createInfo, nullptr, &handle));
 
+	// Load device-related Vulkan entrypoints directly from the driver to prevent the dispatch overhead incurred from supporting multiple VkDevice objects (see Volk docs)
     volkLoadDevice(handle);
+}
+
+
+Device::~Device()
+{
+	if (handle != VK_NULL_HANDLE)
+	{
+		vkDestroyDevice(handle, nullptr);
+	}
 }
 
 VkDevice Device::getHandle() const

@@ -34,7 +34,7 @@ namespace vulkr
 class Device
 {
 public:
-	Device(PhysicalDevice& gpu, std::vector<const char*> requestedExtensions = {});
+	Device(PhysicalDevice& physicalDevice, VkSurfaceKHR surface, std::vector<const char*> requestedExtensions = {});
 	~Device();
 
 	/* Disable unnecessary operators to prevent error prone usages */
@@ -43,16 +43,25 @@ public:
 	Device& operator=(const Device&) = delete;
 	Device& operator=(Device&&) = delete;
 
+	/* Get the logical device handle */
 	VkDevice getHandle() const;
 private:
+	/* The logical device handle */
 	VkDevice handle{ VK_NULL_HANDLE };
 	
-	const PhysicalDevice& gpu;
+	/* The gpu used */
+	const PhysicalDevice& physicalDevice;
 
+	/* All the extensions available on the device */
 	std::vector<VkExtensionProperties> deviceExtensions;
 
+	/* The extensions that we specifically want to use */
+	std::vector<const char*> enabledExtensions;
+
+	/* All the queues available on our gpu */
 	std::vector<std::vector<Queue>> queues;
 
+	/* Check if a specified extension is supported */
 	bool isExtensionSupported(const char* extension) const;
 
 	/* TODO

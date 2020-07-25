@@ -41,20 +41,29 @@ public:
 	PhysicalDevice& operator=(const PhysicalDevice&) = delete;
 	PhysicalDevice& operator=(PhysicalDevice&&) = delete;
 
+	/* Get the physical device handle */
 	VkPhysicalDevice getHandle() const;
 
+	/* Get all the physical device features supported */
 	const VkPhysicalDeviceFeatures& getFeatures() const;
 
+	/* Get the physical device features that were requested by the application */
 	const VkPhysicalDeviceFeatures& getRequestedFeatures() const;
 
+	/* Get the properties for the physical device */
 	const VkPhysicalDeviceProperties getProperties() const;
 
+	/* Get the memory properties for the physical device */
 	const VkPhysicalDeviceMemoryProperties getMemoryProperties() const;
 
+	/* Get an array of all the queue family properties for each queue family available */
 	const std::vector<VkQueueFamilyProperties>& getQueueFamilyProperties() const;
+
+	/* Check whether a queue family supports presentation */
+	VkBool32 isPresentSupported(VkSurfaceKHR surface, uint32_t queue_family_index) const;
 private:
 	/* The physical device handle */
-	VkPhysicalDevice gpu { VK_NULL_HANDLE };
+	VkPhysicalDevice handle { VK_NULL_HANDLE };
 
 	/* The associated Vulkan instance */
 	Instance& instance;
