@@ -22,65 +22,33 @@
 
 #pragma once
 
-#include "vk_common.h"
+#include "../common/vk_common.h"
+#include "../core/instance.h"
 
+#include <GLFW/glfw3.h>
 namespace vulkr
 {
 
-class Device;
+class Instance;
 
-class Queue
+class Window
 {
 public:
-	Queue(Device& device, uint32_t familyIndex, VkQueueFamilyProperties properties, bool canPresent, uint32_t index);
-	Queue(Queue&&);
+	Window(Instance& instance);
+	~Window();
 
 	/* Disable unnecessary operators to prevent error prone usages */
-	Queue(const Queue&) = delete;
-	Queue& operator=(const Queue&) = delete;
-	Queue& operator=(Queue&&) = delete;
-
-	/* Get the handle to the queue */
-	VkQueue getHandle() const;
-
-	/* Get the associating logical device for the queue */
-	Device& getDevice() const;
-
-	/* Get the family queue index */
-	uint32_t getFamilyIndex() const;
-
-	/* Get the queue index */
-	uint32_t getIndex() const;
-
-	VkQueueFamilyProperties getProperties() const;
-
-	/* Returns whether the queue supports presentation */
-	bool supportPresent() const;
-
-	/* TODO
-	- add submit command
-	- add present command
-	- add a wait idle command?
-	*/
-
+	Window(const Window&) = delete;
+	Window(Window&&) = delete;
+	Window& operator=(const Window&) = delete;
+	Window& operator=(Window&&) = delete;
 private:
-	/* The queue handle */
-	VkQueue handle{ VK_NULL_HANDLE };
+	GLFWwindow* window;
+	VkSurfaceKHR surface;
+	Instance& instance;
 
-	/* The logical device that the queue is associated with */
-	Device &device;
-
-	/* The queue family index */
-	uint32_t familyIndex{ 0 };
-
-	/* The index of the queue within its queue family */
-	uint32_t index{ 0 };
-
-	/* Whether the queue supports presentation */
-	bool canPresent{ false };
-
-	/* The properties of the queue family that the queue is part of */
-	VkQueueFamilyProperties properties{};
+	const int32_t WIDTH{ 1280 };
+	const int32_t HEIGHT{ 720 };
 };
 
 } // namespace vulkr

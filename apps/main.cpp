@@ -460,8 +460,8 @@ private:
     }
 
     void createGraphicsPipeline() {
-        auto vertShaderCode = readFile("shaders/vert.spv");
-        auto fragShaderCode = readFile("shaders/frag.spv");
+        auto vertShaderCode = readFile("../../../src/shaders/vert.spv");
+        auto fragShaderCode = readFile("../../../src/shaders/frag.spv");
 
         VkShaderModule vertShaderModule = createShaderModule(vertShaderCode);
         VkShaderModule fragShaderModule = createShaderModule(fragShaderCode);
@@ -834,8 +834,13 @@ private:
 
         std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
         vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilies.data());
-
         int i = 0;
+        std::cout << "hello" << std::endl;
+        for (const auto& queueFamily : queueFamilies) {
+            std::cout << "Queue number: " << queueFamily.queueCount << std::endl;
+            std::cout << "Queue flags: " << queueFamily.queueFlags << std::endl;
+        }
+        std::cout << "done" << std::endl;
         for (const auto& queueFamily : queueFamilies) {
             if (queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
                 indices.graphicsFamily = i;
@@ -854,7 +859,7 @@ private:
 
             i++;
         }
-
+        
         return indices;
     }
 

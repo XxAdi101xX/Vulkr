@@ -26,7 +26,7 @@
 #include <string>
 #include <vector>
 
-#include "vk_common.h"
+#include "../common/vk_common.h"
 #include "physical_device.h"
 
 #include <GLFW/glfw3.h>

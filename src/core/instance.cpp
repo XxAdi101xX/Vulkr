@@ -21,7 +21,7 @@
  */
 
 #include "instance.h"
-#include "logger.h"
+#include "../common/logger.h"
 
 namespace vulkr
 {
