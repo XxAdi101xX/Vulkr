@@ -23,7 +23,7 @@
 #pragma once
 #include <vector>
 
-#include "../common/vk_common.h"
+#include "common/vk_common.h"
 
 namespace vulkr {
 

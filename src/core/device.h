@@ -24,9 +24,9 @@
 
 #include <vector>
 
-#include "../common/vk_common.h"
-#include "queue.h"
+#include "common/vk_common.h"
 #include "physical_device.h"
+#include "queue.h"
 
 namespace vulkr
 {
