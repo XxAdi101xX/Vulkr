@@ -42,13 +42,15 @@ public:
 	Window(Window&&) = delete;
 	Window& operator=(const Window&) = delete;
 	Window& operator=(Window&&) = delete;
+
+	static VkExtent2D getWindowExtent();
 private:
 	GLFWwindow* window;
 	VkSurfaceKHR surface;
 	Instance& instance;
 
-	const int32_t WIDTH{ 1280 };
-	const int32_t HEIGHT{ 720 };
+	static const int32_t WIDTH{ 1280 };
+	static const int32_t HEIGHT{ 720 };
 };
 
 } // namespace vulkr

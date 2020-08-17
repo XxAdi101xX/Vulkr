@@ -27,6 +27,7 @@
 namespace vulkr
 {
 
+/* Forward declaration */
 class Device;
 
 class Queue

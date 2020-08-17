@@ -42,4 +42,10 @@ Window::~Window()
 	vkDestroySurfaceKHR(instance.getHandle(), surface, nullptr);
 }
 
+VkExtent2D Window::getWindowExtent()
+{
+	VkExtent2D extent = { WIDTH, HEIGHT };
+	return extent;
+}
+
 } // namespace vulkr

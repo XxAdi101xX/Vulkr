@@ -39,11 +39,14 @@ set(CORE_FILES
     core/instance.h
     core/physical_device.h
     core/queue.h
+    core/swapchain.h
     # Source Files
     core/device.cpp
     core/instance.cpp
     core/physical_device.cpp
-    core/queue.cpp)
+    core/queue.cpp
+    core/swapchain.cpp
+)
 
 set(PLATFORM_FILES
     # Header Files
