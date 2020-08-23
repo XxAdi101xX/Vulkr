@@ -56,7 +56,10 @@ public:
 	VkQueueFamilyProperties getProperties() const;
 
 	/* Returns whether the queue supports presentation */
-	bool supportPresent() const;
+	bool canSupportPresentation() const;
+
+	/* Checks whether the queue supports all specified queue flags */
+	bool supportsQueueFlags(VkQueueFlags desiredQueueFlags) const;
 
 	/* TODO
 	- add submit command
@@ -72,10 +75,10 @@ private:
 	Device &device;
 
 	/* The queue family index */
-	uint32_t familyIndex{ 0 };
+	uint32_t familyIndex{ 0u };
 
 	/* The index of the queue within its queue family */
-	uint32_t index{ 0 };
+	uint32_t index{ 0u };
 
 	/* Whether the queue supports presentation */
 	bool canPresent{ false };

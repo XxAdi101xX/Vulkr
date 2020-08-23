@@ -25,19 +25,17 @@
 #include <set>
 
 #include "common/vk_common.h"
+#include "core/device.h"
 
 namespace vulkr
 {
 
-/* Forward declaration */
-class Device;
-
 struct SwapchainProperties
 {
-	uint32_t imageCount{ 3 };
+	uint32_t imageCount{ 3u };
 	VkSurfaceFormatKHR surfaceFormat{};
 	VkExtent2D imageExtent{};
-	uint32_t imageArraylayers{ 1 };
+	uint32_t imageArraylayers{ 1u };
 	VkImageUsageFlags imageUsage;
 	VkSurfaceTransformFlagBitsKHR preTransform;
 	VkCompositeAlphaFlagBitsKHR compositeAlpha;
@@ -49,8 +47,20 @@ struct SwapchainProperties
 class Swapchain
 {
 public:
-	Swapchain();
+	Swapchain::Swapchain(
+		Device& device,
+		VkSurfaceKHR surface,
+		const VkExtent2D& extent,
+		const VkSurfaceTransformFlagBitsKHR transform,
+		const VkPresentModeKHR presentMode,
+		const std::set<VkImageUsageFlagBits>& imageUsageFlags);
 	~Swapchain();
+
+	/* Disable unnecessary operators to prevent error prone usages */
+	Swapchain(const Swapchain&) = delete;
+	Swapchain(Swapchain&&) = delete;
+	Swapchain& operator=(const Swapchain&) = delete;
+	Swapchain& operator=(Swapchain&&) = delete;
 
 	SwapchainProperties getProperties() const;
 	SwapchainProperties getMutableProperties();
@@ -66,6 +76,15 @@ private:
 
 	/* The associating properties of the swapchain */
 	SwapchainProperties properties{};
+	
+	/* The images associated with the swapchain */
+	std::vector<VkImage> images;
+
+	/* All available surface formats available to use */
+	std::vector<VkSurfaceFormatKHR> availableSurfaceFormats{};
+
+	/* All available present modes available to use */
+	std::vector<VkPresentModeKHR> availablePresentModes{};
 
 	/* A list of present modes in decreasing priority */
 	const std::vector<VkPresentModeKHR> presentModePriorityList = {
@@ -97,16 +116,18 @@ private:
 		VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR
 	};
 
+	void create();
+
 	/* Swapchain properties selection helper functions */
-	uint32_t chooseImageCount(uint32_t minImageCount, uint32_t maxImageCount);
-	VkSurfaceFormatKHR chooseSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats, const std::vector<VkSurfaceFormatKHR> surfaceFormatPriorityList);
-	VkExtent2D chooseImageExtent(const VkSurfaceCapabilitiesKHR& capabilities);
-	uint32_t chooseImageArrayLayers(uint32_t requestedImageArrayLayers, uint32_t maxImageArrayLayers);
-	bool validateFormatFeature(VkImageUsageFlagBits imageUsage, VkFormatFeatureFlags supportedFormatFeatures); /* used in chooseImageUsage */
-	VkImageUsageFlags chooseImageUsage(const std::set<VkImageUsageFlagBits>& requestedImageUsageFlags, VkImageUsageFlags supportedImageUsage, VkFormatFeatureFlags supportedFormatFeatures);
-	VkSurfaceTransformFlagBitsKHR choosePreTransform(VkSurfaceTransformFlagBitsKHR requestedTransform, VkSurfaceTransformFlagsKHR supportedTransform, VkSurfaceTransformFlagBitsKHR currentTransform);
-	VkCompositeAlphaFlagBitsKHR chooseCompositeAlpha(VkCompositeAlphaFlagBitsKHR requestedCompositeAlpha, VkCompositeAlphaFlagsKHR supportedCompositeAlpha);
-	VkPresentModeKHR choosePresentMode(VkPresentModeKHR requestedPresentMode, const std::vector<VkPresentModeKHR>& availablePresentModes);
+	uint32_t chooseImageCount(uint32_t minImageCount, uint32_t maxImageCount) const;
+	VkSurfaceFormatKHR chooseSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats) const;
+	VkExtent2D chooseImageExtent(VkExtent2D currentExtent, VkExtent2D minImageExtent, VkExtent2D maxImageExtent) const;
+	uint32_t chooseImageArrayLayers(uint32_t requestedImageArrayLayers, uint32_t maxImageArrayLayers) const;
+	bool validateFormatFeature(VkImageUsageFlagBits imageUsage, VkFormatFeatureFlags supportedFormatFeatures) const; /* used in chooseImageUsage */
+	VkImageUsageFlags chooseImageUsage(const std::set<VkImageUsageFlagBits>& requestedImageUsageFlags, VkImageUsageFlags supportedImageUsage, VkFormatFeatureFlags supportedFormatFeatures) const;
+	VkSurfaceTransformFlagBitsKHR choosePreTransform(VkSurfaceTransformFlagBitsKHR requestedTransform, VkSurfaceTransformFlagsKHR supportedTransform, VkSurfaceTransformFlagBitsKHR currentTransform) const;
+	VkCompositeAlphaFlagBitsKHR chooseCompositeAlpha(VkCompositeAlphaFlagBitsKHR requestedCompositeAlpha, VkCompositeAlphaFlagsKHR supportedCompositeAlpha) const;
+	VkPresentModeKHR choosePresentMode(VkPresentModeKHR requestedPresentMode) const;
 	// clipped
 	// old swapchain
 };

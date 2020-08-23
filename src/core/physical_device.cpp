@@ -33,7 +33,7 @@ PhysicalDevice::PhysicalDevice(Instance& instance, VkPhysicalDevice gpu) :
 	vkGetPhysicalDeviceProperties(gpu, &properties);
 	vkGetPhysicalDeviceMemoryProperties(gpu, &memoryProperties);
 
-	uint32_t queueFamilyPropertiesCount = 0;
+	uint32_t queueFamilyPropertiesCount = 0u;
 	vkGetPhysicalDeviceQueueFamilyProperties(gpu, &queueFamilyPropertiesCount, nullptr);
 	queueFamilyProperties = std::vector<VkQueueFamilyProperties>(queueFamilyPropertiesCount);
 	vkGetPhysicalDeviceQueueFamilyProperties(gpu, &queueFamilyPropertiesCount, queueFamilyProperties.data());

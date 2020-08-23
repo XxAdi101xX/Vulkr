@@ -33,7 +33,7 @@ Queue::Queue(Device& device, uint32_t familyIndex, VkQueueFamilyProperties prope
 	canPresent{ canPresent },
 	properties{ properties }
 {
-	//vkGetDeviceQueue(device.getHandle(), familyIndex, index, &handle);
+	vkGetDeviceQueue(device.getHandle(), familyIndex, index, &handle);
 }
 
 Queue::Queue(Queue&& other) :
@@ -78,9 +78,14 @@ VkQueueFamilyProperties Queue::getProperties() const
 	return properties;
 }
 
-bool Queue::supportPresent() const
+bool Queue::canSupportPresentation() const
 {
 	return canPresent;
+}
+
+bool Queue::supportsQueueFlags(VkQueueFlags desiredQueueFlags) const
+{
+	return (properties.queueFlags & desiredQueueFlags) == desiredQueueFlags;
 }
 
 } // namespace vulkr

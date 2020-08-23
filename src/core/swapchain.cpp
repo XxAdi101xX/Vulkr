@@ -21,25 +21,125 @@
  */
 
 #include "common/logger.h"
+#include "common/strings.h"
 #include "platform/window.h"
 #include "swapchain.h"
 
 namespace vulkr
 {
 
-uint32_t Swapchain::chooseImageCount(uint32_t minImageCount, uint32_t maxImageCount)
+Swapchain::Swapchain(
+    Device& device,
+    VkSurfaceKHR surface,
+    const VkExtent2D& extent,
+    const VkSurfaceTransformFlagBitsKHR transform,
+    const VkPresentModeKHR presentMode,
+    const std::set<VkImageUsageFlagBits>& imageUsageFlags):
+    device{device}, surface{surface}
+{
+    uint32_t surfaceFormatCount{ 0u };
+    VK_CHECK(vkGetPhysicalDeviceSurfaceFormatsKHR(this->device.getPhysicalDevice().getHandle(), surface, &surfaceFormatCount, nullptr));
+    availableSurfaceFormats.resize(surfaceFormatCount);
+    VK_CHECK(vkGetPhysicalDeviceSurfaceFormatsKHR(this->device.getPhysicalDevice().getHandle(), surface, &surfaceFormatCount, availableSurfaceFormats.data()));
+
+    LOGI("The following surface formats are available:");
+    for (auto& surfaceFormat : availableSurfaceFormats)
+    {
+        LOGI("  \t{}", to_string(surfaceFormat));
+    }
+
+    uint32_t presentModeCount{ 0u };
+    VK_CHECK(vkGetPhysicalDeviceSurfacePresentModesKHR(this->device.getPhysicalDevice().getHandle(), surface, &presentModeCount, nullptr));
+    availablePresentModes.resize(presentModeCount);
+    VK_CHECK(vkGetPhysicalDeviceSurfacePresentModesKHR(this->device.getPhysicalDevice().getHandle(), surface, &presentModeCount, availablePresentModes.data()));
+
+    LOGI("Surface supports the following present modes:");
+    for (auto& presentMode : availablePresentModes)
+    {
+        LOGI("  \t{}", to_string(presentMode));
+    }
+
+    VkSurfaceCapabilitiesKHR surfaceCapabilities{};
+    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(this->device.getPhysicalDevice().getHandle(), surface, &surfaceCapabilities);
+
+    // Chose best properties based on surface capabilities
+    properties.imageCount = chooseImageCount(surfaceCapabilities.minImageCount, surfaceCapabilities.maxImageCount);
+    properties.surfaceFormat = chooseSurfaceFormat(availableSurfaceFormats);
+    properties.imageExtent = chooseImageExtent(surfaceCapabilities.currentExtent, surfaceCapabilities.minImageExtent, surfaceCapabilities.maxImageExtent);
+    properties.imageArraylayers = chooseImageArrayLayers(1u, surfaceCapabilities.maxImageArrayLayers);
+    VkFormatProperties formatProperties;
+    vkGetPhysicalDeviceFormatProperties(this->device.getPhysicalDevice().getHandle(), properties.surfaceFormat.format, &formatProperties);
+    properties.imageUsage = chooseImageUsage(imageUsageFlags, surfaceCapabilities.supportedUsageFlags, formatProperties.optimalTilingFeatures);
+    properties.preTransform = choosePreTransform(transform, surfaceCapabilities.supportedTransforms, surfaceCapabilities.currentTransform);
+    properties.compositeAlpha = chooseCompositeAlpha(VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR, surfaceCapabilities.supportedCompositeAlpha);
+    properties.presentMode = choosePresentMode(presentMode);
+    properties.clipped = VK_TRUE;
+
+    create();
+}
+
+Swapchain::~Swapchain()
+{
+    if (handle != VK_NULL_HANDLE)
+    {
+        vkDestroySwapchainKHR(device.getHandle(), handle, nullptr);
+    }
+}
+
+void Swapchain::create()
+{
+    VkSwapchainCreateInfoKHR createInfo{ VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR };
+    createInfo.surface = surface;
+    createInfo.minImageCount = properties.imageCount;
+    createInfo.imageFormat = properties.surfaceFormat.format;
+    createInfo.imageColorSpace = properties.surfaceFormat.colorSpace;
+    createInfo.imageExtent = properties.imageExtent;
+    createInfo.imageArrayLayers = properties.imageArraylayers;
+    createInfo.imageUsage = properties.imageUsage;
+
+    // Check whether our graphics queue can support present and populate info accordingly
+    const Queue &graphicsQueue= device.getOptimalGraphicsQueue();
+    uint32_t queueFamilyIndices[] = { graphicsQueue.getFamilyIndex(), device.getQueueByPresentation().getFamilyIndex() };
+
+    if (!graphicsQueue.canSupportPresentation())
+    {
+        createInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
+        createInfo.queueFamilyIndexCount = 2u;
+        createInfo.pQueueFamilyIndices = queueFamilyIndices;
+    }
+    else {
+        createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    }
+
+    createInfo.preTransform = properties.preTransform;
+    createInfo.compositeAlpha = properties.compositeAlpha;
+    createInfo.presentMode = properties.presentMode;
+    createInfo.clipped = properties.clipped;
+    createInfo.oldSwapchain = VK_NULL_HANDLE;
+
+    VK_CHECK(vkCreateSwapchainKHR(device.getHandle(), &createInfo, nullptr, &handle));
+
+    // Get the swapchain images after it's been created
+    uint32_t imageCount{ 0u };
+    VK_CHECK(vkGetSwapchainImagesKHR(device.getHandle(), handle, &imageCount, nullptr));
+    images.resize(imageCount);
+    VK_CHECK(vkGetSwapchainImagesKHR(device.getHandle(), handle, &imageCount, images.data()));
+}
+
+uint32_t Swapchain::chooseImageCount(uint32_t minImageCount, uint32_t maxImageCount) const
 {
     // We default to 1 more than the minimum as per the suggestions in the vulkan-tutorial
     uint32_t imageCount = minImageCount + 1;
     if (maxImageCount > 0 && imageCount > maxImageCount) {
+        LOGI("An image count of {} was chosen", maxImageCount);
         return maxImageCount;
     }
+
+    LOGI("An image count of {} was chosen", imageCount);
     return imageCount;
 }
 
-VkSurfaceFormatKHR Swapchain::chooseSurfaceFormat(
-    const std::vector<VkSurfaceFormatKHR>& availableFormats,
-    const std::vector<VkSurfaceFormatKHR> surfaceFormatPriorityList)
+VkSurfaceFormatKHR Swapchain::chooseSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats) const
 {
     if (availableFormats.empty())
     {
@@ -60,23 +160,23 @@ VkSurfaceFormatKHR Swapchain::chooseSurfaceFormat(
     return availableFormats[0];
 }
 
-VkExtent2D Swapchain::chooseImageExtent(const VkSurfaceCapabilitiesKHR& capabilities)
+VkExtent2D Swapchain::chooseImageExtent(VkExtent2D currentExtent, VkExtent2D minImageExtent, VkExtent2D maxImageExtent) const
 {
-    if (capabilities.currentExtent.width != UINT32_MAX)
+    if (currentExtent.width != UINT32_MAX)
     {
-        return capabilities.currentExtent;
+        return currentExtent;
     }
 
     VkExtent2D extent = Window::getWindowExtent();
-    extent.width = std::max(capabilities.minImageExtent.width, std::min(capabilities.maxImageExtent.width, extent.width));
-    extent.height = std::max(capabilities.minImageExtent.height, std::min(capabilities.maxImageExtent.height, extent.height));
+    extent.width = std::max(minImageExtent.width, std::min(maxImageExtent.width, extent.width));
+    extent.height = std::max(minImageExtent.height, std::min(maxImageExtent.height, extent.height));
 
     return extent;
 }
 
 uint32_t Swapchain::chooseImageArrayLayers(
     uint32_t requestedImageArrayLayers,
-    uint32_t maxImageArrayLayers)
+    uint32_t maxImageArrayLayers) const
 {
     requestedImageArrayLayers = std::min(requestedImageArrayLayers, maxImageArrayLayers);
     requestedImageArrayLayers = std::max(requestedImageArrayLayers, 1u);
@@ -84,7 +184,7 @@ uint32_t Swapchain::chooseImageArrayLayers(
     return requestedImageArrayLayers;
 }
 
-bool Swapchain::validateFormatFeature(VkImageUsageFlagBits imageUsage, VkFormatFeatureFlags supportedFormatFeatures)
+bool Swapchain::validateFormatFeature(VkImageUsageFlagBits imageUsage, VkFormatFeatureFlags supportedFormatFeatures) const
 {
     switch (imageUsage)
     {
@@ -98,7 +198,7 @@ bool Swapchain::validateFormatFeature(VkImageUsageFlagBits imageUsage, VkFormatF
 VkImageUsageFlags Swapchain::chooseImageUsage(
     const std::set<VkImageUsageFlagBits>& requestedImageUsageFlags,
     VkImageUsageFlags supportedImageUsage,
-    VkFormatFeatureFlags supportedFormatFeatures)
+    VkFormatFeatureFlags supportedFormatFeatures) const
 {
 	std::set<VkImageUsageFlagBits> imageUsageFlagSet;
 	for (auto flag : requestedImageUsageFlags)
@@ -109,7 +209,7 @@ VkImageUsageFlags Swapchain::chooseImageUsage(
 		}
 		else
 		{
-			LOGW("(Swapchain) Image usage ({}) requested but not supported.", flag);
+			LOGW("(Swapchain) Image usage ({}) requested but not supported.", to_string(flag));
 		}
 	}
 
@@ -132,7 +232,13 @@ VkImageUsageFlags Swapchain::chooseImageUsage(
 		throw std::runtime_error("No compatible image usage found.");
 	}
 
-    /* Optional: print out flags */
+    // Log image usage flags used
+    std::string imageUsageList;
+    for (VkImageUsageFlagBits imageUsage : imageUsageFlagSet)
+    {
+        imageUsageList += to_string(imageUsage) + " ";
+    }
+    LOGI("(Swapchain) Image usage flags: {}", imageUsageList);
 
 	VkImageUsageFlags imageUsage{};
 	for (auto flag : imageUsageFlagSet)
@@ -145,19 +251,19 @@ VkImageUsageFlags Swapchain::chooseImageUsage(
 VkSurfaceTransformFlagBitsKHR Swapchain::choosePreTransform(
     VkSurfaceTransformFlagBitsKHR requestedTransform,
     VkSurfaceTransformFlagsKHR supportedTransform,
-    VkSurfaceTransformFlagBitsKHR currentTransform)
+    VkSurfaceTransformFlagBitsKHR currentTransform) const
 {
     if (requestedTransform & supportedTransform)
     {
         return requestedTransform;
     }
 
-    LOGW("Requested transform not available, defaulting to the current existing transform");
+    LOGW("(Swapchain) Surface transform '{}' not supported. Selecting '{}'.", to_string(requestedTransform), to_string(currentTransform));
 
     return currentTransform;
 }
 
-VkCompositeAlphaFlagBitsKHR Swapchain::chooseCompositeAlpha(VkCompositeAlphaFlagBitsKHR requestedCompositeAlpha, VkCompositeAlphaFlagsKHR supportedCompositeAlpha)
+VkCompositeAlphaFlagBitsKHR Swapchain::chooseCompositeAlpha(VkCompositeAlphaFlagBitsKHR requestedCompositeAlpha, VkCompositeAlphaFlagsKHR supportedCompositeAlpha) const
 {
     if (requestedCompositeAlpha & supportedCompositeAlpha)
     {
@@ -168,7 +274,7 @@ VkCompositeAlphaFlagBitsKHR Swapchain::chooseCompositeAlpha(VkCompositeAlphaFlag
     {
         if (compositeAlpha & supportedCompositeAlpha)
         {
-            LOGW("(Swapchain) Composite alpha flag '{}' not supported. Defaulting to composite alpha '{}.", requestedCompositeAlpha, compositeAlpha);
+            LOGW("(Swapchain) Composite alpha flag '{}' not supported. Defaulting to composite alpha '{}.", to_string(requestedCompositeAlpha), to_string(compositeAlpha));
             return compositeAlpha;
         }
     }
@@ -176,7 +282,7 @@ VkCompositeAlphaFlagBitsKHR Swapchain::chooseCompositeAlpha(VkCompositeAlphaFlag
     throw std::runtime_error("A compatible composite alpha was not found.");
 }
 
-VkPresentModeKHR Swapchain::choosePresentMode(VkPresentModeKHR requestedPresentMode, const std::vector<VkPresentModeKHR>& availablePresentModes)
+VkPresentModeKHR Swapchain::choosePresentMode(VkPresentModeKHR requestedPresentMode) const
 {
     auto presentModeIt = std::find(availablePresentModes.begin(), availablePresentModes.end(), requestedPresentMode);
 
@@ -193,14 +299,12 @@ VkPresentModeKHR Swapchain::choosePresentMode(VkPresentModeKHR requestedPresentM
             }
         }
 
-        LOGW("(Swapchain) Present mode '{}' not supported. Selecting '{}'.", requestedPresentMode, chosenPresentMode);
+        LOGW("(Swapchain) Present mode '{}' not supported. Selecting '{}'.", to_string(requestedPresentMode), to_string(chosenPresentMode));
         return chosenPresentMode;
     }
-    else
-    {
-        LOGI("(Swapchain) Present mode selected: {}", requestedPresentMode);
-        return *presentModeIt;
-    }
+
+    LOGI("(Swapchain) Present mode selected: {}", to_string(requestedPresentMode));
+    return *presentModeIt;
 }
 
 } // namespace vulkr

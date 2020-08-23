@@ -45,6 +45,18 @@ public:
 
 	/* Get the logical device handle */
 	VkDevice getHandle() const;
+
+	/* Get the physical device handle */
+	const PhysicalDevice &getPhysicalDevice() const;
+
+	/* Get a graphics queue with present support if available, else just grab the first available graphics queue */
+	const Queue &getOptimalGraphicsQueue();
+
+	/* Get a queue with the desired queue flags */
+	const Queue &getQueueByFlags(VkQueueFlags desiredQueueFlags);
+
+	/* Get the first available queue that supports presentation. This is only called when the graphics queue does not support presentation */
+	const Queue& getQueueByPresentation();
 private:
 	/* The logical device handle */
 	VkDevice handle{ VK_NULL_HANDLE };

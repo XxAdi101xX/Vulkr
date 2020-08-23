@@ -126,7 +126,7 @@ bool Instance::checkValidationLayerSupport() const
 
 std::vector<const char*> Instance::getRequiredInstanceExtensions() const
 {
-    uint32_t glfwExtensionCount{ 0 };
+    uint32_t glfwExtensionCount{ 0u };
     const char** glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
 
     std::vector<const char*> extensions(glfwExtensions, glfwExtensions + glfwExtensionCount);
@@ -152,7 +152,7 @@ VKAPI_ATTR VkBool32 VKAPI_CALL Instance::debugUtilsMessengerCallback (
 void Instance::selectGPU()
 {
     // Querying valid physical devices on the machine
-    uint32_t physicalDeviceCount{ 0 };
+    uint32_t physicalDeviceCount{ 0u };
     VK_CHECK(vkEnumeratePhysicalDevices(instance, &physicalDeviceCount, nullptr));
 
     if (physicalDeviceCount < 1)

@@ -53,7 +53,7 @@ Device::Device(PhysicalDevice& physicalDevice, VkSurfaceKHR surface, std::vector
 	std::vector<VkDeviceQueueCreateInfo> queueCreateInfos(queueFamilyPropertiesCount);
 	std::vector<std::vector<float>> queuePriorities(queueFamilyPropertiesCount);
 
-	for (uint32_t queueFamilyIndex = 0; queueFamilyIndex < queueFamilyPropertiesCount; ++queueFamilyIndex)
+	for (uint32_t queueFamilyIndex = 0u; queueFamilyIndex < queueFamilyPropertiesCount; ++queueFamilyIndex)
 	{
 		const VkQueueFamilyProperties& queueFamilyProperties = physicalDevice.getQueueFamilyProperties()[queueFamilyIndex];
 
@@ -70,7 +70,7 @@ Device::Device(PhysicalDevice& physicalDevice, VkSurfaceKHR surface, std::vector
 		// Populate the queues array
 		VkBool32 present_supported = physicalDevice.isPresentSupported(surface, queueFamilyIndex);
 
-		for (uint32_t queue_index = 0U; queue_index < queueFamilyProperties.queueCount; ++queue_index)
+		for (uint32_t queue_index = 0u; queue_index < queueFamilyProperties.queueCount; ++queue_index)
 		{
 			queues[queueFamilyIndex].emplace_back(*this, queueFamilyIndex, queueFamilyProperties, present_supported, queue_index);
 		}
@@ -104,6 +104,56 @@ Device::~Device()
 VkDevice Device::getHandle() const
 {
 	return handle;
+}
+
+const PhysicalDevice &Device::getPhysicalDevice() const
+{
+	return physicalDevice;
+}
+
+const Queue &Device::getOptimalGraphicsQueue()
+{
+	for (uint32_t queueFamilyIndex = 0u; queueFamilyIndex < queues.size(); ++queueFamilyIndex)
+	{
+		Queue &firstQueueInFamily = queues[queueFamilyIndex][0];
+
+		if (firstQueueInFamily.getProperties().queueCount > 0 && firstQueueInFamily.canSupportPresentation())
+		{
+			return firstQueueInFamily;
+		}
+	}
+
+	return getQueueByFlags(VK_QUEUE_GRAPHICS_BIT);
+}
+
+const Queue &Device::getQueueByFlags(VkQueueFlags desiredQueueFlags)
+{
+	for (uint32_t queueFamilyIndex = 0u; queueFamilyIndex < queues.size(); ++queueFamilyIndex)
+	{
+		Queue& firstQueueInFamily = queues[queueFamilyIndex][0];
+
+		if (firstQueueInFamily.getProperties().queueCount > 0 && firstQueueInFamily.supportsQueueFlags(desiredQueueFlags))
+		{
+			return firstQueueInFamily;
+		}
+	}
+
+	throw std::runtime_error("Could not find a queue with the desired queueflags");
+}
+
+const Queue& Device::getQueueByPresentation()
+{
+	for (uint32_t queueFamilyIndex = 0u; queueFamilyIndex < queues.size(); ++queueFamilyIndex)
+	{
+		Queue& firstQueueInFamily = queues[queueFamilyIndex][0];
+
+		if (firstQueueInFamily.getProperties().queueCount > 0 && firstQueueInFamily.canSupportPresentation())
+		{
+			return firstQueueInFamily;
+		}
+	}
+
+	throw std::runtime_error("Could not find a queue with presentation support");
 }
 
 bool Device::isExtensionSupported(const char *extension) const
