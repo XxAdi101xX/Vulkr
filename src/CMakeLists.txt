@@ -29,8 +29,10 @@ set(COMMON_FILES
     common/helpers.h
     common/logger.h
     common/vk_common.h
+    common/strings.h
     # Source Files
     common/vk_common.cpp
+    common/strings.cpp
 )
 
 set(CORE_FILES
