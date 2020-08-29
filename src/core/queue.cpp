@@ -26,7 +26,7 @@
 namespace vulkr
 {
 
-Queue::Queue(Device& device, uint32_t familyIndex, VkQueueFamilyProperties properties, bool canPresent, uint32_t index) :
+Queue::Queue(Device &device, uint32_t familyIndex, VkQueueFamilyProperties properties, bool canPresent, uint32_t index) :
 	device{ device },
 	familyIndex{ familyIndex },
 	index{ index },
@@ -36,7 +36,7 @@ Queue::Queue(Device& device, uint32_t familyIndex, VkQueueFamilyProperties prope
 	vkGetDeviceQueue(device.getHandle(), familyIndex, index, &handle);
 }
 
-Queue::Queue(Queue&& other) :
+Queue::Queue(Queue &&other) :
 	handle{ other.handle },
 	device{ other.device },
 	familyIndex{ other.familyIndex },

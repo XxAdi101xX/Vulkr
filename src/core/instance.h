@@ -40,10 +40,10 @@ public:
 	~Instance();
 	
 	/* Disable unnecessary operators to prevent error prone usages */
-	Instance(const Instance&) = delete;
-	Instance(Instance&&) = delete;
-	Instance& operator=(const Instance&) = delete;
-	Instance& operator=(Instance&&) = delete;
+	Instance(const Instance &) = delete;
+	Instance(Instance &&) = delete;
+	Instance& operator=(const Instance &) = delete;
+	Instance& operator=(Instance &&) = delete;
 
 	/* Validation layer callback */
 	static VKAPI_ATTR VkBool32 VKAPI_CALL debugUtilsMessengerCallback(

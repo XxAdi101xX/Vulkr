@@ -32,15 +32,14 @@
 #define VULKR_DEBUG /* Enable the validation layers */
 
 /* @brief Assert whether an VkResult has returned an error */
-#define VK_CHECK(r)                            \
-	do                                         \
-	{                                          \
-		VkResult result = r;                   \
-		if (result != VK_SUCCESS)              \
-		{                                      \
-			LOGE("Vulkan Error: {}", result);  \
-			std::abort();                      \
-		}                                      \
+#define VK_CHECK(r)                                   \
+	do                                                \
+	{                                                 \
+		VkResult result = r;                          \
+		if (result != VK_SUCCESS)                     \
+		{                                             \
+			LOGEANDABORT("Vulkan Error: {}", result); \
+		}                                             \
 	} while (0);
 
 /* @brief Overload the << operator to print out the VkResult enum name */

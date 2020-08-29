@@ -34,14 +34,14 @@ namespace vulkr
 class Device
 {
 public:
-	Device(PhysicalDevice& physicalDevice, VkSurfaceKHR surface, std::vector<const char*> requestedExtensions = {});
+	Device(PhysicalDevice &physicalDevice, VkSurfaceKHR surface, std::vector<const char*> requestedExtensions = {});
 	~Device();
 
 	/* Disable unnecessary operators to prevent error prone usages */
-	Device(const Device&) = delete;
-	Device(Device&&) = delete;
-	Device& operator=(const Device&) = delete;
-	Device& operator=(Device&&) = delete;
+	Device(const Device &) = delete;
+	Device(Device &&) = delete;
+	Device& operator=(const Device &) = delete;
+	Device& operator=(Device &&) = delete;
 
 	/* Get the logical device handle */
 	VkDevice getHandle() const;
@@ -56,13 +56,13 @@ public:
 	const Queue &getQueueByFlags(VkQueueFlags desiredQueueFlags);
 
 	/* Get the first available queue that supports presentation. This is only called when the graphics queue does not support presentation */
-	const Queue& getQueueByPresentation();
+	const Queue &getQueueByPresentation();
 private:
 	/* The logical device handle */
 	VkDevice handle{ VK_NULL_HANDLE };
 	
 	/* The gpu used */
-	const PhysicalDevice& physicalDevice;
+	const PhysicalDevice &physicalDevice;
 
 	/* All the extensions available on the device */
 	std::vector<VkExtensionProperties> deviceExtensions;
@@ -77,9 +77,12 @@ private:
 	bool isExtensionSupported(const char* extension) const;
 
 	/* TODO
+	- Dedicated transfer queue is very under utilized so it can be used to defragment memeory, streaming resources or textures
 	- Add memory allocation (VMA?)
 	- Add the command pool and the fence pool
 	- Add a resource cache if necessary
+	- https://www.youtube.com/watch?v=rXSdDE7NWmA
+	- https://www.youtube.com/watch?v=zSG6dPq57P8
 	*/
 };
 

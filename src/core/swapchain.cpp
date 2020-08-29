@@ -29,12 +29,12 @@ namespace vulkr
 {
 
 Swapchain::Swapchain(
-    Device& device,
+    Device &device,
     VkSurfaceKHR surface,
-    const VkExtent2D& extent,
+    const VkExtent2D &extent,
     const VkSurfaceTransformFlagBitsKHR transform,
     const VkPresentModeKHR presentMode,
-    const std::set<VkImageUsageFlagBits>& imageUsageFlags):
+    const std::set<VkImageUsageFlagBits> &imageUsageFlags):
     device{device}, surface{surface}
 {
     uint32_t surfaceFormatCount{ 0u };
@@ -84,6 +84,11 @@ Swapchain::~Swapchain()
     {
         vkDestroySwapchainKHR(device.getHandle(), handle, nullptr);
     }
+}
+
+SwapchainProperties Swapchain::getProperties() const
+{
+    return properties;
 }
 
 void Swapchain::create()
@@ -139,7 +144,7 @@ uint32_t Swapchain::chooseImageCount(uint32_t minImageCount, uint32_t maxImageCo
     return imageCount;
 }
 
-VkSurfaceFormatKHR Swapchain::chooseSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats) const
+VkSurfaceFormatKHR Swapchain::chooseSurfaceFormat(const std::vector<VkSurfaceFormatKHR> &availableFormats) const
 {
     if (availableFormats.empty())
     {
@@ -196,7 +201,7 @@ bool Swapchain::validateFormatFeature(VkImageUsageFlagBits imageUsage, VkFormatF
 }
 
 VkImageUsageFlags Swapchain::chooseImageUsage(
-    const std::set<VkImageUsageFlagBits>& requestedImageUsageFlags,
+    const std::set<VkImageUsageFlagBits> &requestedImageUsageFlags,
     VkImageUsageFlags supportedImageUsage,
     VkFormatFeatureFlags supportedFormatFeatures) const
 {

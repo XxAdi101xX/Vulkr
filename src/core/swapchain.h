@@ -48,22 +48,21 @@ class Swapchain
 {
 public:
 	Swapchain::Swapchain(
-		Device& device,
+		Device &device,
 		VkSurfaceKHR surface,
-		const VkExtent2D& extent,
+		const VkExtent2D &extent,
 		const VkSurfaceTransformFlagBitsKHR transform,
 		const VkPresentModeKHR presentMode,
-		const std::set<VkImageUsageFlagBits>& imageUsageFlags);
+		const std::set<VkImageUsageFlagBits> &imageUsageFlags);
 	~Swapchain();
 
 	/* Disable unnecessary operators to prevent error prone usages */
-	Swapchain(const Swapchain&) = delete;
-	Swapchain(Swapchain&&) = delete;
-	Swapchain& operator=(const Swapchain&) = delete;
-	Swapchain& operator=(Swapchain&&) = delete;
+	Swapchain(const Swapchain &) = delete;
+	Swapchain(Swapchain &&) = delete;
+	Swapchain& operator=(const Swapchain &) = delete;
+	Swapchain& operator=(Swapchain &&) = delete;
 
 	SwapchainProperties getProperties() const;
-	SwapchainProperties getMutableProperties();
 private:
 	/* The swapchain handle */
 	VkSwapchainKHR handle{ VK_NULL_HANDLE };
@@ -120,11 +119,11 @@ private:
 
 	/* Swapchain properties selection helper functions */
 	uint32_t chooseImageCount(uint32_t minImageCount, uint32_t maxImageCount) const;
-	VkSurfaceFormatKHR chooseSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats) const;
+	VkSurfaceFormatKHR chooseSurfaceFormat(const std::vector<VkSurfaceFormatKHR> &availableFormats) const;
 	VkExtent2D chooseImageExtent(VkExtent2D currentExtent, VkExtent2D minImageExtent, VkExtent2D maxImageExtent) const;
 	uint32_t chooseImageArrayLayers(uint32_t requestedImageArrayLayers, uint32_t maxImageArrayLayers) const;
 	bool validateFormatFeature(VkImageUsageFlagBits imageUsage, VkFormatFeatureFlags supportedFormatFeatures) const; /* used in chooseImageUsage */
-	VkImageUsageFlags chooseImageUsage(const std::set<VkImageUsageFlagBits>& requestedImageUsageFlags, VkImageUsageFlags supportedImageUsage, VkFormatFeatureFlags supportedFormatFeatures) const;
+	VkImageUsageFlags chooseImageUsage(const std::set<VkImageUsageFlagBits> &requestedImageUsageFlags, VkImageUsageFlags supportedImageUsage, VkFormatFeatureFlags supportedFormatFeatures) const;
 	VkSurfaceTransformFlagBitsKHR choosePreTransform(VkSurfaceTransformFlagBitsKHR requestedTransform, VkSurfaceTransformFlagsKHR supportedTransform, VkSurfaceTransformFlagBitsKHR currentTransform) const;
 	VkCompositeAlphaFlagBitsKHR chooseCompositeAlpha(VkCompositeAlphaFlagBitsKHR requestedCompositeAlpha, VkCompositeAlphaFlagsKHR supportedCompositeAlpha) const;
 	VkPresentModeKHR choosePresentMode(VkPresentModeKHR requestedPresentMode) const;

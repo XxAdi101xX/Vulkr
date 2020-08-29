@@ -33,13 +33,13 @@ class Device;
 class Queue
 {
 public:
-	Queue(Device& device, uint32_t familyIndex, VkQueueFamilyProperties properties, bool canPresent, uint32_t index);
-	Queue(Queue&&);
+	Queue(Device &device, uint32_t familyIndex, VkQueueFamilyProperties properties, bool canPresent, uint32_t index);
+	Queue(Queue &&);
 
 	/* Disable unnecessary operators to prevent error prone usages */
-	Queue(const Queue&) = delete;
-	Queue& operator=(const Queue&) = delete;
-	Queue& operator=(Queue&&) = delete;
+	Queue(const Queue &) = delete;
+	Queue& operator=(const Queue &) = delete;
+	Queue& operator=(Queue &&) = delete;
 
 	/* Get the handle to the queue */
 	VkQueue getHandle() const;

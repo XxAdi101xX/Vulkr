@@ -36,19 +36,19 @@ public:
 	PhysicalDevice(Instance& instance, VkPhysicalDevice physicalDevice);
 
 	/* Disable unnecessary operators to prevent error prone usages */
-	PhysicalDevice(const PhysicalDevice&) = delete;
-	PhysicalDevice(PhysicalDevice&&) = delete;
-	PhysicalDevice& operator=(const PhysicalDevice&) = delete;
-	PhysicalDevice& operator=(PhysicalDevice&&) = delete;
+	PhysicalDevice(const PhysicalDevice &) = delete;
+	PhysicalDevice(PhysicalDevice &&) = delete;
+	PhysicalDevice& operator=(const PhysicalDevice &) = delete;
+	PhysicalDevice& operator=(PhysicalDevice &&) = delete;
 
 	/* Get the physical device handle */
 	VkPhysicalDevice getHandle() const;
 
 	/* Get all the physical device features supported */
-	const VkPhysicalDeviceFeatures& getFeatures() const;
+	const VkPhysicalDeviceFeatures &getFeatures() const;
 
 	/* Get the physical device features that were requested by the application */
-	const VkPhysicalDeviceFeatures& getRequestedFeatures() const;
+	const VkPhysicalDeviceFeatures &getRequestedFeatures() const;
 
 	/* Get the properties for the physical device */
 	const VkPhysicalDeviceProperties getProperties() const;
@@ -57,7 +57,7 @@ public:
 	const VkPhysicalDeviceMemoryProperties getMemoryProperties() const;
 
 	/* Get an array of all the queue family properties for each queue family available */
-	const std::vector<VkQueueFamilyProperties>& getQueueFamilyProperties() const;
+	const std::vector<VkQueueFamilyProperties> &getQueueFamilyProperties() const;
 
 	/* Check whether a queue family supports presentation */
 	VkBool32 isPresentSupported(VkSurfaceKHR surface, uint32_t queue_family_index) const;
@@ -66,7 +66,7 @@ private:
 	VkPhysicalDevice handle { VK_NULL_HANDLE };
 
 	/* The associated Vulkan instance */
-	Instance& instance;
+	Instance &instance;
 
 	/* The features that the GPU supports */
 	VkPhysicalDeviceFeatures features{};

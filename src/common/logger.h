@@ -23,7 +23,12 @@
 #define LOGGER_FORMAT "[%^%l%$] %v"
 #define PROJECT_NAME "Vulkr"
 
+#define LOGD(...) spdlog::debug(__VA_ARGS__);
 #define LOGI(...) spdlog::info(__VA_ARGS__);
 #define LOGW(...) spdlog::warn(__VA_ARGS__);
-#define LOGE(...) spdlog::error("[{}:{}] {}", __FILE__, __LINE__, fmt::format(__VA_ARGS__));
-#define LOGD(...) spdlog::debug(__VA_ARGS__);
+#define LOGEANDABORT(...)                                                                  \
+	do                                                                             \
+	{                                                                              \
+		spdlog::error("[{}:{}] {}", __FILE__, __LINE__, fmt::format(__VA_ARGS__)); \
+		std::abort();                                                              \
+	} while (0);

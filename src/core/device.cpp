@@ -26,7 +26,7 @@
 namespace vulkr
 {
 
-Device::Device(PhysicalDevice& physicalDevice, VkSurfaceKHR surface, std::vector<const char *> requestedExtensions) :
+Device::Device(PhysicalDevice &physicalDevice, VkSurfaceKHR surface, std::vector<const char *> requestedExtensions) :
 	physicalDevice{ physicalDevice }
 {
 	// Get all device extension properties
@@ -40,7 +40,7 @@ Device::Device(PhysicalDevice& physicalDevice, VkSurfaceKHR surface, std::vector
 	{
 		if (!isExtensionSupported(requestedExtension))
 		{
-			LOGE("Extension {} is not available!", requestedExtension);
+			LOGEANDABORT("Extension {} is not available!", requestedExtension);
 		}
 		else
 		{
@@ -138,10 +138,10 @@ const Queue &Device::getQueueByFlags(VkQueueFlags desiredQueueFlags)
 		}
 	}
 
-	throw std::runtime_error("Could not find a queue with the desired queueflags");
+	LOGEANDABORT("Could not find a queue with the desired queueflags");
 }
 
-const Queue& Device::getQueueByPresentation()
+const Queue &Device::getQueueByPresentation()
 {
 	for (uint32_t queueFamilyIndex = 0u; queueFamilyIndex < queues.size(); ++queueFamilyIndex)
 	{
@@ -153,7 +153,7 @@ const Queue& Device::getQueueByPresentation()
 		}
 	}
 
-	throw std::runtime_error("Could not find a queue with presentation support");
+	LOGEANDABORT("Could not find a queue with presentation support");
 }
 
 bool Device::isExtensionSupported(const char *extension) const
