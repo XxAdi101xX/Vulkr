@@ -42,12 +42,16 @@ set(CORE_FILES
     core/physical_device.h
     core/queue.h
     core/swapchain.h
+    core/image_view.h
+    core/image.h
     # Source Files
     core/device.cpp
     core/instance.cpp
     core/physical_device.cpp
     core/queue.cpp
     core/swapchain.cpp
+    core/image_view.cpp
+    core/image.cpp
 )
 
 set(PLATFORM_FILES

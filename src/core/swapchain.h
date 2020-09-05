@@ -78,6 +78,7 @@ private:
 	
 	/* The images associated with the swapchain */
 	std::vector<VkImage> images;
+	// TODO: should I add the image_views here and also destruct them
 
 	/* All available surface formats available to use */
 	std::vector<VkSurfaceFormatKHR> availableSurfaceFormats{};
