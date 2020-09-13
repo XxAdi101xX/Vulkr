@@ -23,77 +23,46 @@
 #pragma once
 
 #include "common/vk_common.h"
+#include "device.h"
+#include "subpass.h"
 
 namespace vulkr
 {
-
-/* Forward declaration */
-class Device;
-
-class Image
+	/* Description of render pass attachments */
+struct Attachment
 {
-	// TODO: consider how to do memeory management!
+	VkFormat format{ VK_FORMAT_UNDEFINED };
+	VkSampleCountFlagBits samples{ VK_SAMPLE_COUNT_1_BIT };
+	VkAttachmentLoadOp loadOp{ VK_ATTACHMENT_LOAD_OP_LOAD };
+	VkAttachmentStoreOp storeOp{ VK_ATTACHMENT_STORE_OP_STORE };
+	VkAttachmentLoadOp stencilLoadOp{ VK_ATTACHMENT_LOAD_OP_LOAD };
+	VkAttachmentStoreOp stencilStoreOp{ VK_ATTACHMENT_STORE_OP_STORE };
+	VkImageLayout initialLayout{ VK_IMAGE_LAYOUT_UNDEFINED };
+	VkImageLayout finalLayout{ VK_IMAGE_LAYOUT_UNDEFINED };
+
+	Attachment() = default;
+};
+
+class RenderPass
+{
 public:
-	Image(
-		Device& device,
-		const VkExtent3D& extent,
-		VkFormat format,
-		VkImageUsageFlags imageUsage,
-		VkSampleCountFlagBits sampleCount = VK_SAMPLE_COUNT_1_BIT,
-		uint32_t mipLevels = 1,
-		uint32_t arrayLayers = 1,
-		VkImageTiling tiling = VK_IMAGE_TILING_OPTIMAL,
-		VkImageCreateFlags flags = 0
-	);
+	// TODO: introduce a subpass dependency data structure and set it up here
+	RenderPass(Device &device, const std::vector<Attachment> &attachments, const std::vector<Subpass> &subpasses);
+	~RenderPass();
 
 	/* Disable unnecessary operators to prevent error prone usages */
-	Image(Image &&) = delete; // TODO: do we need this?
-	Image(const Image &) = delete;
-	Image& operator=(const Image &) = delete;
-	Image& operator=(Image &&) = delete;
+	RenderPass(const RenderPass &) = delete;
+	RenderPass(RenderPass &&) = delete; // TODO: check if we need this
+	RenderPass& operator=(const RenderPass &) = delete;
+	RenderPass& operator=(RenderPass &&) = delete;
 
-	VkImage getHandle() const;
-
-	Device &getDevice() const;
-
-	VkImageType getType() const;
-
-	const VkExtent3D& getExtent() const;
-
-	VkFormat getFormat() const;
-
-	VkSampleCountFlagBits getSampleCount() const;
-
-	VkImageUsageFlags getUsage() const;
-
-	VkImageTiling getTiling() const;
-
-	VkImageSubresource getSubresource() const;
-
-	uint32_t getArrayLayerCount() const;
+	VkRenderPass getHandle() const;
 
 private:
-	Device& device;
-
-	VkImage handle{ VK_NULL_HANDLE };
-
-	//VmaAllocation memory{ VK_NULL_HANDLE };
-
-	VkImageType type{};
-
-	VkExtent3D extent{};
-
-	VkFormat format{};
-
-	VkImageUsageFlags usage{};
-
-	VkSampleCountFlagBits sampleCount{};
-
-	VkImageTiling tiling{};
-
-	VkImageSubresource subresource{};
-
-	uint32_t arrayLayerCount{ 0u };
+	VkRenderPass handle{ VK_NULL_HANDLE };
+	Device &device;
+	const std::vector<Attachment>& attachments;
+	const std::vector<Subpass> &subpasses;
 };
 
 } // namespace vulkr

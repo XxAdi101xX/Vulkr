@@ -44,6 +44,8 @@ set(CORE_FILES
     core/swapchain.h
     core/image_view.h
     core/image.h
+    core/render_pass.h
+    core/subpass.h
     # Source Files
     core/device.cpp
     core/instance.cpp
@@ -52,6 +54,8 @@ set(CORE_FILES
     core/swapchain.cpp
     core/image_view.cpp
     core/image.cpp
+    core/render_pass.cpp
+    core/subpass.cpp
 )
 
 set(PLATFORM_FILES

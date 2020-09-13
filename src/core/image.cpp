@@ -29,44 +29,44 @@ namespace vulkr
 
 namespace
 {
-	inline VkImageType getImageType(VkExtent3D extent)
+VkImageType getImageType(VkExtent3D extent)
+{
+	VkImageType result{};
+
+	uint32_t dimensionCount{ 0 };
+
+	if (extent.width >= 1)
 	{
-		VkImageType result{};
-
-		uint32_t dimensionCount{ 0 };
-
-		if (extent.width >= 1)
-		{
-			dimensionCount++;
-		}
-
-		if (extent.height >= 1)
-		{
-			dimensionCount++;
-		}
-
-		if (extent.depth > 1)
-		{
-			dimensionCount++;
-		}
-
-		switch (dimensionCount)
-		{
-		case 1:
-			result = VK_IMAGE_TYPE_1D;
-			break;
-		case 2:
-			result = VK_IMAGE_TYPE_2D;
-			break;
-		case 3:
-			result = VK_IMAGE_TYPE_3D;
-			break;
-		default:
-			LOGEANDABORT("Invalid dimension count calculated");
-		}
-
-		return result;
+		dimensionCount++;
 	}
+
+	if (extent.height >= 1)
+	{
+		dimensionCount++;
+	}
+
+	if (extent.depth > 1)
+	{
+		dimensionCount++;
+	}
+
+	switch (dimensionCount)
+	{
+	case 1:
+		result = VK_IMAGE_TYPE_1D;
+		break;
+	case 2:
+		result = VK_IMAGE_TYPE_2D;
+		break;
+	case 3:
+		result = VK_IMAGE_TYPE_3D;
+		break;
+	default:
+		LOGEANDABORT("Invalid dimension count calculated");
+	}
+
+	return result;
+}
 } // namespace
 
 Image::Image(
