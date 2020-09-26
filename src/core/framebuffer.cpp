@@ -20,43 +20,38 @@
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#pragma once
-
-#include "common/vk_common.h"
-#include "image.h"
-#include "device.h"
+#include "framebuffer.h"
+#include "common/helpers.h"
 
 namespace vulkr
 {
 
-class ImageView
+Framebuffer::Framebuffer(Device &device, const Swapchain &swapchain, const RenderPass &renderPass, std::vector<VkImageView> attachments) :
+	device{ device }
 {
-public:
-	ImageView(Image &image, VkImageViewType viewType, VkImageCreateFlags aspectMask, VkFormat format = VK_FORMAT_UNDEFINED);
-	~ImageView();
+	VkFramebufferCreateInfo framebufferInfo{ VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO };
 
-	/* Disable unnecessary operators to prevent error prone usages */
-	ImageView(ImageView &&other) = delete; // TODO: check if we need this
-	ImageView(ImageView &) = delete;
-	ImageView& operator=(const ImageView &) = delete;
-	ImageView& operator=(ImageView &&) = delete;
+	framebufferInfo.renderPass = renderPass.getHandle();
+	framebufferInfo.attachmentCount = to_u32(attachments.size());
+	framebufferInfo.pAttachments = attachments.data(); // TODO: should we make attachments a reference to vector
+	framebufferInfo.width = swapchain.getProperties().imageExtent.width;
+	framebufferInfo.height = swapchain.getProperties().imageExtent.height;
+	framebufferInfo.layers = 1;
 
-	const Image &getImage() const;
+	VK_CHECK(vkCreateFramebuffer(device.getHandle(), &framebufferInfo, nullptr, &handle));
+}
 
-	const VkImageView &getHandle() const;
+Framebuffer::~Framebuffer()
+{
+	if (handle != VK_NULL_HANDLE)
+	{
+		vkDestroyFramebuffer(device.getHandle(), handle, nullptr);
+	}
+}
 
-	VkFormat getFormat() const;
-
-	VkImageSubresourceRange getSubresourceRange() const;
-
-private:
-	VkImageView handle{ VK_NULL_HANDLE };
-
-	Device &device;
-
-	Image &image;
-
-	VkImageSubresourceRange subresourceRange{};
-};
+VkFramebuffer Framebuffer::getHandle() const
+{
+	return handle;
+}
 
 } // namespace vulkr

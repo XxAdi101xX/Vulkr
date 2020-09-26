@@ -116,4 +116,14 @@ VkRenderPass RenderPass::getHandle() const
 	return handle;
 }
 
+const std::vector<Attachment> &RenderPass::getAttachments() const
+{
+	return attachments;
+}
+
+const std::vector<Subpass> &RenderPass::getSubpasses() const
+{
+	return subpasses;
+}
+
 } // namespace vulkr

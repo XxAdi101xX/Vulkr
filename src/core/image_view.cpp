@@ -27,16 +27,16 @@ namespace vulkr
 
 ImageView::ImageView(Image &image, VkImageViewType viewType, VkImageCreateFlags aspectMask, VkFormat format) :
 	device{ image.getDevice() },
-	image{ &image }
+	image{ image }
 {
 	subresourceRange.aspectMask = aspectMask;
 	subresourceRange.baseMipLevel = 0;
-	subresourceRange.levelCount = this->image->getSubresource().mipLevel;
+	subresourceRange.levelCount = image.getSubresource().mipLevel;
 	subresourceRange.baseArrayLayer = 0;
-	subresourceRange.layerCount = this->image->getSubresource().arrayLayer;
+	subresourceRange.layerCount = image.getSubresource().arrayLayer;
 
 	VkImageViewCreateInfo createInfo{ VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
-	createInfo.image = this->image->getHandle();
+	createInfo.image = image.getHandle();
 	createInfo.viewType = viewType;
 	createInfo.format = format;
 	createInfo.subresourceRange = subresourceRange;
@@ -52,24 +52,19 @@ ImageView::~ImageView()
 	}
 }
 
-const Image& ImageView::getImage() const
+const Image &ImageView::getImage() const
 {
-	return *image;
+	return image;
 }
 
-void ImageView::setImage(Image &image)
-{
-	this->image = &image;
-}
-
-VkImageView ImageView::getHandle() const
+const VkImageView &ImageView::getHandle() const
 {
 	return handle;
 }
 
 VkFormat ImageView::getFormat() const
 {
-	return image->getFormat();
+	return image.getFormat();
 }
 
 VkImageSubresourceRange ImageView::getSubresourceRange() const

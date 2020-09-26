@@ -38,10 +38,10 @@ public:
 	PipelineLayout(Device &device, const std::vector<ShaderModule*> &shaderModules);
 	~PipelineLayout();
 
-	PipelineLayout(PipelineLayout &&other);
 
 	/* Disable unnecessary operators to prevent error prone usages */
 	PipelineLayout(const PipelineLayout &) = delete;
+	PipelineLayout(PipelineLayout &&) = delete;
 	PipelineLayout& operator=(const PipelineLayout &) = delete;
 	PipelineLayout& operator=(PipelineLayout &&) = delete;
 

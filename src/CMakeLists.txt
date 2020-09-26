@@ -47,6 +47,7 @@ set(CORE_FILES
     core/render_pass.h
     core/pipeline.h
     core/pipeline_layout.h
+    core/framebuffer.h
     # Source Files
     core/device.cpp
     core/instance.cpp
@@ -58,6 +59,7 @@ set(CORE_FILES
     core/render_pass.cpp
     core/pipeline.cpp
     core/pipeline_layout.cpp
+    core/framebuffer.cpp
 )
 
 set(PLATFORM_FILES

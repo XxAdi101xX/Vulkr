@@ -37,6 +37,14 @@ PipelineLayout::PipelineLayout(Device& device, const std::vector<ShaderModule*>&
 	VK_CHECK(vkCreatePipelineLayout(device.getHandle(), &pipelineLayoutInfo, nullptr, &handle));
 }
 
+PipelineLayout::~PipelineLayout()
+{
+	if (handle != VK_NULL_HANDLE)
+	{
+		vkDestroyPipelineLayout(device.getHandle(), handle, nullptr);
+	}
+}
+
 VkPipelineLayout PipelineLayout::getHandle() const
 {
 	return handle;

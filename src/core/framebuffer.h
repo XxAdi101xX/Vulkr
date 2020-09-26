@@ -24,49 +24,30 @@
 
 #include "common/vk_common.h"
 #include "device.h"
-#include "rendering/subpass.h"
+#include "swapchain.h"
+#include "render_pass.h"
 
 namespace vulkr
 {
 
-/* Description of render pass attachments */
-struct Attachment
-{
-	VkFormat format{ VK_FORMAT_UNDEFINED };
-	VkSampleCountFlagBits samples{ VK_SAMPLE_COUNT_1_BIT };
-	VkAttachmentLoadOp loadOp{ VK_ATTACHMENT_LOAD_OP_LOAD };
-	VkAttachmentStoreOp storeOp{ VK_ATTACHMENT_STORE_OP_STORE };
-	VkAttachmentLoadOp stencilLoadOp{ VK_ATTACHMENT_LOAD_OP_LOAD };
-	VkAttachmentStoreOp stencilStoreOp{ VK_ATTACHMENT_STORE_OP_STORE };
-	VkImageLayout initialLayout{ VK_IMAGE_LAYOUT_UNDEFINED };
-	VkImageLayout finalLayout{ VK_IMAGE_LAYOUT_UNDEFINED };
-
-	Attachment() = default;
-};
-
-class RenderPass
+class Framebuffer
 {
 public:
-	// TODO: introduce a subpass dependency data structure and set it up here
-	RenderPass(Device &device, const std::vector<Attachment> &attachments, const std::vector<Subpass> &subpasses);
-	~RenderPass();
+	Framebuffer(Device &device, const Swapchain &swapchain, const RenderPass &renderPass, std::vector<VkImageView> attachments);
+	~Framebuffer();
 
 	/* Disable unnecessary operators to prevent error prone usages */
-	RenderPass(const RenderPass &) = delete;
-	RenderPass(RenderPass &&) = delete; // TODO: check if we need this
-	RenderPass& operator=(const RenderPass &) = delete;
-	RenderPass& operator=(RenderPass &&) = delete;
+	Framebuffer(Framebuffer &&) = delete;
+	Framebuffer(Framebuffer &) = delete;
+	Framebuffer& operator=(const Framebuffer &) = delete;
+	Framebuffer& operator=(Framebuffer &&) = delete;
 
-	VkRenderPass getHandle() const;
 
-	const std::vector<Attachment> &getAttachments() const;
-	const std::vector<Subpass> &getSubpasses() const;
+	VkFramebuffer getHandle() const;
 
 private:
-	VkRenderPass handle{ VK_NULL_HANDLE };
+	VkFramebuffer handle{ VK_NULL_HANDLE };
 	Device &device;
-	const std::vector<Attachment> &attachments;
-	const std::vector<Subpass> &subpasses;
 };
 
 } // namespace vulkr
