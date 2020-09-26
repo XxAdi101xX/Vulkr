@@ -45,7 +45,8 @@ set(CORE_FILES
     core/image_view.h
     core/image.h
     core/render_pass.h
-    core/subpass.h
+    core/pipeline.h
+    core/pipeline_layout.h
     # Source Files
     core/device.cpp
     core/instance.cpp
@@ -55,23 +56,39 @@ set(CORE_FILES
     core/image_view.cpp
     core/image.cpp
     core/render_pass.cpp
-    core/subpass.cpp
+    core/pipeline.cpp
+    core/pipeline_layout.cpp
 )
 
 set(PLATFORM_FILES
     # Header Files
     platform/window.h
     # Source Files
-    platform/window.cpp)
+    platform/window.cpp
+)
+
+set(RENDERING_FILES
+    # Header Files
+    rendering/subpass.h
+    rendering/shader_module.h
+    rendering/pipeline_state.h
+    # Source Files
+    rendering/subpass.cpp
+    rendering/shader_module.cpp
+    rendering/pipeline_state.cpp
+)
 
 source_group("common\\" FILES ${COMMON_FILES})
 source_group("core\\" FILES ${CORE_FILES})
 source_group("platform\\" FILES ${PLATFORM_FILES})
+source_group("rendering\\" FILES ${RENDERING_FILES})
 
 set(PROJECT_FILES
     ${PLATFORM_FILES}
     ${COMMON_FILES}
-    ${CORE_FILES})
+    ${CORE_FILES}
+    ${RENDERING_FILES}
+)
 
 add_library(${PROJECT_NAME} STATIC ${PROJECT_FILES})
 
@@ -82,4 +99,5 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
     volk
     glm
     glfw
-    spdlog)
+    spdlog
+)

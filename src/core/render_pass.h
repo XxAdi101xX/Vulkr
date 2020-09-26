@@ -24,7 +24,7 @@
 
 #include "common/vk_common.h"
 #include "device.h"
-#include "subpass.h"
+#include "rendering/subpass.h"
 
 namespace vulkr
 {
