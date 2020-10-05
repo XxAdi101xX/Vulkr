@@ -48,6 +48,8 @@ set(CORE_FILES
     core/pipeline.h
     core/pipeline_layout.h
     core/framebuffer.h
+    core/command_pool.h
+    core/command_buffer.h
     # Source Files
     core/device.cpp
     core/instance.cpp
@@ -60,6 +62,8 @@ set(CORE_FILES
     core/pipeline.cpp
     core/pipeline_layout.cpp
     core/framebuffer.cpp
+    core/command_pool.cpp
+    core/command_buffer.cpp
 )
 
 set(PLATFORM_FILES
