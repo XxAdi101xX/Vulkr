@@ -30,9 +30,13 @@ set(COMMON_FILES
     common/logger.h
     common/vk_common.h
     common/strings.h
+    common/fence_pool.h
+    common/semaphore_pool.h
     # Source Files
     common/vk_common.cpp
     common/strings.cpp
+    common/fence_pool.cpp
+    common/semaphore_pool.cpp
 )
 
 set(CORE_FILES
