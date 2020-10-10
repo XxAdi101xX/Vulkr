@@ -28,12 +28,12 @@ set(COMMON_FILES
     # Header Files
     common/helpers.h
     common/logger.h
-    common/vk_common.h
+    common/vulkan_common.h
     common/strings.h
     common/fence_pool.h
     common/semaphore_pool.h
     # Source Files
-    common/vk_common.cpp
+    common/vulkan_common.cpp
     common/strings.cpp
     common/fence_pool.cpp
     common/semaphore_pool.cpp
@@ -73,8 +73,10 @@ set(CORE_FILES
 set(PLATFORM_FILES
     # Header Files
     platform/window.h
+    platform/platform.h
     # Source Files
     platform/window.cpp
+    platform/platform.cpp
 )
 
 set(RENDERING_FILES

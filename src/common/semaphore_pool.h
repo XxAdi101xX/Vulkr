@@ -22,7 +22,7 @@
 
 #pragma once
 
-#include "vk_common.h"
+#include "vulkan_common.h"
 #include "core/device.h"
 
 namespace vulkr

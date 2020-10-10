@@ -24,7 +24,7 @@
 
 #include <set>
 
-#include "common/vk_common.h"
+#include "common/vulkan_common.h"
 #include "core/device.h"
 
 namespace vulkr

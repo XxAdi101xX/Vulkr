@@ -24,7 +24,7 @@
 
 #include <array>
 
-#include "common/vk_common.h"
+#include "common/vulkan_common.h"
 
 namespace vulkr
 {

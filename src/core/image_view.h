@@ -22,7 +22,7 @@
 
 #pragma once
 
-#include "common/vk_common.h"
+#include "common/vulkan_common.h"
 #include "image.h"
 #include "device.h"
 

@@ -20,7 +20,7 @@
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#include "vk_common.h"
+#include "vulkan_common.h"
 
 std::ostream& operator<<(std::ostream& os, const VkResult result)
 {

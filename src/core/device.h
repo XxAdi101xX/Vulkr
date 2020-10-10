@@ -24,7 +24,7 @@
 
 #include <vector>
 
-#include "common/vk_common.h"
+#include "common/vulkan_common.h"
 #include "physical_device.h"
 #include "queue.h"
 
