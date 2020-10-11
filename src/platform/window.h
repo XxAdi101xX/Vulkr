@@ -22,32 +22,35 @@
 
 #pragma once
 
-#include "../common/vk_common.h"
-#include "../core/instance.h"
+#include "common/vulkan_common.h"
+#include "core/instance.h"
 
 #include <GLFW/glfw3.h>
 namespace vulkr
 {
 
-class Instance;
-
 class Window
 {
 public:
-	Window(Instance& instance);
+	Window();
 	~Window();
 
 	/* Disable unnecessary operators to prevent error prone usages */
-	Window(const Window&) = delete;
-	Window(Window&&) = delete;
-	Window& operator=(const Window&) = delete;
-	Window& operator=(Window&&) = delete;
+	Window(const Window &) = delete;
+	Window(Window &&) = delete;
+	Window& operator=(const Window &) = delete;
+	Window& operator=(Window &&) = delete;
+
+	void createSurface(Instance *instance);
+
+	const GLFWwindow *getWindowHandle() const;
+	const VkSurfaceKHR getSurfaceHandle() const;
 
 	static VkExtent2D getWindowExtent();
 private:
-	GLFWwindow* window;
+	GLFWwindow *window;
 	VkSurfaceKHR surface;
-	Instance& instance;
+	Instance *instance;
 
 	static const int32_t WIDTH{ 1280 };
 	static const int32_t HEIGHT{ 720 };

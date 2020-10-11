@@ -25,8 +25,7 @@
 namespace vulkr
 {
 
-Window::Window(Instance& instance):
-	instance{instance}
+Window::Window()
 {
 	glfwInit();
 
@@ -34,12 +33,41 @@ Window::Window(Instance& instance):
 	glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 
 	window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", nullptr, nullptr);
-	VK_CHECK(glfwCreateWindowSurface(instance.getHandle(), window, nullptr, &surface));
+
+	if (window == nullptr) {
+		LOGEANDABORT("glfwCreateWindow has failed to create a window");
+	}
 }
 
 Window::~Window()
 {
-	vkDestroySurfaceKHR(instance.getHandle(), surface, nullptr);
+	if (surface != VK_NULL_HANDLE) {
+		vkDestroySurfaceKHR(instance->getHandle(), surface, nullptr);
+	}
+
+	glfwDestroyWindow(window);
+
+	glfwTerminate();
+}
+
+void Window::createSurface(Instance *instance)
+{
+	if (surface != nullptr) {
+		LOGEANDABORT("createSurface was called more than once")
+	}
+	this->instance = instance;
+
+	VK_CHECK(glfwCreateWindowSurface(instance->getHandle(), window, nullptr, &surface));
+}
+
+const GLFWwindow *Window::getWindowHandle() const
+{
+	return window;
+}
+
+const VkSurfaceKHR Window::getSurfaceHandle() const
+{
+	return surface;
 }
 
 VkExtent2D Window::getWindowExtent()
