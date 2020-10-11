@@ -32,11 +32,13 @@ set(COMMON_FILES
     common/strings.h
     common/fence_pool.h
     common/semaphore_pool.h
+    common/timer.h
     # Source Files
     common/vulkan_common.cpp
     common/strings.cpp
     common/fence_pool.cpp
     common/semaphore_pool.cpp
+    common/timer.cpp
 )
 
 set(CORE_FILES
