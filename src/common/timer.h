@@ -66,9 +66,9 @@ public:
 
 		running = false;
 		lapping = false;
-		auto duration = std::chrono::duration<double, T>(Clock::now() - start_time);
-		start_time = Clock::now();
-		lap_time = Clock::now();
+		auto duration = std::chrono::duration<double, T>(Clock::now() - startTime);
+		startTime = Clock::now();
+		lapTime = Clock::now();
 
 		return duration.count();
 	}
@@ -86,11 +86,11 @@ public:
 			return 0;
 		}
 
-		Clock::time_point start = start_time;
+		Clock::time_point start = startTime;
 
 		if (lapping)
 		{
-			start = lap_time;
+			start = lapTime;
 		}
 
 		return std::chrono::duration<double, T>(Clock::now() - start).count();
@@ -104,8 +104,8 @@ public:
 	double tick()
 	{
 		auto now = Clock::now();
-		auto duration = std::chrono::duration<double, T>(now - previous_tick);
-		previous_tick = now;
+		auto duration = std::chrono::duration<double, T>(now - previousTick);
+		previousTick = now;
 		return duration.count();
 	}
 

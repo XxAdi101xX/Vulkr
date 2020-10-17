@@ -21,8 +21,8 @@ namespace vulkr
 {
 
 Timer::Timer() :
-	start_time{ Clock::now() },
-	previous_tick{ Clock::now() }
+	startTime{ Clock::now() },
+	previousTick{ Clock::now() }
 {}
 
 void Timer::start()
@@ -30,14 +30,14 @@ void Timer::start()
 	if (!running)
 	{
 		running = true;
-		start_time = Clock::now();
+		startTime = Clock::now();
 	}
 }
 
 void Timer::lap()
 {
 	lapping = true;
-	lap_time = Clock::now();
+	lapTime = Clock::now();
 }
 
 bool Timer::isRunning() const
