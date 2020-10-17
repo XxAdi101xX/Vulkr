@@ -20,10 +20,15 @@
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+#include "swapchain.h"
+#include "physical_device.h"
+#include "device.h"
+#include "queue.h"
+
+#include "platform/window.h"
+
 #include "common/logger.h"
 #include "common/strings.h"
-#include "platform/window.h"
-#include "swapchain.h"
 
 namespace vulkr
 {

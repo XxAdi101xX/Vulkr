@@ -25,10 +25,11 @@
 #include <set>
 
 #include "common/vulkan_common.h"
-#include "core/device.h"
 
 namespace vulkr
 {
+
+class Device;
 
 struct SwapchainProperties
 {

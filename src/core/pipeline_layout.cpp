@@ -21,6 +21,7 @@
  */
 
 #include "pipeline_layout.h"
+#include "device.h"
 
 namespace vulkr
 {

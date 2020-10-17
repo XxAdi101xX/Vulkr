@@ -21,6 +21,9 @@
  */
 
 #include "command_pool.h"
+#include "device.h"
+#include "command_buffer.h"
+
 #include "common/logger.h"
 
 namespace vulkr

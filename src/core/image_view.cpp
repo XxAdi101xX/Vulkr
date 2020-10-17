@@ -21,6 +21,8 @@
  */
 
 #include "image_view.h"
+#include "device.h"
+#include "image.h"
 
 namespace vulkr
 {

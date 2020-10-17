@@ -23,14 +23,15 @@
 #pragma once
 
 #include "common/vulkan_common.h"
-#include "device.h"
-#include "render_pass.h"
-#include "framebuffer.h"
 
 namespace vulkr
 {
 
 class CommandPool;
+class Device;
+class RenderPass;
+class Framebuffer;
+class Subpass;
 
 class CommandBuffer
 {

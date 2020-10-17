@@ -23,12 +23,13 @@
 #pragma once
 
 #include "common/vulkan_common.h"
-#include "device.h"
-#include "swapchain.h"
-#include "render_pass.h"
 
 namespace vulkr
 {
+
+class Device;
+class Swapchain;
+class RenderPass;
 
 class Framebuffer
 {

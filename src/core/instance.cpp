@@ -20,8 +20,10 @@
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#include "common/logger.h"
 #include "instance.h"
+#include "physical_device.h"
+
+#include "common/logger.h"
 
 namespace vulkr
 {

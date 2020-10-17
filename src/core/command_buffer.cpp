@@ -22,6 +22,11 @@
 
 #include "command_buffer.h"
 #include "command_pool.h"
+#include "device.h"
+#include "physical_device.h"
+#include "render_pass.h"
+#include "framebuffer.h"
+
 #include "common/helpers.h"
 
 namespace vulkr

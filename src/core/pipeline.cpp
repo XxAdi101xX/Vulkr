@@ -21,10 +21,14 @@
  */
 
 #include "pipeline.h"
-#include "common/helpers.h"
-#include "rendering/shader_module.h"
-#include "pipeline_layout.h"
+#include "device.h"
 #include "render_pass.h"
+#include "pipeline_layout.h"
+
+#include "rendering/pipeline_state.h"
+#include "rendering/shader_module.h"
+
+#include "common/helpers.h"
 
 namespace vulkr
 {

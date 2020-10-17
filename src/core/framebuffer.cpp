@@ -21,6 +21,10 @@
  */
 
 #include "framebuffer.h"
+#include "device.h"
+#include "swapchain.h"
+#include "render_pass.h"
+
 #include "common/helpers.h"
 
 namespace vulkr

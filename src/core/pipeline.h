@@ -23,39 +23,40 @@
 #pragma once
 
 #include "common/vulkan_common.h"
-#include "device.h"
-#include "rendering/pipeline_state.h"
-
 
 namespace vulkr
 {
-	class Pipeline
-	{
-	public:
-		virtual ~Pipeline() = 0;
-		Pipeline(Pipeline &&other);
 
-		/* Disable unnecessary operators to prevent error prone usages */
-		Pipeline(const Pipeline &) = delete;
-		Pipeline& operator=(const Pipeline &) = delete;
-		Pipeline& operator=(Pipeline &&) = delete;
+class Device;
+class PipelineState;
 
-		VkPipeline getHandle() const;
+class Pipeline
+{
+public:
+	virtual ~Pipeline() = 0;
+	Pipeline(Pipeline &&other);
 
-	protected:
-		Pipeline(Device &device, PipelineState &pipelineState);
-		VkPipeline handle = VK_NULL_HANDLE;
-		Device &device; 
-		PipelineState &pipelineState;
-	};
+	/* Disable unnecessary operators to prevent error prone usages */
+	Pipeline(const Pipeline &) = delete;
+	Pipeline& operator=(const Pipeline &) = delete;
+	Pipeline& operator=(Pipeline &&) = delete;
 
-	class GraphicsPipeline : public Pipeline
-	{
-	public:
-		GraphicsPipeline(Device &device, PipelineState &pipelineState, VkPipelineCache pipelineCache); // TODO: incorportate pipeline cache
-		virtual ~GraphicsPipeline() = default;
-		GraphicsPipeline(GraphicsPipeline&&) = default;
-	};
+	VkPipeline getHandle() const;
+
+protected:
+	Pipeline(Device &device, PipelineState &pipelineState);
+	VkPipeline handle = VK_NULL_HANDLE;
+	Device &device; 
+	PipelineState &pipelineState;
+};
+
+class GraphicsPipeline : public Pipeline
+{
+public:
+	GraphicsPipeline(Device &device, PipelineState &pipelineState, VkPipelineCache pipelineCache); // TODO: incorportate pipeline cache
+	virtual ~GraphicsPipeline() = default;
+	GraphicsPipeline(GraphicsPipeline&&) = default;
+};
 
 	// TODO: create compute pipeline
-}
+} // namespace vulkr

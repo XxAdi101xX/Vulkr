@@ -23,11 +23,12 @@
 #pragma once
 
 #include "common/vulkan_common.h"
-#include "device.h"
-#include "rendering/subpass.h"
 
 namespace vulkr
 {
+
+class Device;
+class Subpass;
 
 /* Description of render pass attachments */
 struct Attachment

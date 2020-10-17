@@ -20,8 +20,11 @@
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#include "common/helpers.h"
 #include "device.h"
+#include "physical_device.h"
+#include "queue.h"
+
+#include "common/helpers.h"
 
 namespace vulkr
 {

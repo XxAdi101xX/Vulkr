@@ -21,13 +21,14 @@
  */
 
 #pragma once
+
 #include <vector>
 
 #include "common/vulkan_common.h"
 
-namespace vulkr {
+namespace vulkr
+{
 
-/* Forward declare the Instance class */
 class Instance;
 
 class PhysicalDevice

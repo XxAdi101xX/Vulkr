@@ -23,11 +23,12 @@
 #pragma once
 
 #include "common/vulkan_common.h"
-#include "image.h"
-#include "device.h"
 
 namespace vulkr
 {
+
+class Device;
+class Image;
 
 class ImageView
 {

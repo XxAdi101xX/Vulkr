@@ -21,6 +21,10 @@
  */
 
 #include "render_pass.h"
+#include "device.h"
+
+#include "rendering/subpass.h"
+
 #include "common/logger.h"
 #include "common/helpers.h"
 

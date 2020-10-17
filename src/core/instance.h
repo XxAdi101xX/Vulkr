@@ -27,11 +27,11 @@
 #include <vector>
 
 #include "common/vulkan_common.h"
-#include "physical_device.h"
 
 #include <GLFW/glfw3.h>
 namespace vulkr 
 {
+class PhysicalDevice;
 
 class Instance 
 {

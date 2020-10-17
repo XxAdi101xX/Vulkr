@@ -27,12 +27,11 @@
 namespace vulkr
 {
 
-/* Forward declaration */
 class Device;
 
 class Image
 {
-	// TODO: consider how to do memeory management!
+// TODO: consider how to do memeory management!
 public:
 	Image(
 		Device& device,

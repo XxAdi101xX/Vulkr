@@ -25,11 +25,12 @@
 #include <vector>
 
 #include "common/vulkan_common.h"
-#include "physical_device.h"
-#include "queue.h"
 
 namespace vulkr
 {
+
+class PhysicalDevice;
+class Queue;
 
 class Device
 {

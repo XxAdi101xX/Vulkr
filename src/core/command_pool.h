@@ -23,17 +23,19 @@
 #pragma once
 
 #include "common/vulkan_common.h"
-#include "device.h"
-#include "command_buffer.h"
 
 namespace vulkr
 {
 
+class Device;
+class CommandBuffer;
+class RenderPass;
+class Framebuffer;
+
 class CommandPool
 {
 public:
-	CommandPool(Device& device, uint32_t queueFamilyIndex, VkCommandPoolCreateFlags flags);
-
+	CommandPool(Device &device, uint32_t queueFamilyIndex, VkCommandPoolCreateFlags flags);
 	~CommandPool();
 
 	CommandPool(CommandPool&& other);
