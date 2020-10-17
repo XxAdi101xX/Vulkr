@@ -49,7 +49,7 @@ private:
 
 	std::vector<VkFence> fences;
 
-	int64_t activeFenceCount{ 0 };
+	uint32_t activeFenceCount{ 0 };
 };
 
 } // namespace vulkr

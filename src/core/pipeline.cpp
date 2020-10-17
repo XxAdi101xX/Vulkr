@@ -81,9 +81,9 @@ GraphicsPipeline::GraphicsPipeline(Device &device, PipelineState &pipelineState,
 	inputAssemblyState.primitiveRestartEnable = pipelineState.getInputAssemblyState().primitiveRestartEnable;
 
 	VkPipelineViewportStateCreateInfo viewportState{ VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO };
-	viewportState.viewportCount = pipelineState.getViewportState().viewports.size();
+	viewportState.viewportCount = to_u32(pipelineState.getViewportState().viewports.size());
 	viewportState.pViewports = pipelineState.getViewportState().viewports.data();
-	viewportState.scissorCount = pipelineState.getViewportState().scissors.size();
+	viewportState.scissorCount = to_u32(pipelineState.getViewportState().scissors.size());
 	viewportState.pScissors = pipelineState.getViewportState().scissors.data();
 
 	VkPipelineRasterizationStateCreateInfo rasterizationState{ VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO };
