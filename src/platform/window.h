@@ -23,16 +23,17 @@
 #pragma once
 
 #include "common/vulkan_common.h"
-#include "core/instance.h"
 
 #include <GLFW/glfw3.h>
 namespace vulkr
 {
 
+class Platform;
+
 class Window
 {
 public:
-	Window();
+	Window(Platform &platform);
 	~Window();
 
 	/* Disable unnecessary operators to prevent error prone usages */
@@ -41,16 +42,28 @@ public:
 	Window& operator=(const Window &) = delete;
 	Window& operator=(Window &&) = delete;
 
-	void createSurface(Instance *instance);
+	/* Create the window surface */
+	void createSurface(VkInstance instance);
 
-	const GLFWwindow *getWindowHandle() const;
+	/* Getters */
+	const GLFWwindow *getHandle() const;
 	const VkSurfaceKHR getSurfaceHandle() const;
-
+	const Platform &getPlatform() const;
 	static VkExtent2D getWindowExtent();
+
+	/* Checks whether the window should close */
+	bool shouldClose() const;
+
+	/* Poll for any input events */
+	void processEvents() const;
+
+	/* Update the title of the window */
+	void updateTitle(std::string title) const;
 private:
-	GLFWwindow *window;
+	GLFWwindow *handle;
 	VkSurfaceKHR surface;
-	Instance *instance;
+	VkInstance instance;
+	Platform &platform;
 
 	static const int32_t WIDTH{ 1280 };
 	static const int32_t HEIGHT{ 720 };
