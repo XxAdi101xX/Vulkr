@@ -74,11 +74,15 @@ set(CORE_FILES
 
 set(PLATFORM_FILES
     # Header Files
+    platform/input_event.h
     platform/window.h
     platform/platform.h
+    platform/application.h
     # Source Files
+    platform/input_event.cpp
     platform/window.cpp
     platform/platform.cpp
+    platform/application.cpp
 )
 
 set(RENDERING_FILES
