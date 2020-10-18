@@ -61,8 +61,8 @@ public:
 	void updateTitle(std::string title) const;
 private:
 	GLFWwindow *handle;
-	VkSurfaceKHR surface;
-	VkInstance instance;
+	VkSurfaceKHR surface{ VK_NULL_HANDLE };
+	VkInstance instance{ VK_NULL_HANDLE };
 	Platform &platform;
 
 	static const int32_t WIDTH{ 1280 };

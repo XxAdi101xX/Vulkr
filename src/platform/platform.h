@@ -23,14 +23,19 @@
 #pragma once
 
 #include "common/vulkan_common.h"
+
 #include "window.h"
+#include "application.h"
 
 namespace vulkr {
+
+class InputEvent;
 
 class Platform
 {
 public:
 	Platform() = default;
+	virtual ~Platform() = default;
 
 	/* Disable unnecessary operators to prevent error prone usages */
 	Platform(const Platform &) = delete;
@@ -38,10 +43,37 @@ public:
 	Platform& operator=(const Platform &) = delete;
 	Platform& operator=(Platform &&) = delete;
 
-	void initialize();
+	/* Initialize the platform by creating the window and logger */
+	void initialize(std::unique_ptr<Application> &&application);
+
+	/* Prepare the application before the main processing loop begins */
+	void prepareApplication() const;
+
+	/* The main processing loop that the applications runs on */
+	void runMainProcessingLoop() const;
+
+	/* Terminate all dependant components before finally deleting the platform */
+	void terminate() const;
+
+	/* Initiate the creation of a window surface */
+	void createSurface(VkInstance instance);
+
+	/* Update the title of the window */
+	void updateWindowTitle(float fps) const;
+
+	/* Handle window resizes */
+	void handleWindowResize(const uint32_t width, const uint32_t height) const;
+
+	/* Handle any window focus changes */
+	void handleFocusChange(bool isFocused) const;
+
+	/* Handle any inputs received by the window */
+	void handleInputEvents(const InputEvent &inputEvent) const;
 private:
 	std::unique_ptr<Window> window{ nullptr };
+	std::unique_ptr<Application> application{ nullptr };
 
+	void processApplication() const;
 };
 
-}
+} // namespace vulkr

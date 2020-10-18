@@ -142,7 +142,7 @@ Window::Window(Platform& platform) : platform{ platform }
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 	glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 
-	handle = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", nullptr, nullptr);
+	handle = glfwCreateWindow(WIDTH, HEIGHT, "Vulkr", nullptr, nullptr);
 	if (handle == VK_NULL_HANDLE) {
 		LOGEANDABORT("glfwCreateWindow has failed to create a window");
 	}
@@ -178,7 +178,7 @@ Window::~Window()
 
 void Window::createSurface(VkInstance instance)
 {
-	if (surface != nullptr) {
+	if (surface != VK_NULL_HANDLE) {
 		LOGEANDABORT("createSurface was called more than once")
 	}
 	this->instance = instance;

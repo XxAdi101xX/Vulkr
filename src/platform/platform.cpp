@@ -24,22 +24,79 @@
 
 namespace vulkr {
 
-void Platform::initialize()
+void Platform::initialize(std::unique_ptr<Application> &&application)
 {
-	std::shared_ptr<spdlog::logger> logger = std::make_shared<spdlog::logger>("logger");
+	if (application == nullptr) {
+		LOGEANDABORT("Application is not valid");
+	}
+
+	this->application = std::move(application);
 
 #ifdef VULKR_DEBUG
-	logger->set_level(spdlog::level::debug);
+	spdlog::set_level(spdlog::level::debug);
 #else
-	logger->set_level(spdlog::level::info);
+	spdlog::set_level(spdlog::level::info);
 #endif
 
-	logger->set_pattern(LOGGER_FORMAT);
-	spdlog::set_default_logger(logger);
+	spdlog::set_pattern(LOGGER_FORMAT);
 	LOGI("Logger initialized");
 
-	window = std::make_unique<Window>();
-	LOGI("Window created");
+	window = std::make_unique<Window>(*this);
 }
 
+void Platform::prepareApplication() const
+{
+	if (application)
+	{
+		application->prepare();
+	}
 }
+
+void Platform::runMainProcessingLoop() const
+{
+	while (!window->shouldClose())
+	{
+		window->processEvents();
+		processApplication();
+	}
+}
+
+void Platform::processApplication() const
+{
+	if (application->isFocused()) {
+		application->step();
+	}
+}
+
+void Platform::terminate() const
+{
+	application->finish();
+	spdlog::drop_all();
+}
+
+void Platform::createSurface(VkInstance instance)
+{
+	window->createSurface(instance);
+}
+
+void Platform::updateWindowTitle(float fps) const
+{
+	window->updateTitle(application->getName() + " [FPS: " + std::to_string(fps) + "]");
+}
+
+void Platform::handleWindowResize(const uint32_t width, const uint32_t height) const
+{
+	application->handleWindowResize(width, height);
+}
+
+void Platform::handleFocusChange(bool isFocused) const
+{
+	application->handleFocusChange(isFocused);
+}
+
+void Platform::handleInputEvents(const InputEvent &inputEvent) const
+{
+	application->handleInputEvents(inputEvent);
+}
+
+} // namespace vulkr
