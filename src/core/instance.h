@@ -36,7 +36,7 @@ class PhysicalDevice;
 class Instance 
 {
 public:
-	Instance();
+	Instance(std::string applicationName);
 	~Instance();
 	
 	/* Disable unnecessary operators to prevent error prone usages */

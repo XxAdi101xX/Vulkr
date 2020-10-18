@@ -24,12 +24,15 @@
 #include "physical_device.h"
 
 #include "common/logger.h"
+#include "common/helpers.h"
 
 namespace vulkr
 {
 
-Instance::Instance()
+Instance::Instance(std::string applicationName)
 {
+    VK_CHECK(volkInitialize());
+
 #ifdef VULKR_DEBUG
     if (!checkValidationLayerSupport())
     {
@@ -37,30 +40,25 @@ Instance::Instance()
     }
 #endif // VULKR_DEBUG
 
-    VK_CHECK(volkInitialize());
-
-    VkApplicationInfo appInfo{};
-    appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-    appInfo.pApplicationName = "Vulkan App";
+    VkApplicationInfo appInfo{ VK_STRUCTURE_TYPE_APPLICATION_INFO  };
+    appInfo.pApplicationName = applicationName.c_str();
     appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
     appInfo.pEngineName = "Vulkr";
     appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
     appInfo.apiVersion = VK_API_VERSION_1_0;
 
-    VkInstanceCreateInfo createInfo{};
-    createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+    VkInstanceCreateInfo createInfo{ VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO };
     createInfo.pApplicationInfo = &appInfo;
 
     std::vector<const char*> extensions = getRequiredInstanceExtensions();
-    createInfo.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
+    createInfo.enabledExtensionCount = to_u32(extensions.size());
     createInfo.ppEnabledExtensionNames = extensions.data();
 
-    VkDebugUtilsMessengerCreateInfoEXT debugUtilsCreateInfo;
 #ifdef VULKR_DEBUG
-    createInfo.enabledLayerCount = static_cast<uint32_t>(requiredValidationLayers.size());
+    createInfo.enabledLayerCount = to_u32(requiredValidationLayers.size());
     createInfo.ppEnabledLayerNames = requiredValidationLayers.data();
 
-    debugUtilsCreateInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+    VkDebugUtilsMessengerCreateInfoEXT debugUtilsCreateInfo = { VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT };
     debugUtilsCreateInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
     debugUtilsCreateInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
     debugUtilsCreateInfo.pfnUserCallback = debugUtilsMessengerCallback;
@@ -77,7 +75,7 @@ Instance::Instance()
 
 #ifdef VULKR_DEBUG
     VK_CHECK(vkCreateDebugUtilsMessengerEXT(instance, &debugUtilsCreateInfo, nullptr, &debugUtilsMessenger));
-    LOGI("Validation layer enabled");
+    LOGD("Validation layer enabled");
 #endif // VULKR_DEBUG
 
     selectGPU();

@@ -22,8 +22,6 @@
 
 #pragma once
 
-#include <vector>
-
 #include "common/vulkan_common.h"
 
 namespace vulkr
