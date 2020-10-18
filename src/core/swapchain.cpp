@@ -47,10 +47,10 @@ Swapchain::Swapchain(
     availableSurfaceFormats.resize(surfaceFormatCount);
     VK_CHECK(vkGetPhysicalDeviceSurfaceFormatsKHR(this->device.getPhysicalDevice().getHandle(), surface, &surfaceFormatCount, availableSurfaceFormats.data()));
 
-    LOGI("The following surface formats are available:");
+    LOGD("The following surface formats are available:");
     for (auto& surfaceFormat : availableSurfaceFormats)
     {
-        LOGI("  \t{}", to_string(surfaceFormat));
+        LOGD("  \t{}", to_string(surfaceFormat));
     }
 
     uint32_t presentModeCount{ 0u };
@@ -58,10 +58,10 @@ Swapchain::Swapchain(
     availablePresentModes.resize(presentModeCount);
     VK_CHECK(vkGetPhysicalDeviceSurfacePresentModesKHR(this->device.getPhysicalDevice().getHandle(), surface, &presentModeCount, availablePresentModes.data()));
 
-    LOGI("Surface supports the following present modes:");
+    LOGD("Surface supports the following present modes:");
     for (auto& presentMode : availablePresentModes)
     {
-        LOGI("  \t{}", to_string(presentMode));
+        LOGD("  \t{}", to_string(presentMode));
     }
 
     VkSurfaceCapabilitiesKHR surfaceCapabilities{};
@@ -141,11 +141,11 @@ uint32_t Swapchain::chooseImageCount(uint32_t minImageCount, uint32_t maxImageCo
     // We default to 1 more than the minimum as per the suggestions in the vulkan-tutorial
     uint32_t imageCount = minImageCount + 1;
     if (maxImageCount > 0 && imageCount > maxImageCount) {
-        LOGI("An image count of {} was chosen", maxImageCount);
+        LOGD("An image count of {} was chosen", maxImageCount);
         return maxImageCount;
     }
 
-    LOGI("An image count of {} was chosen", imageCount);
+    LOGD("An image count of {} was chosen", imageCount);
     return imageCount;
 }
 
