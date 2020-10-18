@@ -22,6 +22,8 @@
 
 #pragma once
 
+#include <fstream>
+
 #include "shader_module.h"
 #include "common/helpers.h"
 #include "common/logger.h"
@@ -43,6 +45,25 @@ const std::string& ShaderSource::getFileName() const
 const std::vector<char>& ShaderSource::getData() const
 {
 	return data;
+}
+
+std::vector<char> ShaderSource::readFile(const std::string& filename) const
+{
+	std::ifstream file(filename, std::ios::ate | std::ios::binary);
+
+	if (!file.is_open()) {
+		throw std::runtime_error("failed to open file!");
+	}
+
+	size_t fileSize = (size_t)file.tellg();
+	std::vector<char> buffer(fileSize);
+
+	file.seekg(0);
+	file.read(buffer.data(), fileSize);
+
+	file.close();
+
+	return buffer;
 }
 
 // ShaderModule implementations

@@ -44,6 +44,8 @@ private:
 
 	/* The contents of the spirv file */
 	std::vector<char> data;
+
+	std::vector<char> readFile(const std::string& filename) const;
 };
 
 class ShaderModule
