@@ -69,6 +69,9 @@ public:
 
 	/* Handle any inputs received by the window */
 	void handleInputEvents(const InputEvent &inputEvent) const;
+
+	/* Get the window surface */
+	const VkSurfaceKHR getSurface() const;
 private:
 	std::unique_ptr<Window> window{ nullptr };
 	std::unique_ptr<Application> application{ nullptr };

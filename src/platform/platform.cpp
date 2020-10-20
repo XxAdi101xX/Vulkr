@@ -99,4 +99,9 @@ void Platform::handleInputEvents(const InputEvent &inputEvent) const
 	application->handleInputEvents(inputEvent);
 }
 
+const VkSurfaceKHR Platform::getSurface() const
+{
+	return window->getSurfaceHandle();
+}
+
 } // namespace vulkr
