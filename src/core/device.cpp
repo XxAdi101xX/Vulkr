@@ -29,14 +29,14 @@
 namespace vulkr
 {
 
-Device::Device(PhysicalDevice &physicalDevice, VkSurfaceKHR surface, std::vector<const char *> requestedExtensions) :
-	physicalDevice{ physicalDevice }
+Device::Device(std::unique_ptr<PhysicalDevice> &&selectedPhysicalDevice, VkSurfaceKHR surface, const std::vector<const char *> requestedExtensions) :
+	physicalDevice{ std::move(selectedPhysicalDevice) }
 {
 	// Get all device extension properties
 	uint32_t deviceExtensionCount;
-	vkEnumerateDeviceExtensionProperties(physicalDevice.getHandle(), nullptr, &deviceExtensionCount, nullptr);
+	vkEnumerateDeviceExtensionProperties(this->physicalDevice->getHandle(), nullptr, &deviceExtensionCount, nullptr);
 	deviceExtensions.resize(deviceExtensionCount);
-	vkEnumerateDeviceExtensionProperties(physicalDevice.getHandle(), nullptr, &deviceExtensionCount, deviceExtensions.data());
+	vkEnumerateDeviceExtensionProperties(this->physicalDevice->getHandle(), nullptr, &deviceExtensionCount, deviceExtensions.data());
 
 	// Check if all desired extensions are available
 	for (auto &requestedExtension : requestedExtensions)
@@ -45,20 +45,19 @@ Device::Device(PhysicalDevice &physicalDevice, VkSurfaceKHR surface, std::vector
 		{
 			LOGEANDABORT("Extension {} is not available!", requestedExtension);
 		}
-		else
-		{
-			enabledExtensions.emplace_back(requestedExtension);
-		}
+
+		enabledExtensions.emplace_back(requestedExtension);
 	}
 
 	// Prepare the device queues
-	uint32_t queueFamilyPropertiesCount{ to_u32(physicalDevice.getQueueFamilyProperties().size()) };
-	std::vector<VkDeviceQueueCreateInfo> queueCreateInfos(queueFamilyPropertiesCount);
+	uint32_t queueFamilyPropertiesCount{ to_u32(this->physicalDevice->getQueueFamilyProperties().size()) };
+	std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
+	queueCreateInfos.reserve(queueFamilyPropertiesCount);
 	std::vector<std::vector<float>> queuePriorities(queueFamilyPropertiesCount);
 
 	for (uint32_t queueFamilyIndex = 0u; queueFamilyIndex < queueFamilyPropertiesCount; ++queueFamilyIndex)
 	{
-		const VkQueueFamilyProperties& queueFamilyProperties = physicalDevice.getQueueFamilyProperties()[queueFamilyIndex];
+		const VkQueueFamilyProperties &queueFamilyProperties = this->physicalDevice->getQueueFamilyProperties()[queueFamilyIndex];
 
 		// Populate queueCreateInfos
 		queuePriorities[queueFamilyIndex].resize(queueFamilyProperties.queueCount, 1.0f);
@@ -69,27 +68,32 @@ Device::Device(PhysicalDevice &physicalDevice, VkSurfaceKHR surface, std::vector
 		queueCreateInfo.pQueuePriorities = queuePriorities[queueFamilyIndex].data();
 
 		queueCreateInfos.emplace_back(queueCreateInfo);
-
-		// Populate the queues array
-		VkBool32 present_supported = physicalDevice.isPresentSupported(surface, queueFamilyIndex);
-
-		for (uint32_t queue_index = 0u; queue_index < queueFamilyProperties.queueCount; ++queue_index)
-		{
-			queues[queueFamilyIndex].emplace_back(*this, queueFamilyIndex, queueFamilyProperties, present_supported, queue_index);
-		}
 	}
 
 	// Create the device
-	const VkPhysicalDeviceFeatures &requestedFeatures = physicalDevice.getRequestedFeatures();
+	const VkPhysicalDeviceFeatures &requestedFeatures = this->physicalDevice->getRequestedFeatures();
 
 	VkDeviceCreateInfo createInfo { VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
-	createInfo.pQueueCreateInfos = queueCreateInfos.data();
 	createInfo.queueCreateInfoCount = to_u32(queueCreateInfos.size());
+	createInfo.pQueueCreateInfos = queueCreateInfos.data();
 	createInfo.enabledExtensionCount = to_u32(enabledExtensions.size());
 	createInfo.ppEnabledExtensionNames = enabledExtensions.data();
 	createInfo.pEnabledFeatures = &requestedFeatures;
 
-	VK_CHECK(vkCreateDevice(physicalDevice.getHandle(), &createInfo, nullptr, &handle));
+	VK_CHECK(vkCreateDevice(this->physicalDevice->getHandle(), &createInfo, nullptr, &handle));
+
+	// Create queues
+	queues.resize(queueFamilyPropertiesCount);
+	for (uint32_t queueFamilyIndex = 0u; queueFamilyIndex < queueFamilyPropertiesCount; ++queueFamilyIndex)
+	{
+		const VkQueueFamilyProperties& queueFamilyProperties = this->physicalDevice->getQueueFamilyProperties()[queueFamilyIndex];
+		bool presentSupported = this->physicalDevice->isPresentSupported(surface, queueFamilyIndex);
+
+		for (uint32_t queueIndex = 0u; queueIndex < queueFamilyProperties.queueCount; ++queueIndex)
+		{
+			queues[queueFamilyIndex].emplace_back(*this, queueFamilyIndex, queueIndex, queueFamilyProperties, presentSupported);
+		}
+	}
 
 	// Load device-related Vulkan entrypoints directly from the driver to prevent the dispatch overhead incurred from supporting multiple VkDevice objects (see Volk docs)
     volkLoadDevice(handle);
@@ -104,6 +108,11 @@ Device::~Device()
 	}
 }
 
+void Device::waitIdle()
+{
+	vkDeviceWaitIdle(handle);
+}
+
 VkDevice Device::getHandle() const
 {
 	return handle;
@@ -111,7 +120,7 @@ VkDevice Device::getHandle() const
 
 const PhysicalDevice &Device::getPhysicalDevice() const
 {
-	return physicalDevice;
+	return *physicalDevice;
 }
 
 const Queue &Device::getOptimalGraphicsQueue()

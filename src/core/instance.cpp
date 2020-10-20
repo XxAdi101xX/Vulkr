@@ -77,16 +77,13 @@ Instance::Instance(std::string applicationName)
     VK_CHECK(vkCreateDebugUtilsMessengerEXT(instance, &debugUtilsCreateInfo, nullptr, &debugUtilsMessenger));
     LOGD("Validation layer enabled");
 #endif // VULKR_DEBUG
-
-    selectGPU();
 }
 
 Instance::~Instance() 
 {
 #ifdef VULKR_DEBUG
-vkDestroyDebugUtilsMessengerEXT(instance, debugUtilsMessenger, nullptr);
+    vkDestroyDebugUtilsMessengerEXT(instance, debugUtilsMessenger, nullptr);
 #endif // VULKR_DEBUG
-
     vkDestroyInstance(instance, nullptr);
 }
 
@@ -149,7 +146,7 @@ VKAPI_ATTR VkBool32 VKAPI_CALL Instance::debugUtilsMessengerCallback (
     return VK_FALSE;
 }
 
-void Instance::selectGPU()
+std::unique_ptr<PhysicalDevice> Instance::getSuitablePhysicalDevice()
 {
     // Querying valid physical devices on the machine
     uint32_t physicalDeviceCount{ 0u };
@@ -172,15 +169,13 @@ void Instance::selectGPU()
 
         if (properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
         {
-            gpu = std::make_unique<PhysicalDevice>(*this, physicalDevice);
-            LOGI("Selected GPU: {}", gpu->getProperties().deviceName);
-            return;
+            return std::make_unique<PhysicalDevice>(*this, physicalDevice);
         }
     }
 
     // If a discrete GPU isn't found, we default to the first available one
-    gpu = std::make_unique<PhysicalDevice>(*this, physicalDevices[0]);
-    LOGW("A discrete GPU wasn't found hence we will default to using {}", gpu->getProperties().deviceName);
+    LOGW("A discrete GPU wasn't found hence the first available one was chosen");
+    return std::make_unique<PhysicalDevice>(*this, physicalDevices[0]);
 }
 
 } // namespace vulkr

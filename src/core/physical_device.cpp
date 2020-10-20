@@ -21,11 +21,12 @@
  */
 
 #include "physical_device.h"
+#include "common/logger.h"
 
 namespace vulkr
 {
 
-PhysicalDevice::PhysicalDevice(Instance& instance, VkPhysicalDevice gpu) :
+PhysicalDevice::PhysicalDevice(Instance &instance, VkPhysicalDevice gpu) :
 	instance{ instance },
 	handle{ gpu }
 {
@@ -33,10 +34,12 @@ PhysicalDevice::PhysicalDevice(Instance& instance, VkPhysicalDevice gpu) :
 	vkGetPhysicalDeviceProperties(gpu, &properties);
 	vkGetPhysicalDeviceMemoryProperties(gpu, &memoryProperties);
 
-	uint32_t queueFamilyPropertiesCount = 0u;
+	uint32_t queueFamilyPropertiesCount{ 0u };
 	vkGetPhysicalDeviceQueueFamilyProperties(gpu, &queueFamilyPropertiesCount, nullptr);
 	queueFamilyProperties = std::vector<VkQueueFamilyProperties>(queueFamilyPropertiesCount);
 	vkGetPhysicalDeviceQueueFamilyProperties(gpu, &queueFamilyPropertiesCount, queueFamilyProperties.data());
+
+	LOGI("Selected GPU: {}", this->getProperties().deviceName);
 }
 
 VkPhysicalDevice PhysicalDevice::getHandle() const

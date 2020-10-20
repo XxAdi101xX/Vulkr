@@ -27,11 +27,11 @@
 #include <vector>
 
 #include "common/vulkan_common.h"
+#include "physical_device.h"
 
 #include <GLFW/glfw3.h>
 namespace vulkr 
 {
-class PhysicalDevice;
 
 class Instance 
 {
@@ -56,12 +56,12 @@ public:
 	/* Get the instance handle */
 	VkInstance getHandle() const;
 
+	/* Select a physical device for our application and return a PhysicalDevice class with the properties of the gpu; must be only called once */
+	std::unique_ptr<PhysicalDevice> getSuitablePhysicalDevice();
+
 private:
 	/* The Vulkan instance */
 	VkInstance instance{ VK_NULL_HANDLE };
-
-	/* The GPU used for the Vulkan application */
-	std::unique_ptr<PhysicalDevice> gpu;
 
 	/* The required validation layers */
 	const std::vector<const char *> requiredValidationLayers = {
@@ -78,9 +78,6 @@ private:
 
 	/* Get all required instances */
 	std::vector<const char*> getRequiredInstanceExtensions() const;
-
-	/* Select a physical device for our application; will populate the gpu field */
-	void selectGPU();
 };
 
 } // namespace vulkr

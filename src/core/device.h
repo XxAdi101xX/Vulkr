@@ -33,7 +33,7 @@ class Queue;
 class Device
 {
 public:
-	Device(PhysicalDevice &physicalDevice, VkSurfaceKHR surface, std::vector<const char*> requestedExtensions = {});
+	Device(std::unique_ptr<PhysicalDevice> &&physicalDevice, VkSurfaceKHR surface, const std::vector<const char*> requestedExtensions = {});
 	~Device();
 
 	/* Disable unnecessary operators to prevent error prone usages */
@@ -41,6 +41,9 @@ public:
 	Device(Device &&) = delete;
 	Device& operator=(const Device &) = delete;
 	Device& operator=(Device &&) = delete;
+
+	/* Wait for a device to be fully idle, is the equivilant of calling vkQueueWaitIdle on all the queues owned by the device */
+	void Device::waitIdle();
 
 	/* Get the logical device handle */
 	VkDevice getHandle() const;
@@ -61,7 +64,8 @@ private:
 	VkDevice handle{ VK_NULL_HANDLE };
 	
 	/* The gpu used */
-	const PhysicalDevice &physicalDevice;
+		/* Select a physical device for our application; will populate the gpu field */
+	std::unique_ptr<PhysicalDevice> physicalDevice;
 
 	/* All the extensions available on the device */
 	std::vector<VkExtensionProperties> deviceExtensions;
