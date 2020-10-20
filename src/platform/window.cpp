@@ -168,10 +168,6 @@ Window::Window(Platform& platform) : platform{ platform }
 
 Window::~Window()
 {
-	if (surface != VK_NULL_HANDLE) {
-		vkDestroySurfaceKHR(instance, surface, nullptr);
-	}
-
 	glfwDestroyWindow(handle);
 	glfwTerminate();
 }
