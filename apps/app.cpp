@@ -24,6 +24,7 @@
 
 #include "app.h"
 #include "platform/platform.h"
+#include "core/image.h"
 
 namespace vulkr
 {
@@ -35,6 +36,10 @@ MainApp::MainApp(Platform& platform, std::string name) : Application{ platform, 
      if (device)
      {
          device->waitIdle();
+     }
+
+     for (uint32_t i = 0; i < swapChainImageViews.size(); ++i) {
+         swapChainImageViews[i].reset();
      }
 
      swapchain.reset();
@@ -54,16 +59,21 @@ void MainApp::prepare()
 {
     Application::prepare();
 
-    surface = platform.getSurface();
 
     instance = std::make_unique<Instance>(getName());
 
     platform.createSurface(instance->getHandle());
+    surface = platform.getSurface();
 
     device = std::make_unique<Device>(std::move(instance->getSuitablePhysicalDevice()), surface, deviceExtensions);
 
     const std::set<VkImageUsageFlagBits> imageUsageFlags{ VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT };
-    //swapchain = std::make_unique<Swapchain>(*device, surface, VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR, VK_PRESENT_MODE_FIFO_KHR, imageUsageFlags);
+    swapchain = std::make_unique<Swapchain>(*device, surface, VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR, VK_PRESENT_MODE_FIFO_KHR, imageUsageFlags);
+
+    swapChainImageViews.reserve(swapchain->getImages().size());
+    for (uint32_t i = 0; i < swapchain->getImages().size(); ++i) {
+        swapChainImageViews.emplace_back(std::make_unique<ImageView>(*(swapchain->getImages()[i]), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, swapchain->getProperties().surfaceFormat.format));
+    }
 
 }
 

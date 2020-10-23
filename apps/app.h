@@ -27,6 +27,7 @@
 #include "core/instance.h"
 #include "core/device.h"
 #include "core/swapchain.h"
+#include "core/image_view.h"
 
 #include "platform/application.h"
 
@@ -46,13 +47,16 @@ public:
 protected:
     /* The Vulkan instance */
     std::unique_ptr<Instance> instance{ nullptr };
+    
+    VkSurfaceKHR surface{ VK_NULL_HANDLE };
 
     /* The Vulkan device */
     std::unique_ptr<Device> device{ nullptr };
 
     std::unique_ptr<Swapchain> swapchain{ nullptr };
 
-    VkSurfaceKHR surface{ VK_NULL_HANDLE };
+    std::vector<std::unique_ptr<ImageView>> swapChainImageViews;
+
 
     const std::vector<const char *> deviceExtensions = {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME
