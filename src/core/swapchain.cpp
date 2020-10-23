@@ -24,6 +24,7 @@
 #include "physical_device.h"
 #include "device.h"
 #include "queue.h"
+#include "image.h"
 
 #include "platform/window.h"
 
@@ -36,7 +37,6 @@ namespace vulkr
 Swapchain::Swapchain(
     Device &device,
     VkSurfaceKHR surface,
-    const VkExtent2D &extent,
     const VkSurfaceTransformFlagBitsKHR transform,
     const VkPresentModeKHR presentMode,
     const std::set<VkImageUsageFlagBits> &imageUsageFlags):
@@ -91,9 +91,14 @@ Swapchain::~Swapchain()
     }
 }
 
-SwapchainProperties Swapchain::getProperties() const
+const SwapchainProperties &Swapchain::getProperties() const
 {
     return properties;
+}
+
+const std::vector<std::unique_ptr<Image>> &Swapchain::getImages() const
+{
+    return images;
 }
 
 void Swapchain::create()
@@ -130,10 +135,18 @@ void Swapchain::create()
     VK_CHECK(vkCreateSwapchainKHR(device.getHandle(), &createInfo, nullptr, &handle));
 
     // Get the swapchain images after it's been created
+    std::vector<VkImage> imageHandles;
     uint32_t imageCount{ 0u };
     VK_CHECK(vkGetSwapchainImagesKHR(device.getHandle(), handle, &imageCount, nullptr));
-    images.resize(imageCount);
-    VK_CHECK(vkGetSwapchainImagesKHR(device.getHandle(), handle, &imageCount, images.data()));
+    imageHandles.resize(imageCount);
+    VK_CHECK(vkGetSwapchainImagesKHR(device.getHandle(), handle, &imageCount, imageHandles.data()));
+
+    images.reserve(imageCount);
+    for (uint32_t i = 0; i < imageCount; ++i)
+    {
+        VkExtent3D extent{ properties.imageExtent.width, properties.imageExtent.height, 1 };
+        images.emplace_back(std::make_unique<Image>(this->device, imageHandles[i], extent, properties.surfaceFormat.format, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT));
+    }
 }
 
 uint32_t Swapchain::chooseImageCount(uint32_t minImageCount, uint32_t maxImageCount) const

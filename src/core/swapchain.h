@@ -30,6 +30,7 @@ namespace vulkr
 {
 
 class Device;
+class Image;
 
 struct SwapchainProperties
 {
@@ -51,7 +52,6 @@ public:
 	Swapchain::Swapchain(
 		Device &device,
 		VkSurfaceKHR surface,
-		const VkExtent2D &extent,
 		const VkSurfaceTransformFlagBitsKHR transform,
 		const VkPresentModeKHR presentMode,
 		const std::set<VkImageUsageFlagBits> &imageUsageFlags);
@@ -63,7 +63,8 @@ public:
 	Swapchain& operator=(const Swapchain &) = delete;
 	Swapchain& operator=(Swapchain &&) = delete;
 
-	SwapchainProperties getProperties() const;
+	const SwapchainProperties &getProperties() const;
+	const std::vector<std::unique_ptr<Image>> &getImages() const;
 private:
 	/* The swapchain handle */
 	VkSwapchainKHR handle{ VK_NULL_HANDLE };
@@ -78,7 +79,7 @@ private:
 	SwapchainProperties properties{};
 	
 	/* The images associated with the swapchain */
-	std::vector<VkImage> images;
+	std::vector<std::unique_ptr<Image>> images;
 	// TODO: should I add the image_views here and also destruct them
 
 	/* All available surface formats available to use */

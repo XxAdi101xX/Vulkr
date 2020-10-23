@@ -34,8 +34,8 @@ class Image
 // TODO: consider how to do memeory management!
 public:
 	Image(
-		Device& device,
-		const VkExtent3D& extent,
+		Device &device,
+		VkExtent3D extent,
 		VkFormat format,
 		VkImageUsageFlags imageUsage,
 		VkSampleCountFlagBits sampleCount = VK_SAMPLE_COUNT_1_BIT,
@@ -45,6 +45,17 @@ public:
 		VkImageCreateFlags flags = 0
 	);
 
+	Image::Image(
+		Device &device,
+		VkImage handle,
+		VkExtent3D extent,
+		VkFormat format,
+		VkImageUsageFlags imageUsageFlags,
+		VkSampleCountFlagBits sampleCount = VK_SAMPLE_COUNT_1_BIT
+	);
+
+	~Image() = default;
+ 
 	/* Disable unnecessary operators to prevent error prone usages */
 	Image(Image &&) = delete; // TODO: do we need this?
 	Image(const Image &) = delete;
@@ -57,13 +68,13 @@ public:
 
 	VkImageType getType() const;
 
-	const VkExtent3D& getExtent() const;
+	const VkExtent3D &getExtent() const;
 
 	VkFormat getFormat() const;
 
 	VkSampleCountFlagBits getSampleCount() const;
 
-	VkImageUsageFlags getUsage() const;
+	VkImageUsageFlags getUsageFlags() const;
 
 	VkImageTiling getTiling() const;
 
@@ -84,7 +95,7 @@ private:
 
 	VkFormat format{};
 
-	VkImageUsageFlags usage{};
+	VkImageUsageFlags usageFlags{};
 
 	VkSampleCountFlagBits sampleCount{};
 

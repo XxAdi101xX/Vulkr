@@ -71,7 +71,7 @@ VkImageType getImageType(VkExtent3D extent)
 
 Image::Image(
 	Device &device,
-	const VkExtent3D& extent,
+	VkExtent3D extent,
 	VkFormat format,
 	VkImageUsageFlags imageUsage,
 	VkSampleCountFlagBits sampleCount,
@@ -84,7 +84,7 @@ Image::Image(
 	extent{ extent },
 	format{ format },
 	sampleCount{ sampleCount },
-	usage{ imageUsage },
+	usageFlags{ imageUsage },
 	arrayLayerCount{ arrayLayers },
 	tiling{ tiling }
 {
@@ -101,16 +101,16 @@ Image::Image(
 	subresource.mipLevel = mipLevels;
 	subresource.arrayLayer = arrayLayers;
 
-	VkImageCreateInfo image_info{ VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
-	image_info.flags = flags;
-	image_info.imageType = type;
-	image_info.format = format;
-	image_info.extent = extent;
-	image_info.mipLevels = mipLevels;
-	image_info.arrayLayers = arrayLayers;
-	image_info.samples = sampleCount;
-	image_info.tiling = tiling;
-	image_info.usage = imageUsage;
+	VkImageCreateInfo imageCreateInfo{ VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
+	imageCreateInfo.flags = flags;
+	imageCreateInfo.imageType = type;
+	imageCreateInfo.format = format;
+	imageCreateInfo.extent = extent;
+	imageCreateInfo.mipLevels = mipLevels;
+	imageCreateInfo.arrayLayers = arrayLayers;
+	imageCreateInfo.samples = sampleCount;
+	imageCreateInfo.tiling = tiling;
+	imageCreateInfo.usage = imageUsage;
 
 	//if (imageUsage & VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT)
 	//{
@@ -126,6 +126,19 @@ Image::Image(
 	//{
 	//	throw VulkanException{ result, "Cannot create Image" };
 	//}
+}
+
+Image::Image(Device &device, VkImage handle, VkExtent3D extent, VkFormat format, VkImageUsageFlags imageUsageFlags, VkSampleCountFlagBits sampleCount) :
+	device{ device },
+	handle{ handle },
+	type{ getImageType(extent) },
+	extent{ extent },
+	format{ format },
+	sampleCount{ sampleCount },
+	usageFlags{ imageUsageFlags }
+{
+	subresource.mipLevel = 1;
+	subresource.arrayLayer = 1;
 }
 
 Device &Image::getDevice() const
@@ -158,9 +171,9 @@ VkSampleCountFlagBits Image::getSampleCount() const
 	return sampleCount;
 }
 
-VkImageUsageFlags Image::getUsage() const
+VkImageUsageFlags Image::getUsageFlags() const
 {
-	return usage;
+	return usageFlags;
 }
 
 VkImageTiling Image::getTiling() const

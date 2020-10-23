@@ -34,6 +34,7 @@ class Queue
 {
 public:
 	Queue(Device &device, uint32_t familyIndex, uint32_t index, VkQueueFamilyProperties properties, bool canPresent);
+	~Queue() = default;
 	Queue(Queue &&);
 
 	/* Disable unnecessary operators to prevent error prone usages */
