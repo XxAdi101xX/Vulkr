@@ -39,10 +39,10 @@ public:
 		VkPipelineBindPoint bindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
 		VkSubpassDescriptionFlags descriptionFlags = 0u
 	);
+	Subpass(Subpass &&) = default;
 
 	/* Disable unnecessary operators to prevent error prone usages */
 	Subpass(const Subpass &) = delete;
-	Subpass(Subpass &&) = delete;
 	Subpass& operator=(const Subpass &) = delete;
 	Subpass& operator=(Subpass &&) = delete;
 

@@ -28,6 +28,8 @@
 #include "core/device.h"
 #include "core/swapchain.h"
 #include "core/image_view.h"
+#include "core/render_pass.h"
+#include "rendering/subpass.h"
 
 #include "platform/application.h"
 
@@ -57,6 +59,7 @@ protected:
 
     std::vector<std::unique_ptr<ImageView>> swapChainImageViews;
 
+    std::unique_ptr<RenderPass> renderPass{ nullptr };
 
     const std::vector<const char *> deviceExtensions = {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME

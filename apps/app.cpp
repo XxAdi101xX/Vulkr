@@ -38,6 +38,8 @@ MainApp::MainApp(Platform& platform, std::string name) : Application{ platform, 
          device->waitIdle();
      }
 
+     renderPass.reset();
+
      for (uint32_t i = 0; i < swapChainImageViews.size(); ++i) {
          swapChainImageViews[i].reset();
      }
@@ -74,6 +76,36 @@ void MainApp::prepare()
     for (uint32_t i = 0; i < swapchain->getImages().size(); ++i) {
         swapChainImageViews.emplace_back(std::make_unique<ImageView>(*(swapchain->getImages()[i]), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, swapchain->getProperties().surfaceFormat.format));
     }
+
+    std::vector<Attachment> attachments;
+
+    Attachment colorAttachment{};
+    colorAttachment.format = swapchain->getProperties().surfaceFormat.format;
+    colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+    colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    attachments.push_back(colorAttachment);
+
+    std::vector<VkAttachmentReference> inputAttachments;
+    std::vector<VkAttachmentReference> colorAttachments;
+    std::vector<VkAttachmentReference> resolveAttachments;
+    std::vector<VkAttachmentReference> depthStencilAttachments;
+    std::vector<uint32_t> preserveAttachments;
+
+    VkAttachmentReference colorAttachmentRef{};
+    colorAttachmentRef.attachment = 0;
+    colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    colorAttachments.push_back(colorAttachmentRef);
+
+    std::vector<Subpass> subpasses;
+    subpasses.emplace_back(inputAttachments, colorAttachments, resolveAttachments, depthStencilAttachments, preserveAttachments, VK_PIPELINE_BIND_POINT_GRAPHICS, VK_SUBPASS_DESCRIPTION_PER_VIEW_ATTRIBUTES_BIT_NVX);
+
+    // TODOD add dependency for subpass
+    renderPass = std::make_unique<RenderPass>(*device, attachments, subpasses);
 
 }
 
