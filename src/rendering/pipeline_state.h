@@ -151,7 +151,7 @@ public:
 		DepthStencilState depthStencilState,
 		ColorBlendState colorBlendState
 	);
-	~PipelineState() = default;
+	~PipelineState();
 
 	/* Disable unnecessary operators to prevent error prone usages */
 	PipelineState(const PipelineState &) = delete;

@@ -34,6 +34,7 @@
 #include "rendering/pipeline_state.h"
 #include "core/pipeline_layout.h"
 #include "core/pipeline.h"
+#include "core/framebuffer.h"
 
 #include "platform/application.h"
 
@@ -73,7 +74,10 @@ protected:
     std::unique_ptr<RenderPass> renderPass{ nullptr };
 
     std::vector<ShaderModule> shaderModules;
+    std::unique_ptr<PipelineState> pipelineState{ nullptr };
     std::unique_ptr<GraphicsPipeline> pipeline{ nullptr };
+
+    std::vector<std::unique_ptr<Framebuffer>> swapchainFramebuffers;
 
     const std::vector<const char *> deviceExtensions = {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME

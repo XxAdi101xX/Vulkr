@@ -48,6 +48,11 @@ PipelineState::PipelineState(
 	colorBlendState{ colorBlendState }
 {}
 
+PipelineState::~PipelineState()
+{
+	pipelineLayout.reset();
+}
+
 const PipelineLayout &PipelineState::getPipelineLayout() const
 {
 	return *pipelineLayout;

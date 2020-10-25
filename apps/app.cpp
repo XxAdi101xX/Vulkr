@@ -38,6 +38,14 @@ MainApp::MainApp(Platform& platform, std::string name) : Application{ platform, 
          device->waitIdle();
      }
 
+     for (uint32_t i = 0; i < swapchainFramebuffers.size(); ++i) {
+         swapchainFramebuffers[i].reset();
+     }
+
+     pipeline.reset();
+
+     pipelineState.reset(); // destroys pipeline layout as well
+
      renderPass.reset();
 
      for (uint32_t i = 0; i < swapChainImageViews.size(); ++i) {
@@ -156,7 +164,7 @@ void MainApp::prepare()
     shaderModules.emplace_back(*device, VK_SHADER_STAGE_VERTEX_BIT, std::make_unique<ShaderSource>("../../../../src/shaders/vert.spv"));
     shaderModules.emplace_back(*device, VK_SHADER_STAGE_FRAGMENT_BIT, std::make_unique<ShaderSource>("../../../../src/shaders/frag.spv"));
 
-    PipelineState pipelineState {
+    pipelineState = std::make_unique<PipelineState>(
         std::make_unique<PipelineLayout>(*device, shaderModules),
         *renderPass,
         vertexInputState,
@@ -166,10 +174,17 @@ void MainApp::prepare()
         multisampleState,
         depthStencilState,
         colorBlendState
-    };
+    );
 
-    pipeline = std::make_unique<GraphicsPipeline>(*device, pipelineState, nullptr);
+    pipeline = std::make_unique<GraphicsPipeline>(*device, *pipelineState, nullptr);
 
+    // Create swapchain framebuffers
+    swapchainFramebuffers.reserve(swapchain->getImages().size());
+    for (uint32_t i = 0; i < swapchain->getImages().size(); ++i) {
+        std::vector<VkImageView> attachments { swapChainImageViews[i]->getHandle() };
+
+        swapchainFramebuffers.emplace_back(std::make_unique<Framebuffer>(*device, *swapchain, *renderPass, attachments));
+    }
 
 }
 
