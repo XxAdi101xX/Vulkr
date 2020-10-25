@@ -38,6 +38,12 @@ MainApp::MainApp(Platform& platform, std::string name) : Application{ platform, 
          device->waitIdle();
      }
 
+     for (uint32_t i = 0; i < commandBuffers.size(); ++i) {
+         commandBuffers[i].reset();
+     }
+
+     commandPool.reset();
+
      for (uint32_t i = 0; i < swapchainFramebuffers.size(); ++i) {
          swapchainFramebuffers[i].reset();
      }
@@ -184,6 +190,32 @@ void MainApp::prepare()
         std::vector<VkImageView> attachments { swapChainImageViews[i]->getHandle() };
 
         swapchainFramebuffers.emplace_back(std::make_unique<Framebuffer>(*device, *swapchain, *renderPass, attachments));
+    }
+
+    // Create command pool
+    commandPool = std::make_unique<CommandPool>(*device, device->getOptimalGraphicsQueue().getFamilyIndex(), 0u);
+
+    // Create command buffers
+    std::vector<VkClearValue> clearValues;
+    VkClearValue clearColor = { 0.0f, 0.0f, 0.0f, 1.0f };
+    clearValues.emplace_back(clearColor);
+
+    commandBuffers.reserve(swapchainFramebuffers.size());
+    for (uint32_t i = 0; i < swapchainFramebuffers.size(); ++i) {
+        commandBuffers.emplace_back(std::make_unique<CommandBuffer>(*commandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, *renderPass, *(swapchainFramebuffers[i])));
+
+        commandBuffers[i]->begin(0u, nullptr);
+        
+        const std::vector<std::unique_ptr<Subpass>> subpasses; // TODO not used
+        commandBuffers[i]->beginRenderPass(clearValues, subpasses, swapchain->getProperties().imageExtent, VK_SUBPASS_CONTENTS_INLINE);
+
+        vkCmdBindPipeline(commandBuffers[i]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->getHandle()); // TODO: put this in command buffer class?
+
+        vkCmdDraw(commandBuffers[i]->getHandle(), 3, 1, 0, 0); // TODO do we put this in commmand buffer class
+
+        commandBuffers[i]->endRenderPass();
+
+        commandBuffers[i]->end();
     }
 
 }

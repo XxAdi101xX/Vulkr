@@ -35,6 +35,9 @@
 #include "core/pipeline_layout.h"
 #include "core/pipeline.h"
 #include "core/framebuffer.h"
+#include "core/queue.h"
+#include "core/command_pool.h"
+#include "core/command_buffer.h"
 
 #include "platform/application.h"
 
@@ -78,6 +81,10 @@ protected:
     std::unique_ptr<GraphicsPipeline> pipeline{ nullptr };
 
     std::vector<std::unique_ptr<Framebuffer>> swapchainFramebuffers;
+
+    std::unique_ptr<CommandPool> commandPool{ nullptr };
+
+    std::vector<std::unique_ptr<CommandBuffer>> commandBuffers;
 
     const std::vector<const char *> deviceExtensions = {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME
