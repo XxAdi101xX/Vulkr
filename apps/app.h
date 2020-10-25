@@ -30,6 +30,10 @@
 #include "core/image_view.h"
 #include "core/render_pass.h"
 #include "rendering/subpass.h"
+#include "rendering/shader_module.h"
+#include "rendering/pipeline_state.h"
+#include "core/pipeline_layout.h"
+#include "core/pipeline.h"
 
 #include "platform/application.h"
 
@@ -59,7 +63,17 @@ protected:
 
     std::vector<std::unique_ptr<ImageView>> swapChainImageViews;
 
+    std::vector<VkAttachmentReference> inputAttachments;
+    std::vector<VkAttachmentReference> colorAttachments;
+    std::vector<VkAttachmentReference> resolveAttachments;
+    std::vector<VkAttachmentReference> depthStencilAttachments;
+    std::vector<uint32_t> preserveAttachments;
+
+    std::vector<Subpass> subpasses;
     std::unique_ptr<RenderPass> renderPass{ nullptr };
+
+    std::vector<ShaderModule> shaderModules;
+    std::unique_ptr<GraphicsPipeline> pipeline{ nullptr };
 
     const std::vector<const char *> deviceExtensions = {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME
