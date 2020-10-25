@@ -56,18 +56,18 @@ GraphicsPipeline::GraphicsPipeline(Device &device, PipelineState &pipelineState,
 
 	std::vector<VkPipelineShaderStageCreateInfo> shaderStageCreateInfos;
 
-	for (const ShaderModule *shaderModule : pipelineState.getPipelineLayout()->getShaderModules())
+	for (const ShaderModule &shaderModule : pipelineState.getPipelineLayout().getShaderModules())
 	{
 		VkPipelineShaderStageCreateInfo shaderStageCreateInfo{ VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO };
-		shaderStageCreateInfo.stage = shaderModule->getStage();
+		shaderStageCreateInfo.stage = shaderModule.getStage();
 
-		// Create the handle to the module
+		// Since we only need the shadermodule during the creation of the pipeline, we don't keep the information in the shader module class and delete at the end
 		VkShaderModuleCreateInfo shaderModuleCreateInfo{ VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO };
-		shaderModuleCreateInfo.codeSize = shaderModule->getShaderSource().getData().size();
-		shaderModuleCreateInfo.pCode = reinterpret_cast<const uint32_t*>(shaderModule->getShaderSource().getData().data());
+		shaderModuleCreateInfo.codeSize = shaderModule.getShaderSource().getData().size();
+		shaderModuleCreateInfo.pCode = reinterpret_cast<const uint32_t*>(shaderModule.getShaderSource().getData().data());
 		VK_CHECK(vkCreateShaderModule(device.getHandle(), &shaderModuleCreateInfo, nullptr, &shaderStageCreateInfo.module));
 
-		shaderStageCreateInfo.pName = shaderModule->getEntryPoint().c_str();
+		shaderStageCreateInfo.pName = shaderModule.getEntryPoint().c_str();
 		shaderStageCreateInfo.pSpecializationInfo = nullptr; // Used for specifying shader constants
 
 		shaderStageCreateInfos.push_back(shaderStageCreateInfo);
@@ -161,8 +161,8 @@ GraphicsPipeline::GraphicsPipeline(Device &device, PipelineState &pipelineState,
 	graphicsPipeline.pColorBlendState = &color_blend_state;
 	//graphicsPipeline.pDynamicState = &dynamicStates; // TODO: update this when dynamic states are enabled
 
-	graphicsPipeline.layout = pipelineState.getPipelineLayout()->getHandle();
-	graphicsPipeline.renderPass = pipelineState.getRenderPass()->getHandle();
+	graphicsPipeline.layout = pipelineState.getPipelineLayout().getHandle();
+	graphicsPipeline.renderPass = pipelineState.getRenderPass().getHandle();
 	graphicsPipeline.subpass = pipelineState.getSubpassIndex();
 
 	VK_CHECK(vkCreateGraphicsPipelines(device.getHandle(), pipelineCache, 1, &graphicsPipeline, nullptr, &handle));

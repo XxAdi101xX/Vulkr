@@ -34,7 +34,7 @@ class ShaderModule;
 class PipelineLayout
 {
 public:
-	PipelineLayout(Device &device, const std::vector<ShaderModule*> &shaderModules);
+	PipelineLayout(Device &device, const std::vector<ShaderModule> &shaderModules);
 	~PipelineLayout();
 
 
@@ -51,7 +51,7 @@ public:
 	const std::vector<VkPushConstantRange*> &getPushConstantRanges() const;
 	// TODO
 
-	const std::vector<ShaderModule*> &getShaderModules() const;
+	const std::vector<ShaderModule> &getShaderModules() const;
 
 	//const std::unordered_map<uint32_t, std::vector<ShaderResource>>& get_bindings() const;
 
@@ -73,7 +73,7 @@ private:
 	VkPipelineLayout handle{ VK_NULL_HANDLE };
 	Device& device;
 
-	std::vector<ShaderModule*> shaderModules;
+	const std::vector<ShaderModule> &shaderModules;
 
 	std::vector<VkDescriptorSetLayout*> setLayouts;
 	std::vector<VkPushConstantRange*> pushConstantRanges;

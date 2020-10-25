@@ -33,6 +33,14 @@ class ShaderSource
 {
 public:
 	ShaderSource(const std::string &filename);
+	~ShaderSource() = default;
+
+
+	/* Disable unnecessary operators to prevent error prone usages */
+	ShaderSource(const ShaderSource &) = delete;
+	ShaderSource(ShaderSource &&) = delete;
+	ShaderSource& operator=(const ShaderSource &) = delete;
+	ShaderSource& operator=(ShaderSource &&) = delete;
 
 	const std::string &getFileName() const;
 
@@ -54,18 +62,19 @@ public:
 	ShaderModule(
 		Device& device,
 		VkShaderStageFlagBits stage,
-		const ShaderSource &shaderSource,
+		std::unique_ptr<ShaderSource> &&shaderSource,
 		const char *entryPoint = "main"
 	);
+	~ShaderModule() = default;
+	ShaderModule(ShaderModule &&) = default;
 
 	/* Disable unnecessary operators to prevent error prone usages */
 	ShaderModule(const ShaderModule &) = delete;
-	ShaderModule(ShaderModule &&) = delete;
 	ShaderModule& operator=(const ShaderModule &) = delete;
 	ShaderModule& operator=(ShaderModule &&) = delete;
 
+	VkShaderModule getHandle() const;
 	VkShaderStageFlagBits getStage() const;
-
 	const std::string &getEntryPoint() const;
 	const ShaderSource &getShaderSource() const;
 
@@ -79,7 +88,7 @@ private:
 	const std::string entryPoint;
 
 	// Shader source information
-	const ShaderSource &shaderSource;
+	std::unique_ptr<ShaderSource> shaderSource;
 };
 
 }

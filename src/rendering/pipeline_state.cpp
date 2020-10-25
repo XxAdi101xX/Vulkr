@@ -21,16 +21,39 @@
  */
 
 #include "pipeline_state.h"
+#include "core/pipeline_layout.h"
 
 namespace vulkr
 {
 
-const PipelineLayout *PipelineState::getPipelineLayout() const
+PipelineState::PipelineState(
+	std::unique_ptr<PipelineLayout> &&pipelineLayout,
+	RenderPass &renderPass,
+	VertexInputState vertexInputState,
+	InputAssemblyState inputAssemblyState,
+	ViewportState viewportState,
+	RasterizationState rasterizationState,
+	MultisampleState multisampleState,
+	DepthStencilState depthStencilState,
+	ColorBlendState colorBlendState
+): 
+	pipelineLayout{ std::move(pipelineLayout)},
+	renderPass{ renderPass },
+	vertexInputState{ vertexInputState },
+	inputAssemblyState{ inputAssemblyState },
+	viewportState{ viewportState },
+	rasterizationState{ rasterizationState },
+	multisampleState{ multisampleState },
+	depthStencilState{ depthStencilState },
+	colorBlendState{ colorBlendState }
+{}
+
+const PipelineLayout &PipelineState::getPipelineLayout() const
 {
-	return pipelineLayout;
+	return *pipelineLayout;
 }
 
-const RenderPass *PipelineState::getRenderPass() const
+const RenderPass &PipelineState::getRenderPass() const
 {
 	return renderPass;
 }

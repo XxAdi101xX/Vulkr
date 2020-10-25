@@ -140,7 +140,18 @@ struct ColorBlendState
 class PipelineState
 {
 public:
-	PipelineState() = default;
+	PipelineState (
+		std::unique_ptr<PipelineLayout> &&pipelineLayout,
+		RenderPass& renderPass,
+		VertexInputState vertexInputState,
+		InputAssemblyState inputAssemblyState,
+		ViewportState viewportState,
+		RasterizationState rasterizationState,
+		MultisampleState multisampleState,
+		DepthStencilState depthStencilState,
+		ColorBlendState colorBlendState
+	);
+	~PipelineState() = default;
 
 	/* Disable unnecessary operators to prevent error prone usages */
 	PipelineState(const PipelineState &) = delete;
@@ -148,29 +159,9 @@ public:
 	PipelineState& operator=(const PipelineState &) = delete;
 	PipelineState& operator=(PipelineState &&) = delete;
 
-	//void set_render_pass(const RenderPass& render_pass);
+	const PipelineLayout &getPipelineLayout() const;
 
-	//void set_specialization_constant(uint32_t constant_id, const std::vector<uint8_t>& data);
-
-	//void set_vertex_input_state(const VertexInputState& vertex_input_sate);
-
-	//void set_input_assembly_state(const InputAssemblyState& input_assembly_state);
-
-	//void set_rasterization_state(const RasterizationState& rasterization_state);
-
-	//void set_viewport_state(const ViewportState& viewport_state);
-
-	//void set_multisample_state(const MultisampleState& multisample_state);
-
-	//void set_depth_stencil_state(const DepthStencilState& depth_stencil_state);
-
-	//void set_color_blend_state(const ColorBlendState& color_blend_state);
-
-	//void set_subpass_index(uint32_t subpass_index);
-
-	const PipelineLayout *getPipelineLayout() const;
-
-	const RenderPass *getRenderPass() const;
+	const RenderPass &getRenderPass() const;
 
 	const VertexInputState &getVertexInputState() const;
 
@@ -192,10 +183,9 @@ public:
 
 
 private:
-	// bool dirty{ false }; // TODO: do need to keep track of this
-	PipelineLayout *pipelineLayout{ nullptr };
+	std::unique_ptr<PipelineLayout> pipelineLayout{ nullptr };
 
-	const RenderPass *renderPass;
+	RenderPass &renderPass;
 
 	VertexInputState vertexInputState{};
 
@@ -208,8 +198,6 @@ private:
 	MultisampleState multisampleState{};
 
 	DepthStencilState depthStencilState{};
-
-	ColorBlendAttachmentState colorBlendAttachmentState{};
 
 	ColorBlendState colorBlendState{};
 
@@ -225,7 +213,7 @@ private:
 		VK_DYNAMIC_STATE_STENCIL_REFERENCE
 	};
 
-	uint32_t subpassIndex{ 0u };
+	uint32_t subpassIndex{ 0u }; // TODO do we need this, currently unused
 };
 
 } // namespace vulkr

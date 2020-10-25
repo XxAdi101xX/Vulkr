@@ -25,6 +25,7 @@
 #include <fstream>
 
 #include "shader_module.h"
+#include "core/device.h"
 #include "common/helpers.h"
 #include "common/logger.h"
 
@@ -67,14 +68,14 @@ std::vector<char> ShaderSource::readFile(const std::string& filename) const
 }
 
 // ShaderModule implementations
-ShaderModule::ShaderModule(Device &device, VkShaderStageFlagBits stage, const ShaderSource &shaderSource, const char *entryPoint) :
+ShaderModule::ShaderModule(Device &device, VkShaderStageFlagBits stage, std::unique_ptr<ShaderSource>&& shaderSource, const char *entryPoint) :
 	device{ device },
 	stage{ stage },
-	shaderSource{ shaderSource },
+	shaderSource{ std::move(shaderSource) },
 	entryPoint{ entryPoint }
 {
 	// Check if the SPIR-V that's passed in is empty
-	if (shaderSource.getData().empty())
+	if (getShaderSource().getData().empty())
 	{
 		LOGEANDABORT("Empty spirv file encountered");
 	}
@@ -92,7 +93,7 @@ const std::string &ShaderModule::getEntryPoint() const
 
 const ShaderSource &ShaderModule::getShaderSource() const
 {
-	return shaderSource;
+	return *shaderSource;
 }
 
 } // namespace vulkr
