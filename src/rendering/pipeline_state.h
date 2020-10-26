@@ -70,9 +70,9 @@ struct RasterizationState
 	VkFrontFace frontFace{ VK_FRONT_FACE_COUNTER_CLOCKWISE };
 	float lineWidth{ 1.0 };
 	VkBool32 depthBiasEnable{ VK_FALSE };
-	float depthBiasConstantFactor{ 1.0f }; /* required if depthBiasEnable is true */
-	float depthBiasClamp{ 1.0f }; /* required if depthBiasEnable is true */
-	float depthBiasSlopeFactor{ 1.0f }; /* required if depthBiasEnable is true */
+	float depthBiasConstantFactor{ 0.0f }; /* required if depthBiasEnable is true */
+	float depthBiasClamp{ 0.0f }; /* required if depthBiasEnable is true */
+	float depthBiasSlopeFactor{ 0.0f }; /* required if depthBiasEnable is true */
 };
 
 /* Describes all multisampling information; is usually used to perform anti-aliasing */
