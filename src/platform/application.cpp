@@ -58,7 +58,7 @@ void Application::step()
 void Application::finish()
 {
 	double executionTime = timer.stop();
-	LOGD("Closing application (Runtime: {:.1f})", executionTime);
+	LOGD("Closing application (Runtime: {:.1f} seconds)", executionTime);
 }
 
 void Application::handleWindowResize(const uint32_t width, const uint32_t height) const

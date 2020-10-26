@@ -49,7 +49,7 @@ class RenderPass
 {
 public:
 	// TODO: introduce a subpass dependency data structure and set it up here
-	RenderPass(Device &device, const std::vector<Attachment> &attachments, const std::vector<Subpass> &subpasses);
+	RenderPass(Device &device, const std::vector<Attachment> &attachments, const std::vector<Subpass> &subpasses, const std::vector<VkSubpassDependency> subpassDependencies);
 	~RenderPass();
 
 	/* Disable unnecessary operators to prevent error prone usages */

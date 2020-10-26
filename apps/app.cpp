@@ -33,10 +33,10 @@ MainApp::MainApp(Platform& platform, std::string name) : Application{ platform, 
 
  MainApp::~MainApp()
  {
-     if (device)
-     {
-         device->waitIdle();
-     }
+     device->waitIdle();
+
+     semaphorePool.reset();
+     fencePool.reset();
 
      for (uint32_t i = 0; i < commandBuffers.size(); ++i) {
          commandBuffers[i].reset();
@@ -115,8 +115,16 @@ void MainApp::prepare()
 
     subpasses.emplace_back(inputAttachments, colorAttachments, resolveAttachments, depthStencilAttachments, preserveAttachments, VK_PIPELINE_BIND_POINT_GRAPHICS);
 
-    // TODO add dependency for subpass
-    renderPass = std::make_unique<RenderPass>(*device, attachments, subpasses);
+
+    VkSubpassDependency subpassDependency{};
+    subpassDependency.srcSubpass = VK_SUBPASS_EXTERNAL;
+    subpassDependency.dstSubpass = 0;
+    subpassDependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    subpassDependency.srcAccessMask = 0;
+    subpassDependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    subpassDependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    std::vector<VkSubpassDependency> subpassDependencies{ subpassDependency };
+    renderPass = std::make_unique<RenderPass>(*device, attachments, subpasses, subpassDependencies);
 
     // Setup pipeline
     VertexInputState vertexInputState{};
@@ -218,11 +226,78 @@ void MainApp::prepare()
         commandBuffers[i]->end();
     }
 
+    // Create semaphore and fence pools
+    semaphorePool = std::make_unique<SemaphorePool>(*device);
+    fencePool = std::make_unique<FencePool>(*device);
+
+    imageAvailableSemaphores.reserve(MAX_FRAMES_IN_FLIGHT);
+    renderFinishedSemaphores.reserve(MAX_FRAMES_IN_FLIGHT);
+    inFlightFences.reserve(MAX_FRAMES_IN_FLIGHT);
+    imagesInFlight.resize(swapchain->getImages().size(), VK_NULL_HANDLE);
+
+    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+        imageAvailableSemaphores.push_back(semaphorePool->requestSemaphore());
+        renderFinishedSemaphores.push_back(semaphorePool->requestSemaphore());
+        inFlightFences.push_back(fencePool->requestFence());
+    }
+
+    graphicsQueue = device->getOptimalGraphicsQueue().getHandle();
+
+    if (device->getOptimalGraphicsQueue().canSupportPresentation())
+    {
+        presentQueue = graphicsQueue;
+    }
+    else
+    {
+        presentQueue = device->getQueueByPresentation().getHandle();
+    }
+
 }
 
 void MainApp::update()
 {
+    fencePool->wait(&inFlightFences[currentFrame]);
 
+    uint32_t imageIndex;
+    vkAcquireNextImageKHR(device->getHandle(), swapchain->getHandle(), UINT64_MAX, imageAvailableSemaphores[currentFrame], VK_NULL_HANDLE, &imageIndex);
+
+    if (imagesInFlight[imageIndex] != VK_NULL_HANDLE) {
+        fencePool->wait(&imagesInFlight[imageIndex]);
+    }
+    imagesInFlight[imageIndex] = inFlightFences[currentFrame];
+
+    VkSubmitInfo submitInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
+
+    VkSemaphore waitSemaphores[] = { imageAvailableSemaphores[currentFrame] };
+    VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
+    submitInfo.waitSemaphoreCount = 1;
+    submitInfo.pWaitSemaphores = waitSemaphores;
+    submitInfo.pWaitDstStageMask = waitStages;
+
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &commandBuffers[imageIndex]->getHandle();
+
+    VkSemaphore signalSemaphores[] = { renderFinishedSemaphores[currentFrame] };
+    submitInfo.signalSemaphoreCount = 1;
+    submitInfo.pSignalSemaphores = signalSemaphores;
+
+    fencePool->reset(&inFlightFences[currentFrame]);
+
+    VK_CHECK(vkQueueSubmit(graphicsQueue, 1, &submitInfo, inFlightFences[currentFrame]));
+
+    VkPresentInfoKHR presentInfo{ VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
+    presentInfo.waitSemaphoreCount = 1;
+    presentInfo.pWaitSemaphores = signalSemaphores;
+
+    VkSwapchainKHR swapchains[] = { swapchain->getHandle() };
+    presentInfo.swapchainCount = 1;
+    presentInfo.pSwapchains = swapchains;
+
+    presentInfo.pImageIndices = &imageIndex;
+
+    VK_CHECK(vkQueuePresentKHR(presentQueue, &presentInfo));
+
+    currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
 }
 
 } // namespace vulkr

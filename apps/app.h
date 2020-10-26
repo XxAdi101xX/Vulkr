@@ -38,6 +38,8 @@
 #include "core/queue.h"
 #include "core/command_pool.h"
 #include "core/command_buffer.h"
+#include "common/semaphore_pool.h"
+#include "common/fence_pool.h"
 
 #include "platform/application.h"
 
@@ -85,6 +87,20 @@ protected:
     std::unique_ptr<CommandPool> commandPool{ nullptr };
 
     std::vector<std::unique_ptr<CommandBuffer>> commandBuffers;
+
+    std::unique_ptr<SemaphorePool> semaphorePool;
+    std::unique_ptr<FencePool> fencePool;
+    std::vector<VkSemaphore> imageAvailableSemaphores;
+    std::vector<VkSemaphore> renderFinishedSemaphores;
+    std::vector<VkFence> inFlightFences;
+    std::vector<VkFence> imagesInFlight;
+
+    VkQueue graphicsQueue{ VK_NULL_HANDLE };
+    VkQueue presentQueue{ VK_NULL_HANDLE };
+
+
+    const uint32_t MAX_FRAMES_IN_FLIGHT = 2;
+    size_t currentFrame = 0;
 
     const std::vector<const char *> deviceExtensions = {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME

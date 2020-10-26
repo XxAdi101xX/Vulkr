@@ -63,6 +63,7 @@ public:
 	Swapchain& operator=(const Swapchain &) = delete;
 	Swapchain& operator=(Swapchain &&) = delete;
 
+	VkSwapchainKHR getHandle() const;
 	const SwapchainProperties &getProperties() const;
 	const std::vector<std::unique_ptr<Image>> &getImages() const;
 private:

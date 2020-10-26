@@ -49,8 +49,6 @@ Queue::Queue(Queue &&other) :
 	other.properties = {};
 	other.canPresent = VK_FALSE;
 	other.index = 0;
-
-	LOGD("Queue's move constructor has been called!");
 }
 
 Device& Queue::getDevice() const

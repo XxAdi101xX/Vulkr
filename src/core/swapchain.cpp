@@ -91,6 +91,11 @@ Swapchain::~Swapchain()
     }
 }
 
+VkSwapchainKHR Swapchain::getHandle() const
+{
+    return handle;
+}
+
 const SwapchainProperties &Swapchain::getProperties() const
 {
     return properties;

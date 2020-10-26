@@ -31,7 +31,7 @@
 namespace vulkr
 {
 
-RenderPass::RenderPass(Device& device, const std::vector<Attachment> &attachments, const std::vector<Subpass> &subpasses) :
+RenderPass::RenderPass(Device& device, const std::vector<Attachment> &attachments, const std::vector<Subpass> &subpasses, const std::vector<VkSubpassDependency> subpassDependencies) :
 	device{ device },
 	attachments{ attachments },
 	subpasses{ subpasses }
@@ -101,8 +101,8 @@ RenderPass::RenderPass(Device& device, const std::vector<Attachment> &attachment
 	createInfo.pAttachments = attachmentDescriptions.data();
 	createInfo.subpassCount = to_u32(subpasses.size());
 	createInfo.pSubpasses = subpassDescriptions.data();
-	createInfo.dependencyCount = 0u;
-	createInfo.pDependencies = nullptr;
+	createInfo.dependencyCount = to_u32(subpassDependencies.size());
+	createInfo.pDependencies = subpassDependencies.data();
 
 	VK_CHECK(vkCreateRenderPass(device.getHandle(), &createInfo, nullptr, &handle));
 }
