@@ -30,8 +30,8 @@ FencePool::FencePool(Device &device) : device{ device }
 
 FencePool::~FencePool()
 {
-	wait();
-	reset();
+	waitAll();
+	resetAll();
 
 	for (VkFence fence : fences)
 	{
@@ -50,6 +50,7 @@ VkFence FencePool::requestFence()
 
 	VkFence fence{ VK_NULL_HANDLE };
 	VkFenceCreateInfo fenceCreateInfo{ VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
+	fenceCreateInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
 	VK_CHECK(vkCreateFence(device.getHandle(), &fenceCreateInfo, nullptr, &fence));
 
@@ -59,17 +60,28 @@ VkFence FencePool::requestFence()
 	return fences.back();
 }
 
-void FencePool::wait(uint64_t timeout) const
+void FencePool::wait(VkFence *fence, uint64_t timeout) const
+{
+	VK_CHECK(vkWaitForFences(device.getHandle(), 1, fence, VK_TRUE, timeout));
+}
+
+void FencePool::reset(VkFence *fence)
+{
+
+	VK_CHECK(vkResetFences(device.getHandle(), 1, fence));
+}
+
+void FencePool::waitAll(uint64_t timeout) const
 {
 	if (activeFenceCount == 0 || fences.empty())
 	{
 		return;
 	}
 
-	VK_CHECK(vkWaitForFences(device.getHandle(), activeFenceCount, fences.data(), true, timeout));
+	VK_CHECK(vkWaitForFences(device.getHandle(), activeFenceCount, fences.data(), VK_TRUE, timeout));
 }
 
-void FencePool::reset()
+void FencePool::resetAll()
 {
 	if (activeFenceCount == 0 || fences.empty())
 	{

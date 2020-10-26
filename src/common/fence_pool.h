@@ -41,9 +41,13 @@ public:
 
 	VkFence requestFence();
 
-	void wait(uint64_t timeout = std::numeric_limits<uint64_t>::max()) const;
+	void wait(VkFence *fence, uint64_t timeout = std::numeric_limits<uint64_t>::max()) const;
 
-	void reset();
+	void reset(VkFence *fence);
+
+	void waitAll(uint64_t timeout = std::numeric_limits<uint64_t>::max()) const;
+
+	void resetAll();
 private:
 	Device &device;
 
