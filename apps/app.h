@@ -56,7 +56,9 @@ public:
     virtual void prepare() override;
 
     virtual void update();
-protected:
+
+    virtual void recreateSwapchain() override;
+private:
     /* The Vulkan instance */
     std::unique_ptr<Instance> instance{ nullptr };
     
@@ -105,6 +107,21 @@ protected:
     const std::vector<const char *> deviceExtensions = {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME
     };
+
+    void cleanupSwapchain();
+
+    void createInstance();
+    void createSurface();
+    void createDevice();
+    void createSwapchain();
+    void createImageViews();
+    void createRenderPass();
+    void createGraphicsPipeline();
+    void createFramebuffers();
+    void createCommandPool();
+    void createCommandBuffers();
+    void createSemaphoreAndFencePools();
+    void setupSynchronizationObjects();
 };
 
 } // namespace vulkr

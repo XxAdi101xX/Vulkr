@@ -140,7 +140,6 @@ Window::Window(Platform& platform) : platform{ platform }
 	}
 
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-	glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 
 	handle = glfwCreateWindow(WIDTH, HEIGHT, "Vulkr", nullptr, nullptr);
 	if (handle == VK_NULL_HANDLE) {

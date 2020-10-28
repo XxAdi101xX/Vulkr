@@ -61,9 +61,14 @@ void Application::finish()
 	LOGD("Closing application (Runtime: {:.1f} seconds)", executionTime);
 }
 
-void Application::handleWindowResize(const uint32_t width, const uint32_t height) const
+void Application::recreateSwapchain()
 {
-	// TODO handle window resize
+	// Will need to be overriden
+}
+
+void Application::handleWindowResize(const uint32_t width, const uint32_t height)
+{
+
 }
 
 void Application::handleFocusChange(bool isFocused)

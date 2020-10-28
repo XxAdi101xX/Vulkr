@@ -38,27 +38,9 @@ MainApp::MainApp(Platform& platform, std::string name) : Application{ platform, 
      semaphorePool.reset();
      fencePool.reset();
 
-     for (uint32_t i = 0; i < commandBuffers.size(); ++i) {
-         commandBuffers[i].reset();
-     }
+     cleanupSwapchain();
 
      commandPool.reset();
-
-     for (uint32_t i = 0; i < swapchainFramebuffers.size(); ++i) {
-         swapchainFramebuffers[i].reset();
-     }
-
-     pipeline.reset();
-
-     pipelineState.reset(); // destroys pipeline layout as well
-
-     renderPass.reset();
-
-     for (uint32_t i = 0; i < swapChainImageViews.size(); ++i) {
-         swapChainImageViews[i].reset();
-     }
-
-     swapchain.reset();
 
      device.reset();
 
@@ -71,32 +53,177 @@ MainApp::MainApp(Platform& platform, std::string name) : Application{ platform, 
 	 instance.reset();
  }
 
+ void MainApp::cleanupSwapchain()
+ {
+     for (uint32_t i = 0; i < commandBuffers.size(); ++i) {
+         commandBuffers[i].reset();
+     }
+     commandBuffers.clear();
+
+     for (uint32_t i = 0; i < swapchainFramebuffers.size(); ++i) {
+         swapchainFramebuffers[i].reset();
+     }
+     swapchainFramebuffers.clear();
+
+     shaderModules.clear();
+     pipeline.reset();
+
+     pipelineState.reset(); // destroys pipeline layout as well
+
+     renderPass.reset();
+     subpasses.clear();
+
+     for (uint32_t i = 0; i < swapChainImageViews.size(); ++i) {
+         swapChainImageViews[i].reset();
+     }
+     swapChainImageViews.clear();
+     inputAttachments.clear();
+     colorAttachments.clear();
+     resolveAttachments.clear();
+     depthStencilAttachments.clear();
+     preserveAttachments.clear();
+
+     swapchain.reset();
+ }
+
 void MainApp::prepare()
 {
     Application::prepare();
 
-    instance = std::make_unique<Instance>(getName());
+    createInstance();
+    createSurface();
+    createDevice();
+    createSwapchain();
+    createImageViews();
+    createRenderPass();
+    createGraphicsPipeline();
+    createFramebuffers();
+    createCommandPool();
+    createCommandBuffers();
+    createSemaphoreAndFencePools();
+    setupSynchronizationObjects();
 
-    // create surface 
+    graphicsQueue = device->getOptimalGraphicsQueue().getHandle();
+
+    if (device->getOptimalGraphicsQueue().canSupportPresentation())
+    {
+        presentQueue = graphicsQueue;
+    }
+    else
+    {
+        presentQueue = device->getQueueByPresentation().getHandle();
+    }
+
+}
+
+void MainApp::update()
+{
+    fencePool->wait(&inFlightFences[currentFrame]);
+
+    uint32_t imageIndex;
+    VkResult result = vkAcquireNextImageKHR(device->getHandle(), swapchain->getHandle(), UINT64_MAX, imageAvailableSemaphores[currentFrame], VK_NULL_HANDLE, &imageIndex);
+    if (result == VK_ERROR_OUT_OF_DATE_KHR)
+    {
+        recreateSwapchain();
+        return;
+    }
+    else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
+    {
+        LOGEANDABORT("Failed to acquire swap chain image");
+    }
+
+    if (imagesInFlight[imageIndex] != VK_NULL_HANDLE) {
+        fencePool->wait(&imagesInFlight[imageIndex]);
+    }
+    imagesInFlight[imageIndex] = inFlightFences[currentFrame];
+
+    VkSubmitInfo submitInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
+
+    VkSemaphore waitSemaphores[] = { imageAvailableSemaphores[currentFrame] };
+    VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
+    submitInfo.waitSemaphoreCount = 1;
+    submitInfo.pWaitSemaphores = waitSemaphores;
+    submitInfo.pWaitDstStageMask = waitStages;
+
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &commandBuffers[imageIndex]->getHandle();
+
+    VkSemaphore signalSemaphores[] = { renderFinishedSemaphores[currentFrame] };
+    submitInfo.signalSemaphoreCount = 1;
+    submitInfo.pSignalSemaphores = signalSemaphores;
+
+    fencePool->reset(&inFlightFences[currentFrame]);
+
+    VK_CHECK(vkQueueSubmit(graphicsQueue, 1, &submitInfo, inFlightFences[currentFrame]));
+
+    VkPresentInfoKHR presentInfo{ VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
+    presentInfo.waitSemaphoreCount = 1;
+    presentInfo.pWaitSemaphores = signalSemaphores;
+
+    VkSwapchainKHR swapchains[] = { swapchain->getHandle() };
+    presentInfo.swapchainCount = 1;
+    presentInfo.pSwapchains = swapchains;
+
+    presentInfo.pImageIndices = &imageIndex;
+
+    result = vkQueuePresentKHR(presentQueue, &presentInfo);
+    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR)
+    {
+        recreateSwapchain();
+    }
+    else if (result != VK_SUCCESS)
+    {
+        LOGEANDABORT("Failed to present swap chain image!");
+    }
+
+    currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
+}
+
+void MainApp::recreateSwapchain()
+{
+    device->waitIdle();
+    cleanupSwapchain();
+
+    createSwapchain();
+    createImageViews();
+    createRenderPass();
+    createGraphicsPipeline();
+    createFramebuffers();
+    createCommandBuffers();
+}
+
+void MainApp::createInstance()
+{
+    instance = std::make_unique<Instance>(getName());
+}
+
+void MainApp::createSurface()
+{
     platform.createSurface(instance->getHandle());
     surface = platform.getSurface();
+}
 
-    // create device
+void MainApp::createDevice()
+{
     device = std::make_unique<Device>(std::move(instance->getSuitablePhysicalDevice()), surface, deviceExtensions);
+}
 
-    // create swapchain
+void MainApp::createSwapchain()
+{
     const std::set<VkImageUsageFlagBits> imageUsageFlags{ VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT };
     swapchain = std::make_unique<Swapchain>(*device, surface, VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR, VK_PRESENT_MODE_FIFO_KHR, imageUsageFlags);
+}
 
-    // create swapchain image views
+void MainApp::createImageViews()
+{
     swapChainImageViews.reserve(swapchain->getImages().size());
     for (uint32_t i = 0; i < swapchain->getImages().size(); ++i) {
         swapChainImageViews.emplace_back(std::make_unique<ImageView>(*(swapchain->getImages()[i]), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, swapchain->getProperties().surfaceFormat.format));
     }
-
-    // create attachments
+}
+void MainApp::createRenderPass()
+{
     std::vector<Attachment> attachments;
-
     Attachment colorAttachment{};
     colorAttachment.format = swapchain->getProperties().surfaceFormat.format;
     colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
@@ -115,7 +242,6 @@ void MainApp::prepare()
 
     subpasses.emplace_back(inputAttachments, colorAttachments, resolveAttachments, depthStencilAttachments, preserveAttachments, VK_PIPELINE_BIND_POINT_GRAPHICS);
 
-
     VkSubpassDependency subpassDependency{};
     subpassDependency.srcSubpass = VK_SUBPASS_EXTERNAL;
     subpassDependency.dstSubpass = 0;
@@ -125,7 +251,10 @@ void MainApp::prepare()
     subpassDependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
     std::vector<VkSubpassDependency> subpassDependencies{ subpassDependency };
     renderPass = std::make_unique<RenderPass>(*device, attachments, subpasses, subpassDependencies);
+}
 
+void MainApp::createGraphicsPipeline()
+{
     // Setup pipeline
     VertexInputState vertexInputState{};
 
@@ -188,22 +317,28 @@ void MainApp::prepare()
         multisampleState,
         depthStencilState,
         colorBlendState
-    );
+        );
 
     pipeline = std::make_unique<GraphicsPipeline>(*device, *pipelineState, nullptr);
+}
 
-    // Create swapchain framebuffers
+void MainApp::createFramebuffers()
+{
     swapchainFramebuffers.reserve(swapchain->getImages().size());
     for (uint32_t i = 0; i < swapchain->getImages().size(); ++i) {
-        std::vector<VkImageView> attachments { swapChainImageViews[i]->getHandle() };
+        std::vector<VkImageView> attachments{ swapChainImageViews[i]->getHandle() };
 
         swapchainFramebuffers.emplace_back(std::make_unique<Framebuffer>(*device, *swapchain, *renderPass, attachments));
     }
+}
 
-    // Create command pool
+void MainApp::createCommandPool()
+{
     commandPool = std::make_unique<CommandPool>(*device, device->getOptimalGraphicsQueue().getFamilyIndex(), 0u);
+}
 
-    // Create command buffers
+void MainApp::createCommandBuffers()
+{
     std::vector<VkClearValue> clearValues;
     VkClearValue clearColor = { 0.0f, 0.0f, 0.0f, 1.0f };
     clearValues.emplace_back(clearColor);
@@ -213,7 +348,7 @@ void MainApp::prepare()
         commandBuffers.emplace_back(std::make_unique<CommandBuffer>(*commandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, *renderPass, *(swapchainFramebuffers[i])));
 
         commandBuffers[i]->begin(0u, nullptr);
-        
+
         const std::vector<std::unique_ptr<Subpass>> subpasses; // TODO not used
         commandBuffers[i]->beginRenderPass(clearValues, subpasses, swapchain->getProperties().imageExtent, VK_SUBPASS_CONTENTS_INLINE);
 
@@ -225,11 +360,16 @@ void MainApp::prepare()
 
         commandBuffers[i]->end();
     }
+}
 
-    // Create semaphore and fence pools
+void MainApp::createSemaphoreAndFencePools()
+{
     semaphorePool = std::make_unique<SemaphorePool>(*device);
     fencePool = std::make_unique<FencePool>(*device);
+}
 
+void MainApp::setupSynchronizationObjects()
+{
     imageAvailableSemaphores.reserve(MAX_FRAMES_IN_FLIGHT);
     renderFinishedSemaphores.reserve(MAX_FRAMES_IN_FLIGHT);
     inFlightFences.reserve(MAX_FRAMES_IN_FLIGHT);
@@ -240,64 +380,6 @@ void MainApp::prepare()
         renderFinishedSemaphores.push_back(semaphorePool->requestSemaphore());
         inFlightFences.push_back(fencePool->requestFence());
     }
-
-    graphicsQueue = device->getOptimalGraphicsQueue().getHandle();
-
-    if (device->getOptimalGraphicsQueue().canSupportPresentation())
-    {
-        presentQueue = graphicsQueue;
-    }
-    else
-    {
-        presentQueue = device->getQueueByPresentation().getHandle();
-    }
-
-}
-
-void MainApp::update()
-{
-    fencePool->wait(&inFlightFences[currentFrame]);
-
-    uint32_t imageIndex;
-    vkAcquireNextImageKHR(device->getHandle(), swapchain->getHandle(), UINT64_MAX, imageAvailableSemaphores[currentFrame], VK_NULL_HANDLE, &imageIndex);
-
-    if (imagesInFlight[imageIndex] != VK_NULL_HANDLE) {
-        fencePool->wait(&imagesInFlight[imageIndex]);
-    }
-    imagesInFlight[imageIndex] = inFlightFences[currentFrame];
-
-    VkSubmitInfo submitInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
-
-    VkSemaphore waitSemaphores[] = { imageAvailableSemaphores[currentFrame] };
-    VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
-    submitInfo.waitSemaphoreCount = 1;
-    submitInfo.pWaitSemaphores = waitSemaphores;
-    submitInfo.pWaitDstStageMask = waitStages;
-
-    submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &commandBuffers[imageIndex]->getHandle();
-
-    VkSemaphore signalSemaphores[] = { renderFinishedSemaphores[currentFrame] };
-    submitInfo.signalSemaphoreCount = 1;
-    submitInfo.pSignalSemaphores = signalSemaphores;
-
-    fencePool->reset(&inFlightFences[currentFrame]);
-
-    VK_CHECK(vkQueueSubmit(graphicsQueue, 1, &submitInfo, inFlightFences[currentFrame]));
-
-    VkPresentInfoKHR presentInfo{ VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
-    presentInfo.waitSemaphoreCount = 1;
-    presentInfo.pWaitSemaphores = signalSemaphores;
-
-    VkSwapchainKHR swapchains[] = { swapchain->getHandle() };
-    presentInfo.swapchainCount = 1;
-    presentInfo.pSwapchains = swapchains;
-
-    presentInfo.pImageIndices = &imageIndex;
-
-    VK_CHECK(vkQueuePresentKHR(presentQueue, &presentInfo));
-
-    currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
 }
 
 } // namespace vulkr

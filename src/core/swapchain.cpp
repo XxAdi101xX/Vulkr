@@ -135,7 +135,7 @@ void Swapchain::create()
     createInfo.compositeAlpha = properties.compositeAlpha;
     createInfo.presentMode = properties.presentMode;
     createInfo.clipped = properties.clipped;
-    createInfo.oldSwapchain = VK_NULL_HANDLE;
+    createInfo.oldSwapchain = properties.oldSwapchain;
 
     VK_CHECK(vkCreateSwapchainKHR(device.getHandle(), &createInfo, nullptr, &handle));
 
@@ -307,7 +307,7 @@ VkCompositeAlphaFlagBitsKHR Swapchain::chooseCompositeAlpha(VkCompositeAlphaFlag
         }
     }
 
-    throw std::runtime_error("A compatible composite alpha was not found.");
+    LOGEANDABORT("A compatible composite alpha was not found.");
 }
 
 VkPresentModeKHR Swapchain::choosePresentMode(VkPresentModeKHR requestedPresentMode) const

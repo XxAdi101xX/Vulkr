@@ -51,11 +51,13 @@ public:
 
 	void finish();
 
-	void handleWindowResize(const uint32_t width, const uint32_t height) const;
+	virtual void recreateSwapchain();
 
-	void handleFocusChange(bool isFocused);
+	virtual void handleWindowResize(const uint32_t width, const uint32_t height);
 
-	void handleInputEvents(const InputEvent& inputEvent) const;
+	virtual void handleFocusChange(bool isFocused);
+
+	virtual void handleInputEvents(const InputEvent& inputEvent) const;
 
 	/* Getters */
 	bool isFocused() const;
