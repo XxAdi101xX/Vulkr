@@ -50,13 +50,13 @@ protected:
 	PipelineState &pipelineState;
 };
 
-class GraphicsPipeline : public Pipeline
+class GraphicsPipeline final : public Pipeline
 {
 public:
 	GraphicsPipeline(Device &device, PipelineState &pipelineState, VkPipelineCache pipelineCache); // TODO: incorportate pipeline cache
-	virtual ~GraphicsPipeline() = default;
+	~GraphicsPipeline() = default;
 	GraphicsPipeline(GraphicsPipeline&&) = default;
 };
 
-	// TODO: create compute pipeline
+// TODO: create compute pipeline
 } // namespace vulkr

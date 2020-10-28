@@ -35,7 +35,10 @@ namespace vulkr
 
 Pipeline::Pipeline(Device &device, PipelineState &pipelineState) : device{ device }, pipelineState{ pipelineState } {}
 
-Pipeline::~Pipeline() {}
+Pipeline::~Pipeline()
+{
+	vkDestroyPipeline(device.getHandle(), handle, nullptr);
+}
 
 Pipeline::Pipeline(Pipeline &&other) :
 	device{ other.device },
