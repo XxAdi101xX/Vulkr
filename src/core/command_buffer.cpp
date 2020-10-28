@@ -32,122 +32,122 @@
 namespace vulkr
 {
 
-	CommandBuffer::CommandBuffer(CommandPool &commandPool, VkCommandBufferLevel level, RenderPass &renderPass, Framebuffer &framebuffer) :
-		commandPool{ commandPool },
-		level{ level },
-		renderPass{ renderPass },
-		framebuffer{ framebuffer },
-		maxPushConstantsSize{ commandPool.getDevice().getPhysicalDevice().getProperties().limits.maxPushConstantsSize }
-	{
-		VkCommandBufferAllocateInfo allocateInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
-		allocateInfo.commandPool = commandPool.getHandle();
-		allocateInfo.commandBufferCount = 1;
-		allocateInfo.level = level;
+CommandBuffer::CommandBuffer(CommandPool &commandPool, VkCommandBufferLevel level, RenderPass &renderPass, Framebuffer &framebuffer) :
+	commandPool{ commandPool },
+	level{ level },
+	renderPass{ renderPass },
+	framebuffer{ framebuffer },
+	maxPushConstantsSize{ commandPool.getDevice().getPhysicalDevice().getProperties().limits.maxPushConstantsSize }
+{
+	VkCommandBufferAllocateInfo allocateInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
+	allocateInfo.commandPool = commandPool.getHandle();
+	allocateInfo.commandBufferCount = 1;
+	allocateInfo.level = level;
 
-		VK_CHECK(vkAllocateCommandBuffers(commandPool.getDevice().getHandle(), &allocateInfo, &handle));
+	VK_CHECK(vkAllocateCommandBuffers(commandPool.getDevice().getHandle(), &allocateInfo, &handle));
+}
+
+CommandBuffer::~CommandBuffer()
+{
+	if (handle != VK_NULL_HANDLE)
+	{
+		vkFreeCommandBuffers(commandPool.getDevice().getHandle(), commandPool.getHandle(), 1, &handle);
+	}
+}
+
+Device& CommandBuffer::getDevice()
+{
+	return commandPool.getDevice();
+}
+
+const VkCommandBufferLevel CommandBuffer::getLevel() const
+{
+	return level;
+}
+
+const VkCommandBuffer& CommandBuffer::getHandle() const
+{
+	return handle;
+}
+
+bool CommandBuffer::isRecording() const
+{
+	return state == State::Recording;
+}
+
+void CommandBuffer::begin(VkCommandBufferUsageFlags flags, CommandBuffer *primaryCommandBuffer)
+{
+	if (isRecording())
+	{
+		LOGEANDABORT("Begin was called on a command buffer in the recording state");
 	}
 
-	CommandBuffer::~CommandBuffer()
-	{
-		if (handle != VK_NULL_HANDLE)
-		{
-			vkFreeCommandBuffers(commandPool.getDevice().getHandle(), commandPool.getHandle(), 1, &handle);
-		}
-	}
+	state = State::Recording;
 
-	Device& CommandBuffer::getDevice()
-	{
-		return commandPool.getDevice();
-	}
-
-	const VkCommandBufferLevel CommandBuffer::getLevel() const
-	{
-		return level;
-	}
-
-	const VkCommandBuffer& CommandBuffer::getHandle() const
-	{
-		return handle;
-	}
-
-	bool CommandBuffer::isRecording() const
-	{
-		return state == State::Recording;
-	}
-
-	void CommandBuffer::begin(VkCommandBufferUsageFlags flags, CommandBuffer *primaryCommandBuffer)
-	{
-		if (isRecording())
-		{
-			LOGEANDABORT("Begin was called on a command buffer in the recording state");
-		}
-
-		state = State::Recording;
-
-		VkCommandBufferBeginInfo beginInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
-		beginInfo.flags = flags;
+	VkCommandBufferBeginInfo beginInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+	beginInfo.flags = flags;
 		
-		VkCommandBufferInheritanceInfo inheritance = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO };
-		if (level == VK_COMMAND_BUFFER_LEVEL_SECONDARY)
+	VkCommandBufferInheritanceInfo inheritance = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO };
+	if (level == VK_COMMAND_BUFFER_LEVEL_SECONDARY)
+	{
+		if (primaryCommandBuffer == nullptr)
 		{
-			if (primaryCommandBuffer == nullptr)
-			{
-				LOGEANDABORT("primary command buffer not provided when starting secondary command buffer");
-			}
-
-			if (primaryCommandBuffer->getLevel() == VK_COMMAND_BUFFER_LEVEL_SECONDARY)
-			{
-				LOGEANDABORT("Primary command buffer expected but received a secondary command buffer");
-			}
-
-			LOGEANDABORT("Secondary command buffers not handled yet. Need to implement!!"); /* TODO: Remove this eventually */
-
-			//auto render_pass_binding = primaryCommandBuffer->get_current_render_pass();
-			//current_render_pass.render_pass = render_pass_binding.render_pass;
-			//current_render_pass.framebuffer = render_pass_binding.framebuffer;
-
-			//inheritance.renderPass = current_render_pass.render_pass->get_handle();
-			//inheritance.framebuffer = current_render_pass.framebuffer->get_handle();
-			//inheritance.subpass = primaryCommandBuffer->get_current_subpass_index();
-
-			//beginInfo.pInheritanceInfo = &inheritance;
+			LOGEANDABORT("primary command buffer not provided when starting secondary command buffer");
 		}
 
-		VK_CHECK(vkBeginCommandBuffer(handle, &beginInfo));
-	}
-
-	void CommandBuffer::end()
-	{
-
-		if (!isRecording())
+		if (primaryCommandBuffer->getLevel() == VK_COMMAND_BUFFER_LEVEL_SECONDARY)
 		{
-			LOGEANDABORT("Attempting to end a command buffer that's not recording");
+			LOGEANDABORT("Primary command buffer expected but received a secondary command buffer");
 		}
 
-		VK_CHECK(vkEndCommandBuffer(handle));
+		LOGEANDABORT("Secondary command buffers not handled yet. Need to implement!!"); /* TODO: Remove this eventually */
 
-		state = State::Executable;
+		//auto render_pass_binding = primaryCommandBuffer->get_current_render_pass();
+		//current_render_pass.render_pass = render_pass_binding.render_pass;
+		//current_render_pass.framebuffer = render_pass_binding.framebuffer;
+
+		//inheritance.renderPass = current_render_pass.render_pass->get_handle();
+		//inheritance.framebuffer = current_render_pass.framebuffer->get_handle();
+		//inheritance.subpass = primaryCommandBuffer->get_current_subpass_index();
+
+		//beginInfo.pInheritanceInfo = &inheritance;
 	}
 
-	void CommandBuffer::beginRenderPass(const std::vector<VkClearValue> &clearValues, const std::vector<std::unique_ptr<Subpass>> &subpasses, const VkExtent2D extent, VkSubpassContents subpassContents)
+	VK_CHECK(vkBeginCommandBuffer(handle, &beginInfo));
+}
+
+void CommandBuffer::end()
+{
+
+	if (!isRecording())
 	{
-		VkRenderPassBeginInfo renderPassBeginInfo{};
-		renderPassBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-		renderPassBeginInfo.renderPass = renderPass.getHandle();
-		renderPassBeginInfo.framebuffer = framebuffer.getHandle();
-		renderPassBeginInfo.renderArea.offset = { 0, 0 };
-		renderPassBeginInfo.renderArea.extent = extent;
-		renderPassBeginInfo.clearValueCount = to_u32(clearValues.size());
-		renderPassBeginInfo.pClearValues = clearValues.data();
-
-		vkCmdBeginRenderPass(handle, &renderPassBeginInfo, subpassContents);
-
-		// TODO: subpasses is unused
+		LOGEANDABORT("Attempting to end a command buffer that's not recording");
 	}
 
-	void CommandBuffer::endRenderPass()
-	{
-		vkCmdEndRenderPass(handle);
-	}
+	VK_CHECK(vkEndCommandBuffer(handle));
+
+	state = State::Executable;
+}
+
+void CommandBuffer::beginRenderPass(const std::vector<VkClearValue> &clearValues, const std::vector<std::unique_ptr<Subpass>> &subpasses, const VkExtent2D extent, VkSubpassContents subpassContents)
+{
+	VkRenderPassBeginInfo renderPassBeginInfo{};
+	renderPassBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+	renderPassBeginInfo.renderPass = renderPass.getHandle();
+	renderPassBeginInfo.framebuffer = framebuffer.getHandle();
+	renderPassBeginInfo.renderArea.offset = { 0, 0 };
+	renderPassBeginInfo.renderArea.extent = extent;
+	renderPassBeginInfo.clearValueCount = to_u32(clearValues.size());
+	renderPassBeginInfo.pClearValues = clearValues.data();
+
+	vkCmdBeginRenderPass(handle, &renderPassBeginInfo, subpassContents);
+
+	// TODO: subpasses is unused
+}
+
+void CommandBuffer::endRenderPass()
+{
+	vkCmdEndRenderPass(handle);
+}
 
 } // namespace vulkr
