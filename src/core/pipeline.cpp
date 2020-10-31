@@ -168,6 +168,10 @@ GraphicsPipeline::GraphicsPipeline(Device &device, PipelineState &pipelineState,
 	graphicsPipeline.renderPass = pipelineState.getRenderPass().getHandle();
 	graphicsPipeline.subpass = pipelineState.getSubpassIndex();
 
+	// Used when you want to create a pipeline from an existing pipeline, must have the VK_PIPELINE_CREATE_DERIVATIVE_BIT enabled in the flags field of vkCreateGraphicsPipelines 
+	graphicsPipeline.basePipelineHandle = VK_NULL_HANDLE; // Optional
+	graphicsPipeline.basePipelineIndex = -1; // Optional
+
 	VK_CHECK(vkCreateGraphicsPipelines(device.getHandle(), pipelineCache, 1, &graphicsPipeline, nullptr, &handle));
 
 	for (auto shaderModule : shaderModuleHandles)

@@ -40,6 +40,9 @@ MainApp::MainApp(Platform& platform, std::string name) : Application{ platform, 
 
      cleanupSwapchain();
 
+     vkDestroyBuffer(device->getHandle(), vertexBuffer, nullptr); // TODO remove
+     vkFreeMemory(device->getHandle(), vertexBufferMemory, nullptr); // TODO remove
+
      commandPool.reset();
 
      device.reset();
@@ -99,6 +102,7 @@ void MainApp::prepare()
     createGraphicsPipeline();
     createFramebuffers();
     createCommandPool();
+    createVertexBuffer(); // TODO remove
     createCommandBuffers();
     createSemaphoreAndFencePools();
     setupSynchronizationObjects();
@@ -121,7 +125,7 @@ void MainApp::update()
     fencePool->wait(&inFlightFences[currentFrame]);
 
     uint32_t imageIndex;
-    VkResult result = vkAcquireNextImageKHR(device->getHandle(), swapchain->getHandle(), UINT64_MAX, imageAvailableSemaphores[currentFrame], VK_NULL_HANDLE, &imageIndex);
+    VkResult result = vkAcquireNextImageKHR(device->getHandle(), swapchain->getHandle(), std::numeric_limits<uint64_t>::max(), imageAvailableSemaphores[currentFrame], VK_NULL_HANDLE, &imageIndex);
     if (result == VK_ERROR_OUT_OF_DATE_KHR)
     {
         recreateSwapchain();
@@ -139,18 +143,18 @@ void MainApp::update()
 
     VkSubmitInfo submitInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
 
-    VkSemaphore waitSemaphores[] = { imageAvailableSemaphores[currentFrame] };
-    VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
-    submitInfo.waitSemaphoreCount = 1;
-    submitInfo.pWaitSemaphores = waitSemaphores;
-    submitInfo.pWaitDstStageMask = waitStages;
+    std::vector<VkSemaphore> waitSemaphores{ imageAvailableSemaphores[currentFrame] };
+    std::vector<VkPipelineStageFlags> waitStages{ VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
+    submitInfo.waitSemaphoreCount = waitSemaphores.size();
+    submitInfo.pWaitSemaphores = waitSemaphores.data();
+    submitInfo.pWaitDstStageMask = waitStages.data();
 
     submitInfo.commandBufferCount = 1;
     submitInfo.pCommandBuffers = &commandBuffers[imageIndex]->getHandle();
 
-    VkSemaphore signalSemaphores[] = { renderFinishedSemaphores[currentFrame] };
-    submitInfo.signalSemaphoreCount = 1;
-    submitInfo.pSignalSemaphores = signalSemaphores;
+    std::vector<VkSemaphore> signalSemaphores{ renderFinishedSemaphores[currentFrame] };
+    submitInfo.signalSemaphoreCount = signalSemaphores.size();
+    submitInfo.pSignalSemaphores = signalSemaphores.data();
 
     fencePool->reset(&inFlightFences[currentFrame]);
 
@@ -158,11 +162,11 @@ void MainApp::update()
 
     VkPresentInfoKHR presentInfo{ VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
     presentInfo.waitSemaphoreCount = 1;
-    presentInfo.pWaitSemaphores = signalSemaphores;
+    presentInfo.pWaitSemaphores = signalSemaphores.data();
 
-    VkSwapchainKHR swapchains[] = { swapchain->getHandle() };
-    presentInfo.swapchainCount = 1;
-    presentInfo.pSwapchains = swapchains;
+    std::vector<VkSwapchainKHR> swapchains{ swapchain->getHandle() };
+    presentInfo.swapchainCount = swapchains.size();
+    presentInfo.pSwapchains = swapchains.data();
 
     presentInfo.pImageIndices = &imageIndex;
 
@@ -257,6 +261,28 @@ void MainApp::createGraphicsPipeline()
 {
     // Setup pipeline
     VertexInputState vertexInputState{};
+    vertexInputState.bindingDescriptions.reserve(1);
+    vertexInputState.attributeDescriptions.reserve(2);
+
+    VkVertexInputBindingDescription bindingDescription{};
+    bindingDescription.binding = 0;
+    bindingDescription.stride = sizeof(Vertex);
+    bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+    vertexInputState.bindingDescriptions.emplace_back(bindingDescription);
+
+    VkVertexInputAttributeDescription posAttributeDescription;
+    posAttributeDescription.binding = 0;
+    posAttributeDescription.location = 0;
+    posAttributeDescription.format = VK_FORMAT_R32G32_SFLOAT;
+    posAttributeDescription.offset = offsetof(Vertex, pos);
+    VkVertexInputAttributeDescription colorAttributeDescription;
+    colorAttributeDescription.binding = 0;
+    colorAttributeDescription.location = 1;
+    colorAttributeDescription.format = VK_FORMAT_R32G32B32_SFLOAT;
+    colorAttributeDescription.offset = offsetof(Vertex, color);
+
+    vertexInputState.attributeDescriptions.emplace_back(posAttributeDescription);
+    vertexInputState.attributeDescriptions.emplace_back(colorAttributeDescription);
 
     InputAssemblyState inputAssemblyState{};
     inputAssemblyState.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
@@ -337,6 +363,52 @@ void MainApp::createCommandPool()
     commandPool = std::make_unique<CommandPool>(*device, device->getOptimalGraphicsQueue().getFamilyIndex(), 0u);
 }
 
+// TODO remove
+void MainApp::createVertexBuffer()
+{
+    VkBufferCreateInfo bufferInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+    bufferInfo.size = sizeof(vertices[0]) * vertices.size();
+    bufferInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+    if (vkCreateBuffer(device->getHandle(), &bufferInfo, nullptr, &vertexBuffer) != VK_SUCCESS) {
+        throw std::runtime_error("failed to create vertex buffer!");
+    }
+
+    VkMemoryRequirements memRequirements;
+    vkGetBufferMemoryRequirements(device->getHandle(), vertexBuffer, &memRequirements);
+
+    VkMemoryAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    allocInfo.allocationSize = memRequirements.size;
+    allocInfo.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+    if (vkAllocateMemory(device->getHandle(), &allocInfo, nullptr, &vertexBufferMemory) != VK_SUCCESS) {
+        throw std::runtime_error("failed to allocate vertex buffer memory!");
+    }
+
+    vkBindBufferMemory(device->getHandle(), vertexBuffer, vertexBufferMemory, 0);
+
+    void* data;
+    vkMapMemory(device->getHandle(), vertexBufferMemory, 0, bufferInfo.size, 0, &data);
+    memcpy(data, vertices.data(), (size_t)bufferInfo.size);
+    vkUnmapMemory(device->getHandle(), vertexBufferMemory);
+}
+
+uint32_t MainApp::findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties)
+{
+    VkPhysicalDeviceMemoryProperties memProperties;
+    vkGetPhysicalDeviceMemoryProperties(device->getPhysicalDevice().getHandle(), &memProperties);
+
+    for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
+        if ((typeFilter & (1 << i)) && (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
+            return i;
+        }
+    }
+
+    throw std::runtime_error("failed to find suitable memory type!");
+}
+
 void MainApp::createCommandBuffers()
 {
     std::vector<VkClearValue> clearValues;
@@ -353,6 +425,10 @@ void MainApp::createCommandBuffers()
         commandBuffers[i]->beginRenderPass(clearValues, subpasses, swapchain->getProperties().imageExtent, VK_SUBPASS_CONTENTS_INLINE);
 
         vkCmdBindPipeline(commandBuffers[i]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->getHandle()); // TODO: put this in command buffer class?
+
+        VkBuffer vertexBuffers[] = { vertexBuffer };
+        VkDeviceSize offsets[] = { 0 };
+        vkCmdBindVertexBuffers(commandBuffers[i]->getHandle(), 0, 1, vertexBuffers, offsets);
 
         vkCmdDraw(commandBuffers[i]->getHandle(), 3, 1, 0, 0); // TODO do we put this in commmand buffer class
 

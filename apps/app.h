@@ -43,6 +43,8 @@
 
 #include "platform/application.h"
 
+#include <glm/glm.hpp>
+
 namespace vulkr
 {
 
@@ -59,12 +61,11 @@ public:
 
     virtual void recreateSwapchain() override;
 private:
-    /* The Vulkan instance */
+    // Core variables
     std::unique_ptr<Instance> instance{ nullptr };
     
     VkSurfaceKHR surface{ VK_NULL_HANDLE };
 
-    /* The Vulkan device */
     std::unique_ptr<Device> device{ nullptr };
 
     std::unique_ptr<Swapchain> swapchain{ nullptr };
@@ -100,12 +101,23 @@ private:
     VkQueue graphicsQueue{ VK_NULL_HANDLE };
     VkQueue presentQueue{ VK_NULL_HANDLE };
 
-
+    // Other variables
     const uint32_t MAX_FRAMES_IN_FLIGHT = 2;
     size_t currentFrame = 0;
 
     const std::vector<const char *> deviceExtensions = {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME
+    };
+
+    struct Vertex {
+        glm::vec2 pos;
+        glm::vec3 color;
+    };
+
+    const std::vector<Vertex> vertices = {
+        {{0.0f, -0.5f}, {1.0f, 0.0f, 0.0f}},
+        {{0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}},
+        {{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}}
     };
 
     void cleanupSwapchain();
@@ -119,6 +131,11 @@ private:
     void createGraphicsPipeline();
     void createFramebuffers();
     void createCommandPool();
+    // TODO remove
+    void createVertexBuffer();
+    VkBuffer vertexBuffer;
+    VkDeviceMemory vertexBufferMemory;
+    uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
     void createCommandBuffers();
     void createSemaphoreAndFencePools();
     void setupSynchronizationObjects();
