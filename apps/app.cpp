@@ -40,6 +40,8 @@ MainApp::MainApp(Platform& platform, std::string name) : Application{ platform, 
 
      cleanupSwapchain();
 
+     indexBuffer.reset();
+
      vertexBuffer.reset();
 
      commandPool.reset();
@@ -114,6 +116,7 @@ void MainApp::prepare()
     createFramebuffers();
     createCommandPool();
     createVertexBuffer();
+    createIndexBuffer();
     createCommandBuffers();
     createSemaphoreAndFencePools();
     setupSynchronizationObjects();
@@ -362,34 +365,7 @@ void MainApp::createCommandPool()
     commandPool = std::make_unique<CommandPool>(*device, device->getOptimalGraphicsQueue().getFamilyIndex(), 0u);
 }
 
-void MainApp::createVertexBuffer()
-{
-    VkDeviceSize bufferSize = sizeof(vertices[0]) * vertices.size();
-
-    VkBufferCreateInfo bufferInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
-    bufferInfo.size = bufferSize;
-    bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-    VmaAllocationCreateInfo memoryInfo{};
-    memoryInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
-
-    std::unique_ptr<Buffer> stagingBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
-
-    bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-    memoryInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
-
-    vertexBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
-
-    void *mappedData = stagingBuffer->map();
-    memcpy(mappedData, vertices.data(), (size_t)bufferSize);
-    stagingBuffer->unmap();
-    copyBuffer(*stagingBuffer, *vertexBuffer, bufferSize);
-
-    stagingBuffer.reset();
-}
-
-void MainApp::copyBuffer(Buffer &srcBuffer, Buffer &dstBuffer, VkDeviceSize size)
+void MainApp::copyBuffer(Buffer& srcBuffer, Buffer& dstBuffer, VkDeviceSize size)
 {
     // TODO: move this elsewhere?
     std::unique_ptr<CommandBuffer> commandBuffer = std::make_unique<CommandBuffer>(*commandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
@@ -410,10 +386,60 @@ void MainApp::copyBuffer(Buffer &srcBuffer, Buffer &dstBuffer, VkDeviceSize size
     vkQueueWaitIdle(graphicsQueue);
 }
 
+void MainApp::createVertexBuffer()
+{
+    VkDeviceSize bufferSize{ sizeof(vertices[0]) * vertices.size() };
+
+    VkBufferCreateInfo bufferInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+    bufferInfo.size = bufferSize;
+    bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+    VmaAllocationCreateInfo memoryInfo{};
+    memoryInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
+
+    std::unique_ptr<Buffer> stagingBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
+
+    bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+    memoryInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+
+    vertexBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
+
+    void *mappedData = stagingBuffer->map();
+    memcpy(mappedData, vertices.data(), (size_t)bufferSize);
+    stagingBuffer->unmap();
+    copyBuffer(*stagingBuffer, *vertexBuffer, bufferSize);
+}
+
+void MainApp::createIndexBuffer()
+{
+    VkDeviceSize bufferSize{ sizeof(indices[0]) * indices.size() };
+
+    VkBufferCreateInfo bufferInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+    bufferInfo.size = bufferSize;
+    bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+    VmaAllocationCreateInfo memoryInfo{};
+    memoryInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
+
+    std::unique_ptr<Buffer> stagingBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
+
+    bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+    memoryInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+
+    indexBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
+
+    void* mappedData = stagingBuffer->map();
+    memcpy(mappedData, indices.data(), (size_t)bufferSize);
+    stagingBuffer->unmap();
+    copyBuffer(*stagingBuffer, *indexBuffer, bufferSize);
+}
+
 void MainApp::createCommandBuffers()
 {
     std::vector<VkClearValue> clearValues;
-    VkClearValue clearColor = { 0.0f, 0.0f, 0.0f, 1.0f };
+    VkClearValue clearColor{ 0.0f, 0.0f, 0.0f, 1.0f };
     clearValues.emplace_back(clearColor);
 
     commandBuffers.reserve(swapchainFramebuffers.size());
@@ -430,7 +456,9 @@ void MainApp::createCommandBuffers()
         VkDeviceSize offsets[] = { 0 };
         vkCmdBindVertexBuffers(commandBuffers[i]->getHandle(), 0, 1, vertexBuffers, offsets);
 
-        vkCmdDraw(commandBuffers[i]->getHandle(), 3, 1, 0, 0); // TODO do we put this in commmand buffer class
+        vkCmdBindIndexBuffer(commandBuffers[i]->getHandle(), indexBuffer->getHandle(), 0, VK_INDEX_TYPE_UINT16);
+
+        vkCmdDrawIndexed(commandBuffers[i]->getHandle(), static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
 
         commandBuffers[i]->endRenderPass();
 
@@ -451,7 +479,7 @@ void MainApp::setupSynchronizationObjects()
     inFlightFences.reserve(MAX_FRAMES_IN_FLIGHT);
     imagesInFlight.resize(swapchain->getImages().size(), VK_NULL_HANDLE);
 
-    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
         imageAvailableSemaphores.push_back(semaphorePool->requestSemaphore());
         renderFinishedSemaphores.push_back(semaphorePool->requestSemaphore());
         inFlightFences.push_back(fencePool->requestFence());

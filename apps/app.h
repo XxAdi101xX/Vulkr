@@ -103,11 +103,12 @@ private:
     VkQueue presentQueue{ VK_NULL_HANDLE };
 
     std::unique_ptr<Buffer> vertexBuffer{ nullptr };
+    std::unique_ptr<Buffer> indexBuffer{ nullptr };
 
-    const uint32_t MAX_FRAMES_IN_FLIGHT = 2;
-    size_t currentFrame = 0;
+    const uint32_t MAX_FRAMES_IN_FLIGHT{ 2 };
+    size_t currentFrame{ 0 };
 
-    const std::vector<const char *> deviceExtensions = {
+    const std::vector<const char *> deviceExtensions {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME
     };
 
@@ -116,10 +117,15 @@ private:
         glm::vec3 color;
     };
 
-    const std::vector<Vertex> vertices = {
-        {{0.0f, -0.5f}, {1.0f, 0.0f, 0.0f}},
-        {{0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}},
-        {{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}}
+    const std::vector<Vertex> vertices {
+        {{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
+        {{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},
+        {{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},
+        {{-0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}}
+    };
+
+    const std::vector<uint16_t> indices {
+        0, 1, 2, 2, 3, 0
     };
 
     void cleanupSwapchain();
@@ -133,8 +139,9 @@ private:
     void createGraphicsPipeline();
     void createFramebuffers();
     void createCommandPool();
-    void createVertexBuffer();
     void copyBuffer(Buffer &srcBuffer, Buffer &dstBuffer, VkDeviceSize size);
+    void createVertexBuffer();
+    void createIndexBuffer();
     void createCommandBuffers();
     void createSemaphoreAndFencePools();
     void setupSynchronizationObjects();
