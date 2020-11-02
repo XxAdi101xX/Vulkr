@@ -46,6 +46,9 @@ public:
 	/* Get the physical device handle */
 	VkPhysicalDevice getHandle() const;
 
+	/* Get instance */
+	Instance& getInstance() const;
+
 	/* Get all the physical device features supported */
 	const VkPhysicalDeviceFeatures &getFeatures() const;
 

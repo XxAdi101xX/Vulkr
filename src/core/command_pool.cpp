@@ -78,7 +78,7 @@ VkCommandPool CommandPool::getHandle() const
 	return handle;
 }
 
-CommandBuffer &CommandPool::requestCommandBuffer(RenderPass &renderPass, Framebuffer &framebuffer, VkCommandBufferLevel level)
+CommandBuffer &CommandPool::requestCommandBuffer(VkCommandBufferLevel level)
 {
 	if (level == VK_COMMAND_BUFFER_LEVEL_PRIMARY)
 	{
@@ -87,7 +87,7 @@ CommandBuffer &CommandPool::requestCommandBuffer(RenderPass &renderPass, Framebu
 			return *(primaryCommandBuffers.at(activePrimaryCommandBufferCount++));
 		}
 
-		primaryCommandBuffers.emplace_back(std::make_unique<CommandBuffer>(*this, level, renderPass, framebuffer));
+		primaryCommandBuffers.emplace_back(std::make_unique<CommandBuffer>(*this, level));
 		activePrimaryCommandBufferCount++;
 
 		return *(primaryCommandBuffers.back());
@@ -99,13 +99,13 @@ CommandBuffer &CommandPool::requestCommandBuffer(RenderPass &renderPass, Framebu
 			return *(secondaryCommandBuffers.at(activeSecondaryCommandBufferCount++));
 		}
 
-		secondaryCommandBuffers.emplace_back(std::make_unique<CommandBuffer>(*this, level, renderPass, framebuffer));
+		secondaryCommandBuffers.emplace_back(std::make_unique<CommandBuffer>(*this, level));
 		activeSecondaryCommandBufferCount++;
 
 		return *(secondaryCommandBuffers.back());
 	}
 
-	LOGEANDABORT("Unknown command buffer level type requesteda");
+	LOGEANDABORT("Unknown command buffer level type requested");
 }
 
 } // namespace vulkr

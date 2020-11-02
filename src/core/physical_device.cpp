@@ -47,6 +47,11 @@ VkPhysicalDevice PhysicalDevice::getHandle() const
 	return handle;
 }
 
+Instance &PhysicalDevice::getInstance() const
+{
+	return instance;
+}
+
 const VkPhysicalDeviceFeatures& PhysicalDevice::getFeatures() const
 {
 	return features;

@@ -44,7 +44,7 @@ public:
 		Executable,
 	};
 
-	CommandBuffer(CommandPool &commandPool, VkCommandBufferLevel level, RenderPass &renderPass, Framebuffer &framebuffer);
+	CommandBuffer(CommandPool &commandPool, VkCommandBufferLevel level);
 	~CommandBuffer();
 
 	/* Disable unnecessary operators to prevent error prone usages */
@@ -65,7 +65,7 @@ public:
 
 	void end();
 
-	void beginRenderPass(const std::vector<VkClearValue>& clearValues, const std::vector<std::unique_ptr<Subpass>>& subpasses, const VkExtent2D extent, VkSubpassContents subpassContents = VK_SUBPASS_CONTENTS_INLINE);
+	void beginRenderPass(RenderPass &renderPass, Framebuffer &framebuffer, const VkExtent2D extent, const std::vector<VkClearValue> &clearValues, VkSubpassContents subpassContents = VK_SUBPASS_CONTENTS_INLINE);
 
 	void endRenderPass();
 private:
@@ -76,10 +76,6 @@ private:
 	CommandPool &commandPool;
 
 	const VkCommandBufferLevel level;
-
-	RenderPass &renderPass;
-
-	Framebuffer &framebuffer;
 
 	uint32_t maxPushConstantsSize;
 

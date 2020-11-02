@@ -43,7 +43,7 @@ public:
 	Device& operator=(Device &&) = delete;
 
 	/* Wait for a device to be fully idle, is the equivilant of calling vkQueueWaitIdle on all the queues owned by the device */
-	void Device::waitIdle();
+	void Device::waitIdle() const;
 
 	/* Get the logical device handle */
 	VkDevice getHandle() const;
@@ -59,12 +59,17 @@ public:
 
 	/* Get the first available queue that supports presentation. This is only called when the graphics queue does not support presentation */
 	const Queue &getQueueByPresentation();
+
+	/* Get the memory allocator */
+	VmaAllocator getMemoryAllocator() const;
+
+	/* Get the memory type for the specified memoryPropertyFlags */
+	uint32_t getMemoryType(uint32_t memoryTypeBits, VkMemoryPropertyFlags propertieFlags);
 private:
 	/* The logical device handle */
 	VkDevice handle{ VK_NULL_HANDLE };
 	
 	/* The gpu used */
-		/* Select a physical device for our application; will populate the gpu field */
 	std::unique_ptr<PhysicalDevice> physicalDevice;
 
 	/* All the extensions available on the device */
@@ -77,15 +82,18 @@ private:
 	std::vector<std::vector<Queue>> queues;
 
 	/* Check if a specified extension is supported */
-	bool isExtensionSupported(const char* extension) const;
+	bool isExtensionSupported(const char *extension) const;
+
+	/* Check if an extension is enabled */
+	bool isExtensionEnabled(const char* extension) const;
+
+	/* The memory allocator */
+	VmaAllocator memoryAllocator{ VK_NULL_HANDLE };
 
 	/* TODO
 	- Dedicated transfer queue is very under utilized so it can be used to defragment memeory, streaming resources or textures
-	- Add memory allocation (VMA?)
-	- Add the command pool and the fence pool
+	- Add the command pool and the fence pool?
 	- Add a resource cache if necessary
-	- https://www.youtube.com/watch?v=rXSdDE7NWmA
-	- https://www.youtube.com/watch?v=zSG6dPq57P8
 	*/
 };
 

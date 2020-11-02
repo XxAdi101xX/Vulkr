@@ -25,6 +25,7 @@
 #include <iostream>
 #include <cstdlib>
 
+#include <vk_mem_alloc.h>
 #include <volk.h>
 
 #include "logger.h"

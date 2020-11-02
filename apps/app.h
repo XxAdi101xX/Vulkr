@@ -38,6 +38,8 @@
 #include "core/queue.h"
 #include "core/command_pool.h"
 #include "core/command_buffer.h"
+#include "core/buffer.h"
+
 #include "common/semaphore_pool.h"
 #include "common/fence_pool.h"
 
@@ -61,7 +63,6 @@ public:
 
     virtual void recreateSwapchain() override;
 private:
-    // Core variables
     std::unique_ptr<Instance> instance{ nullptr };
     
     VkSurfaceKHR surface{ VK_NULL_HANDLE };
@@ -101,7 +102,8 @@ private:
     VkQueue graphicsQueue{ VK_NULL_HANDLE };
     VkQueue presentQueue{ VK_NULL_HANDLE };
 
-    // Other variables
+    std::unique_ptr<Buffer> vertexBuffer{ nullptr };
+
     const uint32_t MAX_FRAMES_IN_FLIGHT = 2;
     size_t currentFrame = 0;
 
@@ -131,11 +133,8 @@ private:
     void createGraphicsPipeline();
     void createFramebuffers();
     void createCommandPool();
-    // TODO remove
     void createVertexBuffer();
-    VkBuffer vertexBuffer;
-    VkDeviceMemory vertexBufferMemory;
-    uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
+    void copyBuffer(Buffer &srcBuffer, Buffer &dstBuffer, VkDeviceSize size);
     void createCommandBuffers();
     void createSemaphoreAndFencePools();
     void setupSynchronizationObjects();

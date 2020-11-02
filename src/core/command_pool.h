@@ -50,7 +50,7 @@ public:
 
 	uint32_t getQueueFamilyIndex() const;
 
-	CommandBuffer &requestCommandBuffer(RenderPass &renderPass, Framebuffer &framebuffer, VkCommandBufferLevel level = VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+	CommandBuffer &requestCommandBuffer(VkCommandBufferLevel level = VK_COMMAND_BUFFER_LEVEL_PRIMARY);
 
 	// TODO: look into vkresetcommandpool and vkreset command buffers
 

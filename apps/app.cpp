@@ -40,8 +40,7 @@ MainApp::MainApp(Platform& platform, std::string name) : Application{ platform, 
 
      cleanupSwapchain();
 
-     vkDestroyBuffer(device->getHandle(), vertexBuffer, nullptr); // TODO remove
-     vkFreeMemory(device->getHandle(), vertexBufferMemory, nullptr); // TODO remove
+     vertexBuffer.reset();
 
      commandPool.reset();
 
@@ -96,16 +95,6 @@ void MainApp::prepare()
     createInstance();
     createSurface();
     createDevice();
-    createSwapchain();
-    createImageViews();
-    createRenderPass();
-    createGraphicsPipeline();
-    createFramebuffers();
-    createCommandPool();
-    createVertexBuffer(); // TODO remove
-    createCommandBuffers();
-    createSemaphoreAndFencePools();
-    setupSynchronizationObjects();
 
     graphicsQueue = device->getOptimalGraphicsQueue().getHandle();
 
@@ -118,6 +107,16 @@ void MainApp::prepare()
         presentQueue = device->getQueueByPresentation().getHandle();
     }
 
+    createSwapchain();
+    createImageViews();
+    createRenderPass();
+    createGraphicsPipeline();
+    createFramebuffers();
+    createCommandPool();
+    createVertexBuffer();
+    createCommandBuffers();
+    createSemaphoreAndFencePools();
+    setupSynchronizationObjects();
 }
 
 void MainApp::update()
@@ -363,50 +362,52 @@ void MainApp::createCommandPool()
     commandPool = std::make_unique<CommandPool>(*device, device->getOptimalGraphicsQueue().getFamilyIndex(), 0u);
 }
 
-// TODO remove
 void MainApp::createVertexBuffer()
 {
+    VkDeviceSize bufferSize = sizeof(vertices[0]) * vertices.size();
+
     VkBufferCreateInfo bufferInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
-    bufferInfo.size = sizeof(vertices[0]) * vertices.size();
-    bufferInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+    bufferInfo.size = bufferSize;
+    bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
     bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-    if (vkCreateBuffer(device->getHandle(), &bufferInfo, nullptr, &vertexBuffer) != VK_SUCCESS) {
-        throw std::runtime_error("failed to create vertex buffer!");
-    }
+    VmaAllocationCreateInfo memoryInfo{};
+    memoryInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
 
-    VkMemoryRequirements memRequirements;
-    vkGetBufferMemoryRequirements(device->getHandle(), vertexBuffer, &memRequirements);
+    std::unique_ptr<Buffer> stagingBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
 
-    VkMemoryAllocateInfo allocInfo{};
-    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    allocInfo.allocationSize = memRequirements.size;
-    allocInfo.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+    memoryInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 
-    if (vkAllocateMemory(device->getHandle(), &allocInfo, nullptr, &vertexBufferMemory) != VK_SUCCESS) {
-        throw std::runtime_error("failed to allocate vertex buffer memory!");
-    }
+    vertexBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
 
-    vkBindBufferMemory(device->getHandle(), vertexBuffer, vertexBufferMemory, 0);
+    void *mappedData = stagingBuffer->map();
+    memcpy(mappedData, vertices.data(), (size_t)bufferSize);
+    stagingBuffer->unmap();
+    copyBuffer(*stagingBuffer, *vertexBuffer, bufferSize);
 
-    void* data;
-    vkMapMemory(device->getHandle(), vertexBufferMemory, 0, bufferInfo.size, 0, &data);
-    memcpy(data, vertices.data(), (size_t)bufferInfo.size);
-    vkUnmapMemory(device->getHandle(), vertexBufferMemory);
+    stagingBuffer.reset();
 }
 
-uint32_t MainApp::findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties)
+void MainApp::copyBuffer(Buffer &srcBuffer, Buffer &dstBuffer, VkDeviceSize size)
 {
-    VkPhysicalDeviceMemoryProperties memProperties;
-    vkGetPhysicalDeviceMemoryProperties(device->getPhysicalDevice().getHandle(), &memProperties);
+    // TODO: move this elsewhere?
+    std::unique_ptr<CommandBuffer> commandBuffer = std::make_unique<CommandBuffer>(*commandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
 
-    for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
-        if ((typeFilter & (1 << i)) && (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
-            return i;
-        }
-    }
+    commandBuffer->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
 
-    throw std::runtime_error("failed to find suitable memory type!");
+    VkBufferCopy copyRegion{};
+    copyRegion.size = size;
+    vkCmdCopyBuffer(commandBuffer->getHandle(), srcBuffer.getHandle(), dstBuffer.getHandle(), 1, &copyRegion);
+
+    commandBuffer->end();
+
+    VkSubmitInfo submitInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &commandBuffer->getHandle();
+
+    vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
+    vkQueueWaitIdle(graphicsQueue);
 }
 
 void MainApp::createCommandBuffers()
@@ -417,16 +418,15 @@ void MainApp::createCommandBuffers()
 
     commandBuffers.reserve(swapchainFramebuffers.size());
     for (uint32_t i = 0; i < swapchainFramebuffers.size(); ++i) {
-        commandBuffers.emplace_back(std::make_unique<CommandBuffer>(*commandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, *renderPass, *(swapchainFramebuffers[i])));
+        commandBuffers.emplace_back(std::make_unique<CommandBuffer>(*commandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY));
 
         commandBuffers[i]->begin(0u, nullptr);
 
-        const std::vector<std::unique_ptr<Subpass>> subpasses; // TODO not used
-        commandBuffers[i]->beginRenderPass(clearValues, subpasses, swapchain->getProperties().imageExtent, VK_SUBPASS_CONTENTS_INLINE);
+        commandBuffers[i]->beginRenderPass(*renderPass, *(swapchainFramebuffers[i]), swapchain->getProperties().imageExtent, clearValues, VK_SUBPASS_CONTENTS_INLINE);
 
         vkCmdBindPipeline(commandBuffers[i]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->getHandle()); // TODO: put this in command buffer class?
 
-        VkBuffer vertexBuffers[] = { vertexBuffer };
+        VkBuffer vertexBuffers[] = { vertexBuffer->getHandle() };
         VkDeviceSize offsets[] = { 0 };
         vkCmdBindVertexBuffers(commandBuffers[i]->getHandle(), 0, 1, vertexBuffers, offsets);
 

@@ -20,11 +20,15 @@
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+#include "instance.h"
 #include "device.h"
 #include "physical_device.h"
 #include "queue.h"
 
 #include "common/helpers.h"
+
+#define VMA_IMPLEMENTATION
+#include <vk_mem_alloc.h>
 
 namespace vulkr
 {
@@ -47,6 +51,17 @@ Device::Device(std::unique_ptr<PhysicalDevice> &&selectedPhysicalDevice, VkSurfa
 		}
 
 		enabledExtensions.emplace_back(requestedExtension);
+	}
+
+	// Enable dedicated allocations if it's available to us
+	bool canGetMemoryRequirements = isExtensionSupported("VK_KHR_get_memory_requirements2");
+	bool supportsDedicatedAllocation = isExtensionSupported("VK_KHR_dedicated_allocation");
+	if (canGetMemoryRequirements && supportsDedicatedAllocation)
+	{
+		enabledExtensions.push_back("VK_KHR_get_memory_requirements2");
+		enabledExtensions.push_back("VK_KHR_dedicated_allocation");
+
+		LOGI("Dedicated allocation enabled");
 	}
 
 	// Prepare the device queues
@@ -97,18 +112,69 @@ Device::Device(std::unique_ptr<PhysicalDevice> &&selectedPhysicalDevice, VkSurfa
 
 	// Load device-related Vulkan entrypoints directly from the driver to prevent the dispatch overhead incurred from supporting multiple VkDevice objects (see Volk docs)
     volkLoadDevice(handle);
+
+	// Setup VMA
+	VmaVulkanFunctions vmaVulkanFunctions{};
+	vmaVulkanFunctions.vkGetPhysicalDeviceProperties = vkGetPhysicalDeviceProperties;
+	vmaVulkanFunctions.vkGetPhysicalDeviceMemoryProperties = vkGetPhysicalDeviceMemoryProperties;
+	vmaVulkanFunctions.vkAllocateMemory = vkAllocateMemory;
+	vmaVulkanFunctions.vkFreeMemory = vkFreeMemory;
+	vmaVulkanFunctions.vkMapMemory = vkMapMemory;
+	vmaVulkanFunctions.vkUnmapMemory = vkUnmapMemory;
+	vmaVulkanFunctions.vkFlushMappedMemoryRanges = vkFlushMappedMemoryRanges;
+	vmaVulkanFunctions.vkInvalidateMappedMemoryRanges = vkInvalidateMappedMemoryRanges;
+	vmaVulkanFunctions.vkBindBufferMemory = vkBindBufferMemory;
+	vmaVulkanFunctions.vkBindImageMemory = vkBindImageMemory;
+	vmaVulkanFunctions.vkGetBufferMemoryRequirements = vkGetBufferMemoryRequirements;
+	vmaVulkanFunctions.vkGetImageMemoryRequirements = vkGetImageMemoryRequirements;
+	vmaVulkanFunctions.vkCreateBuffer = vkCreateBuffer;
+	vmaVulkanFunctions.vkDestroyBuffer = vkDestroyBuffer;
+	vmaVulkanFunctions.vkCreateImage = vkCreateImage;
+	vmaVulkanFunctions.vkDestroyImage = vkDestroyImage;
+	vmaVulkanFunctions.vkCmdCopyBuffer = vkCmdCopyBuffer;
+
+	VmaAllocatorCreateInfo allocatorInfo{};
+	allocatorInfo.physicalDevice = this->physicalDevice->getHandle();
+	allocatorInfo.device = handle;
+	allocatorInfo.instance = this->physicalDevice->getInstance().getHandle();
+
+	if (canGetMemoryRequirements && supportsDedicatedAllocation)
+	{
+		allocatorInfo.flags |= VMA_ALLOCATOR_CREATE_KHR_DEDICATED_ALLOCATION_BIT;
+		vmaVulkanFunctions.vkGetBufferMemoryRequirements2KHR = vkGetBufferMemoryRequirements2KHR;
+		vmaVulkanFunctions.vkGetImageMemoryRequirements2KHR = vkGetImageMemoryRequirements2KHR;
+	}
+
+	if (isExtensionSupported(VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME) && isExtensionSupported(VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME))
+	{
+		allocatorInfo.flags |= VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
+	}
+
+	allocatorInfo.pVulkanFunctions = &vmaVulkanFunctions;
+
+	VK_CHECK(vmaCreateAllocator(&allocatorInfo, &memoryAllocator));
 }
 
 
 Device::~Device()
 {
+	if (memoryAllocator != VK_NULL_HANDLE)
+	{
+		//VmaStats stats;
+		//vmaCalculateStats(memoryAllocator, &stats);
+
+		//LOGI("Total device memory leaked: {} bytes.", stats.total.usedBytes);
+
+		vmaDestroyAllocator(memoryAllocator);
+	}
+
 	if (handle != VK_NULL_HANDLE)
 	{
 		vkDestroyDevice(handle, nullptr);
 	}
 }
 
-void Device::waitIdle()
+void Device::waitIdle() const
 {
 	vkDeviceWaitIdle(handle);
 }
@@ -179,6 +245,29 @@ bool Device::isExtensionSupported(const char *extension) const
 	}
 
 	return false;
+}
+
+bool Device::isExtensionEnabled(const char* extension) const
+{
+	return std::find_if(enabledExtensions.begin(), enabledExtensions.end(), [extension](const char* enabledExtension) { return strcmp(extension, enabledExtension) == 0; }) != enabledExtensions.end();
+}
+
+VmaAllocator Device::getMemoryAllocator() const
+{
+	return memoryAllocator;
+}
+
+uint32_t Device::getMemoryType(uint32_t memoryTypeBits, VkMemoryPropertyFlags propertyFlags)
+{
+	for (uint32_t i = 0; i < physicalDevice->getMemoryProperties().memoryTypeCount; ++i)
+	{
+		if ((memoryTypeBits & (1 << i)) && (physicalDevice->getMemoryProperties().memoryTypes[i].propertyFlags & propertyFlags) == propertyFlags)
+		{
+			return i;
+		}
+	}
+
+	LOGEANDABORT("Failed to find suitable memory type!");
 }
 
 } // namespace vulkr

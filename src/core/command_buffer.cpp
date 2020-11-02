@@ -32,11 +32,9 @@
 namespace vulkr
 {
 
-CommandBuffer::CommandBuffer(CommandPool &commandPool, VkCommandBufferLevel level, RenderPass &renderPass, Framebuffer &framebuffer) :
+CommandBuffer::CommandBuffer(CommandPool &commandPool, VkCommandBufferLevel level) :
 	commandPool{ commandPool },
 	level{ level },
-	renderPass{ renderPass },
-	framebuffer{ framebuffer },
 	maxPushConstantsSize{ commandPool.getDevice().getPhysicalDevice().getProperties().limits.maxPushConstantsSize }
 {
 	VkCommandBufferAllocateInfo allocateInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
@@ -129,10 +127,9 @@ void CommandBuffer::end()
 	state = State::Executable;
 }
 
-void CommandBuffer::beginRenderPass(const std::vector<VkClearValue> &clearValues, const std::vector<std::unique_ptr<Subpass>> &subpasses, const VkExtent2D extent, VkSubpassContents subpassContents)
+void CommandBuffer::beginRenderPass(RenderPass &renderPass, Framebuffer &framebuffer, const VkExtent2D extent, const std::vector<VkClearValue> &clearValues, VkSubpassContents subpassContents)
 {
-	VkRenderPassBeginInfo renderPassBeginInfo{};
-	renderPassBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+	VkRenderPassBeginInfo renderPassBeginInfo{ VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
 	renderPassBeginInfo.renderPass = renderPass.getHandle();
 	renderPassBeginInfo.framebuffer = framebuffer.getHandle();
 	renderPassBeginInfo.renderArea.offset = { 0, 0 };
@@ -141,8 +138,6 @@ void CommandBuffer::beginRenderPass(const std::vector<VkClearValue> &clearValues
 	renderPassBeginInfo.pClearValues = clearValues.data();
 
 	vkCmdBeginRenderPass(handle, &renderPassBeginInfo, subpassContents);
-
-	// TODO: subpasses is unused
 }
 
 void CommandBuffer::endRenderPass()

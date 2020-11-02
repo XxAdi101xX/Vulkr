@@ -56,6 +56,7 @@ set(CORE_FILES
     core/framebuffer.h
     core/command_pool.h
     core/command_buffer.h
+    core/buffer.h
     # Source Files
     core/device.cpp
     core/instance.cpp
@@ -70,6 +71,7 @@ set(CORE_FILES
     core/framebuffer.cpp
     core/command_pool.cpp
     core/command_buffer.cpp
+    core/buffer.cpp
 )
 
 set(PLATFORM_FILES
@@ -118,4 +120,5 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
     glm
     glfw
     spdlog
+    VulkanMemoryAllocator
 )
