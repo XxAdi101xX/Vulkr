@@ -58,6 +58,8 @@ set(CORE_FILES
     core/command_buffer.h
     core/buffer.h
     core/descriptor_set_layout.h
+    core/descriptor_pool.h
+    core/descriptor_set.h
     # Source Files
     core/device.cpp
     core/instance.cpp
@@ -74,6 +76,8 @@ set(CORE_FILES
     core/command_buffer.cpp
     core/buffer.cpp
     core/descriptor_set_layout.cpp
+    core/descriptor_pool.cpp
+    core/descriptor_set.cpp
 )
 
 set(PLATFORM_FILES
