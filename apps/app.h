@@ -29,6 +29,9 @@
 #include "core/swapchain.h"
 #include "core/image_view.h"
 #include "core/render_pass.h"
+#include "core/descriptor_set_layout.h"
+#include "core/descriptor_pool.h"
+#include "core/descriptor_set.h"
 #include "rendering/subpass.h"
 #include "rendering/shader_module.h"
 #include "rendering/pipeline_state.h"
@@ -39,13 +42,19 @@
 #include "core/command_pool.h"
 #include "core/command_buffer.h"
 #include "core/buffer.h"
+#include "core/image.h"
 
 #include "common/semaphore_pool.h"
 #include "common/fence_pool.h"
+#include "common/helpers.h"
 
 #include "platform/application.h"
 
+#define GLM_FORCE_RADIANS
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+
+#include <chrono>
 
 namespace vulkr
 {
@@ -64,7 +73,7 @@ public:
     virtual void recreateSwapchain() override;
 private:
     std::unique_ptr<Instance> instance{ nullptr };
-    
+
     VkSurfaceKHR surface{ VK_NULL_HANDLE };
 
     std::unique_ptr<Device> device{ nullptr };
@@ -81,7 +90,7 @@ private:
 
     std::vector<Subpass> subpasses;
     std::unique_ptr<RenderPass> renderPass{ nullptr };
-
+    std::unique_ptr<DescriptorSetLayout> descriptorSetLayout{ nullptr };
     std::vector<ShaderModule> shaderModules;
     std::unique_ptr<PipelineState> pipelineState{ nullptr };
     std::unique_ptr<GraphicsPipeline> pipeline{ nullptr };
@@ -91,6 +100,13 @@ private:
     std::unique_ptr<CommandPool> commandPool{ nullptr };
 
     std::vector<std::unique_ptr<CommandBuffer>> commandBuffers;
+
+    std::unique_ptr<Buffer> vertexBuffer{ nullptr };
+    std::unique_ptr<Buffer> indexBuffer{ nullptr };
+    std::vector<std::unique_ptr<Buffer>> uniformBuffers;
+
+    std::unique_ptr<DescriptorPool> descriptorPool;
+    std::vector<std::unique_ptr<DescriptorSet>> descriptorSets;
 
     std::unique_ptr<SemaphorePool> semaphorePool;
     std::unique_ptr<FencePool> fencePool;
@@ -102,9 +118,6 @@ private:
     VkQueue graphicsQueue{ VK_NULL_HANDLE };
     VkQueue presentQueue{ VK_NULL_HANDLE };
 
-    std::unique_ptr<Buffer> vertexBuffer{ nullptr };
-    std::unique_ptr<Buffer> indexBuffer{ nullptr };
-
     const uint32_t MAX_FRAMES_IN_FLIGHT{ 2 };
     size_t currentFrame{ 0 };
 
@@ -115,6 +128,12 @@ private:
     struct Vertex {
         glm::vec2 pos;
         glm::vec3 color;
+    };
+
+    struct UniformBufferObject {
+        alignas(16) glm::mat4 model;
+        alignas(16) glm::mat4 view;
+        alignas(16) glm::mat4 proj;
     };
 
     const std::vector<Vertex> vertices {
@@ -136,15 +155,21 @@ private:
     void createSwapchain();
     void createImageViews();
     void createRenderPass();
+    void createDescriptorSetLayout();
     void createGraphicsPipeline();
     void createFramebuffers();
     void createCommandPool();
     void copyBuffer(Buffer &srcBuffer, Buffer &dstBuffer, VkDeviceSize size);
     void createVertexBuffer();
     void createIndexBuffer();
+    void createUniformBuffers();
+    void createDescriptorPool();
+    void createDescriptorSets();
     void createCommandBuffers();
     void createSemaphoreAndFencePools();
     void setupSynchronizationObjects();
+
+    void updateUniformBuffer(uint32_t currentImage);
 };
 
 } // namespace vulkr

@@ -29,14 +29,13 @@ namespace vulkr
 
 class Device;
 class ShaderModule;
-//class DescriptorSetLayout;
+class DescriptorSetLayout;
 
 class PipelineLayout
 {
 public:
-	PipelineLayout(Device &device, const std::vector<ShaderModule> &shaderModules);
+	PipelineLayout(Device &device, const std::vector<ShaderModule> &shaderModules, DescriptorSetLayout &descriptorSetLayout);
 	~PipelineLayout();
-
 
 	/* Disable unnecessary operators to prevent error prone usages */
 	PipelineLayout(const PipelineLayout &) = delete;
@@ -44,45 +43,18 @@ public:
 	PipelineLayout& operator=(const PipelineLayout &) = delete;
 	PipelineLayout& operator=(PipelineLayout &&) = delete;
 
-
 	VkPipelineLayout getHandle() const;
-
-	const std::vector<VkDescriptorSetLayout*> &getSetLayouts() const;
-	const std::vector<VkPushConstantRange*> &getPushConstantRanges() const;
-	// TODO
 
 	const std::vector<ShaderModule> &getShaderModules() const;
 
-	//const std::unordered_map<uint32_t, std::vector<ShaderResource>>& get_bindings() const;
-
-	//const std::vector<ShaderResource>& get_set_bindings(uint32_t set_index) const;
-
-	//bool has_set_layout(uint32_t set_index) const;
-
-	//DescriptorSetLayout& get_set_layout(uint32_t set_index);
-
-	//std::vector<ShaderResource> get_vertex_input_attributes() const;
-
-	//std::vector<ShaderResource> get_fragment_output_attachments() const;
-
-	//std::vector<ShaderResource> get_fragment_input_attachments() const;
-
-	//VkShaderStageFlags get_push_constant_range_stage(uint32_t offset, uint32_t size) const;
+	// TODO implement push constants
 
 private:
 	VkPipelineLayout handle{ VK_NULL_HANDLE };
-	Device& device;
+
+	Device &device;
 
 	const std::vector<ShaderModule> &shaderModules;
-
-	std::vector<VkDescriptorSetLayout*> setLayouts;
-	std::vector<VkPushConstantRange*> pushConstantRanges;
-
-	//std::map<std::string, shaderresource> resources;
-
-	//std::unordered_map<uint32_t, std::vector<shaderresource>> set_bindings;
-
-	//std::unordered_map<uint32_t, descriptorsetlayout*> set_layouts;
 };
 
 } // namespace vulkr

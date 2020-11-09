@@ -28,7 +28,7 @@
 namespace vulkr
 {
 
-DescriptorSetLayout::DescriptorSetLayout(Device &device, const std::vector<VkDescriptorSetLayoutBinding > bindings) :
+DescriptorSetLayout::DescriptorSetLayout(Device &device, const std::vector<VkDescriptorSetLayoutBinding> bindings) :
 	device{ device },
 	bindings{ std::move(bindings)}
 {
@@ -52,7 +52,7 @@ DescriptorSetLayout::~DescriptorSetLayout()
 	vkDestroyDescriptorSetLayout(device.getHandle(), handle, nullptr);
 }
 
-VkDescriptorSetLayout DescriptorSetLayout::getHandle() const
+const VkDescriptorSetLayout &DescriptorSetLayout::getHandle() const
 {
 	return handle;
 }

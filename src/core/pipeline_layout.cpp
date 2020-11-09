@@ -22,17 +22,18 @@
 
 #include "pipeline_layout.h"
 #include "device.h"
+#include "descriptor_set_layout.h"
 
 namespace vulkr
 {
 
-PipelineLayout::PipelineLayout(Device& device, const std::vector<ShaderModule> &shaderModules) :
+PipelineLayout::PipelineLayout(Device& device, const std::vector<ShaderModule> &shaderModules, DescriptorSetLayout &descriptorSetLayout) :
 	device{ device },
 	shaderModules{ shaderModules }
 {
-	// TODO: UPDATE THIS as this is very incomplete
 	VkPipelineLayoutCreateInfo pipelineLayoutInfo{ VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
-	pipelineLayoutInfo.setLayoutCount = 0;
+	pipelineLayoutInfo.setLayoutCount = 1;
+	pipelineLayoutInfo.pSetLayouts = &(descriptorSetLayout.getHandle());
 	pipelineLayoutInfo.pushConstantRangeCount = 0;
 
 	VK_CHECK(vkCreatePipelineLayout(device.getHandle(), &pipelineLayoutInfo, nullptr, &handle));
@@ -49,15 +50,6 @@ PipelineLayout::~PipelineLayout()
 VkPipelineLayout PipelineLayout::getHandle() const
 {
 	return handle;
-}
-
-const std::vector<VkDescriptorSetLayout*>& PipelineLayout::getSetLayouts() const
-{
-	return setLayouts;
-}
-const std::vector<VkPushConstantRange*>& PipelineLayout::getPushConstantRanges() const
-{
-	return pushConstantRanges;
 }
 
 const std::vector<ShaderModule> &PipelineLayout::getShaderModules() const

@@ -41,7 +41,7 @@ public:
 	DescriptorSetLayout& operator=(const DescriptorSetLayout&) = delete;
 	DescriptorSetLayout& operator=(DescriptorSetLayout&&) = delete;
 
-	VkDescriptorSetLayout getHandle() const;
+	const VkDescriptorSetLayout &getHandle() const;
 
 	const std::vector<VkDescriptorSetLayoutBinding> &getBindings() const;
 
