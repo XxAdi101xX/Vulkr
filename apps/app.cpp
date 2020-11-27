@@ -133,6 +133,7 @@ void MainApp::prepare()
     createCommandBuffers();
     createSemaphoreAndFencePools();
     setupSynchronizationObjects();
+    setupTimer();
 }
 
 void MainApp::update()
@@ -218,14 +219,10 @@ void MainApp::recreateSwapchain()
 
 void MainApp::updateUniformBuffer(uint32_t currentImage)
 {
-    // TODO: user timer class!!!!!!!!!!!
-    static auto startTime = std::chrono::high_resolution_clock::now();
-
-    auto currentTime = std::chrono::high_resolution_clock::now();
-    float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
+    float elapsedTime = static_cast<float>(drawingTimer->elapsed<Timer::Seconds>());
 
     UniformBufferObject ubo{};
-    ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(180.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+    ubo.model = glm::rotate(glm::mat4(1.0f), elapsedTime * glm::radians(180.0f), glm::vec3(0.0f, 0.0f, 1.0f));
     ubo.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
     ubo.proj = glm::perspective(glm::radians(45.0f), swapchain->getProperties().imageExtent.width / (float)swapchain->getProperties().imageExtent.height, 0.1f, 10.0f);
     ubo.proj[1][1] *= -1;
@@ -396,7 +393,7 @@ void MainApp::createGraphicsPipeline()
         multisampleState,
         depthStencilState,
         colorBlendState
-        );
+    );
 
     pipeline = std::make_unique<GraphicsPipeline>(*device, *pipelineState, nullptr);
 }
@@ -449,9 +446,7 @@ void MainApp::createVertexBuffer()
 
     VmaAllocationCreateInfo memoryInfo{};
     memoryInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
-    LOGI("hii");
     std::unique_ptr<Buffer> stagingBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
-    LOGI("baii");
     bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
     memoryInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 
@@ -596,6 +591,12 @@ void MainApp::setupSynchronizationObjects()
         renderFinishedSemaphores.push_back(semaphorePool->requestSemaphore());
         inFlightFences.push_back(fencePool->requestFence());
     }
+}
+
+void MainApp::setupTimer()
+{
+    drawingTimer = std::make_unique<Timer>();
+    drawingTimer->start();
 }
 
 } // namespace vulkr

@@ -47,6 +47,7 @@
 #include "common/semaphore_pool.h"
 #include "common/fence_pool.h"
 #include "common/helpers.h"
+#include "common/timer.h"
 
 #include "platform/application.h"
 
@@ -118,6 +119,8 @@ private:
     VkQueue graphicsQueue{ VK_NULL_HANDLE };
     VkQueue presentQueue{ VK_NULL_HANDLE };
 
+    std::unique_ptr<Timer> drawingTimer;
+
     const uint32_t MAX_FRAMES_IN_FLIGHT{ 2 };
     size_t currentFrame{ 0 };
 
@@ -168,6 +171,7 @@ private:
     void createCommandBuffers();
     void createSemaphoreAndFencePools();
     void setupSynchronizationObjects();
+    void setupTimer();
 
     void updateUniformBuffer(uint32_t currentImage);
 };

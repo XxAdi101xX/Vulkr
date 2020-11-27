@@ -95,16 +95,16 @@ RenderPass::RenderPass(Device& device, const std::vector<Attachment> &attachment
 
 
 	// Create render pass
-	VkRenderPassCreateInfo createInfo{ VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO };
+	VkRenderPassCreateInfo renderPassInfo{ VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO };
 
-	createInfo.attachmentCount = to_u32(attachmentDescriptions.size());
-	createInfo.pAttachments = attachmentDescriptions.data();
-	createInfo.subpassCount = to_u32(subpasses.size());
-	createInfo.pSubpasses = subpassDescriptions.data();
-	createInfo.dependencyCount = to_u32(subpassDependencies.size());
-	createInfo.pDependencies = subpassDependencies.data();
+	renderPassInfo.attachmentCount = to_u32(attachmentDescriptions.size());
+	renderPassInfo.pAttachments = attachmentDescriptions.data();
+	renderPassInfo.subpassCount = to_u32(subpasses.size());
+	renderPassInfo.pSubpasses = subpassDescriptions.data();
+	renderPassInfo.dependencyCount = to_u32(subpassDependencies.size());
+	renderPassInfo.pDependencies = subpassDependencies.data();
 
-	VK_CHECK(vkCreateRenderPass(device.getHandle(), &createInfo, nullptr, &handle));
+	VK_CHECK(vkCreateRenderPass(device.getHandle(), &renderPassInfo, nullptr, &handle));
 }
 
 RenderPass::~RenderPass()
