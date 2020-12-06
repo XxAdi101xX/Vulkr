@@ -60,6 +60,7 @@ set(CORE_FILES
     core/descriptor_set_layout.h
     core/descriptor_pool.h
     core/descriptor_set.h
+    core/sampler.h
     # Source Files
     core/device.cpp
     core/instance.cpp
@@ -78,6 +79,7 @@ set(CORE_FILES
     core/descriptor_set_layout.cpp
     core/descriptor_pool.cpp
     core/descriptor_set.cpp
+    core/sampler.cpp
 )
 
 set(PLATFORM_FILES
@@ -127,4 +129,5 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
     glfw
     spdlog
     VulkanMemoryAllocator
+    stb
 )
