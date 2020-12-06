@@ -35,13 +35,16 @@ class Image
 public:
 	Image(
 		Device &device,
-		VkExtent3D extent,
 		VkFormat format,
+		VkExtent3D extent,
 		VkImageUsageFlags imageUsage,
-		VkSampleCountFlagBits sampleCount = VK_SAMPLE_COUNT_1_BIT,
+		VmaMemoryUsage memoryUsage,
 		uint32_t mipLevels = 1,
 		uint32_t arrayLayers = 1,
+		VkSampleCountFlagBits sampleCount = VK_SAMPLE_COUNT_1_BIT,
 		VkImageTiling tiling = VK_IMAGE_TILING_OPTIMAL,
+		VkSharingMode sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+		VkImageLayout initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
 		VkImageCreateFlags flags = 0
 	);
 
@@ -54,7 +57,7 @@ public:
 		VkSampleCountFlagBits sampleCount = VK_SAMPLE_COUNT_1_BIT
 	);
 
-	~Image() = default;
+	~Image();
  
 	/* Disable unnecessary operators to prevent error prone usages */
 	Image(Image &&) = delete; // TODO: do we need this?
@@ -62,7 +65,13 @@ public:
 	Image& operator=(const Image &) = delete;
 	Image& operator=(Image &&) = delete;
 
+	void *map();
+
+	void unmap();
+
 	VkImage getHandle() const;
+
+	VmaAllocation getAllocation() const;
 
 	Device &getDevice() const;
 
@@ -87,7 +96,11 @@ private:
 
 	VkImage handle{ VK_NULL_HANDLE };
 
-	//VmaAllocation memory{ VK_NULL_HANDLE };
+	VmaAllocation allocation{ VK_NULL_HANDLE };
+
+	// Whether the buffer has been mapped with vmaMapMemory
+	bool mapped{ false };
+	void* mappedData{ nullptr };
 
 	VkImageType type{};
 

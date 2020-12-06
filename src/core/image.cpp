@@ -21,6 +21,7 @@
  */
 
 #include "image.h"
+#include "device.h"
 
 #include "common/logger.h"
 
@@ -71,21 +72,24 @@ VkImageType getImageType(VkExtent3D extent)
 
 Image::Image(
 	Device &device,
-	VkExtent3D extent,
 	VkFormat format,
+	VkExtent3D extent,
 	VkImageUsageFlags imageUsage,
-	VkSampleCountFlagBits sampleCount,
+	VmaMemoryUsage memoryUsage,
 	const uint32_t mipLevels,
 	const uint32_t arrayLayers,
+	VkSampleCountFlagBits sampleCount,
 	VkImageTiling tiling,
+	VkSharingMode sharingMode,
+	VkImageLayout initialLayout,
 	VkImageCreateFlags flags) :
 	device{ device },
 	type{ getImageType(extent) },
-	extent{ extent },
 	format{ format },
-	sampleCount{ sampleCount },
+	extent{ extent },
 	usageFlags{ imageUsage },
 	arrayLayerCount{ arrayLayers },
+	sampleCount{ sampleCount },
 	tiling{ tiling }
 {
 	if (mipLevels < 1)
@@ -101,31 +105,26 @@ Image::Image(
 	subresource.mipLevel = mipLevels;
 	subresource.arrayLayer = arrayLayers;
 
-	VkImageCreateInfo imageCreateInfo{ VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
-	imageCreateInfo.flags = flags;
-	imageCreateInfo.imageType = type;
-	imageCreateInfo.format = format;
-	imageCreateInfo.extent = extent;
-	imageCreateInfo.mipLevels = mipLevels;
-	imageCreateInfo.arrayLayers = arrayLayers;
-	imageCreateInfo.samples = sampleCount;
-	imageCreateInfo.tiling = tiling;
-	imageCreateInfo.usage = imageUsage;
+	VkImageCreateInfo imageInfo{ VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
+	imageInfo.flags = flags;
+	imageInfo.imageType = type;
+	imageInfo.format = format;
+	imageInfo.extent = extent;
+	imageInfo.mipLevels = mipLevels;
+	imageInfo.arrayLayers = arrayLayers;
+	imageInfo.samples = sampleCount;
+	imageInfo.tiling = tiling;
+	imageInfo.usage = imageUsage;
+	imageInfo.initialLayout = initialLayout;
 
-	//if (imageUsage & VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT)
-	//{
-	//	memory_info.preferredFlags = VK_MEMORY_PROPERTY_LAZILY_ALLOCATED_BIT;
-	//}
+	VmaAllocationCreateInfo allocationInfo{};
+	allocationInfo.usage = memoryUsage;
+	if (imageUsage & VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT)
+	{
+		allocationInfo.preferredFlags = VK_MEMORY_PROPERTY_LAZILY_ALLOCATED_BIT;
+	}
 
-	//auto result = vmaCreateImage(device.get_memory_allocator(),
-	//	&image_info, &memory_info,
-	//	&handle, &memory,
-	//	nullptr);
-
-	//if (result != VK_SUCCESS)
-	//{
-	//	throw VulkanException{ result, "Cannot create Image" };
-	//}
+	VK_CHECK(vmaCreateImage(device.getMemoryAllocator(), &imageInfo, &allocationInfo, &handle, &allocation, nullptr));
 }
 
 Image::Image(Device &device, VkImage handle, VkExtent3D extent, VkFormat format, VkImageUsageFlags imageUsageFlags, VkSampleCountFlagBits sampleCount) :
@@ -141,6 +140,45 @@ Image::Image(Device &device, VkImage handle, VkExtent3D extent, VkFormat format,
 	subresource.arrayLayer = 1;
 }
 
+Image::~Image()
+{
+	if (handle != VK_NULL_HANDLE && allocation != VK_NULL_HANDLE)
+	{
+		if (mapped)
+		{
+			LOGW("Mapped data has not be explicity unmapped, will be unmapped in destructor..");
+			unmap();
+		}
+		vmaDestroyImage(device.getMemoryAllocator(), handle, allocation);
+	}
+}
+
+void *Image::map()
+{
+	if (!mapped)
+	{
+		if (tiling != VK_IMAGE_TILING_LINEAR)
+		{
+			LOGW("Mapping image memory that is not linear");
+		}
+		VK_CHECK(vmaMapMemory(device.getMemoryAllocator(), allocation, reinterpret_cast<void**>(&mappedData)));
+		mapped = true;
+	}
+	return mappedData;
+}
+
+void Image::unmap()
+{
+	if (!mapped)
+	{
+		LOGEANDABORT("Trying to unmap memory on a buffer that's not mapped");
+	}
+	vmaUnmapMemory(device.getMemoryAllocator(), allocation);
+	mappedData = nullptr;
+	mapped = false;
+
+}
+
 Device &Image::getDevice() const
 {
 	return device;
@@ -149,6 +187,11 @@ Device &Image::getDevice() const
 VkImage Image::getHandle() const
 {
 	return handle;
+}
+
+VmaAllocation Image::getAllocation() const
+{
+	return allocation;
 }
 
 VkImageType Image::getType() const

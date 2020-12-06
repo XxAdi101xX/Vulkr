@@ -66,6 +66,9 @@ public:
 
 	/* Check whether a queue family supports presentation */
 	VkBool32 isPresentSupported(VkSurfaceKHR surface, uint32_t queue_family_index) const;
+
+	/* Set the requested features */
+	void setRequestedFeatures(VkPhysicalDeviceFeatures &requestedFeatures);
 private:
 	/* The physical device handle */
 	VkPhysicalDevice handle{ VK_NULL_HANDLE };

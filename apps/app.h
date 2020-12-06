@@ -43,6 +43,7 @@
 #include "core/command_buffer.h"
 #include "core/buffer.h"
 #include "core/image.h"
+#include "core/sampler.h"
 
 #include "common/semaphore_pool.h"
 #include "common/fence_pool.h"
@@ -56,6 +57,9 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <chrono>
+
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb_image.h>
 
 namespace vulkr
 {
@@ -102,6 +106,9 @@ private:
 
     std::vector<std::unique_ptr<CommandBuffer>> commandBuffers;
 
+    std::unique_ptr<Image> textureImage{ nullptr };
+    std::unique_ptr<ImageView> textureImageView{ nullptr };
+    std::unique_ptr<Sampler> textureSampler{ nullptr };
     std::unique_ptr<Buffer> vertexBuffer{ nullptr };
     std::unique_ptr<Buffer> indexBuffer{ nullptr };
     std::vector<std::unique_ptr<Buffer>> uniformBuffers;
@@ -129,8 +136,9 @@ private:
     };
 
     struct Vertex {
-        glm::vec2 pos;
+        glm::vec2 position;
         glm::vec3 color;
+        glm::vec2 textureCoordinate;
     };
 
     struct UniformBufferObject {
@@ -139,11 +147,11 @@ private:
         alignas(16) glm::mat4 proj;
     };
 
-    const std::vector<Vertex> vertices {
-        {{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
-        {{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},
-        {{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},
-        {{-0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}}
+    const std::vector<Vertex> vertices = {
+        {{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
+        {{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
+        {{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
+        {{-0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}}
     };
 
     const std::vector<uint16_t> indices {
@@ -162,6 +170,11 @@ private:
     void createGraphicsPipeline();
     void createFramebuffers();
     void createCommandPool();
+    void transitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout);
+    void copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height);
+    void createTextureImage();
+    void createTextureImageView();
+    void createTextureSampler();
     void copyBuffer(Buffer &srcBuffer, Buffer &dstBuffer, VkDeviceSize size);
     void createVertexBuffer();
     void createIndexBuffer();

@@ -39,6 +39,12 @@ MainApp::MainApp(Platform& platform, std::string name) : Application{ platform, 
 
      cleanupSwapchain();
 
+     textureSampler.reset();
+
+     textureImageView.reset();
+
+     textureImage.reset();
+
      descriptorSetLayout.reset();
 
      indexBuffer.reset();
@@ -125,6 +131,9 @@ void MainApp::prepare()
     createGraphicsPipeline();
     createFramebuffers();
     createCommandPool();
+    createTextureImage();
+    createTextureImageView();
+    createTextureSampler();
     createVertexBuffer();
     createIndexBuffer();
     createUniformBuffers();
@@ -245,7 +254,13 @@ void MainApp::createSurface()
 
 void MainApp::createDevice()
 {
-    device = std::make_unique<Device>(std::move(instance->getSuitablePhysicalDevice()), surface, deviceExtensions);
+    VkPhysicalDeviceFeatures deviceFeatures{};
+    deviceFeatures.samplerAnisotropy = VK_TRUE;
+
+    std::unique_ptr<PhysicalDevice> physicalDevice = instance->getSuitablePhysicalDevice();
+    physicalDevice->setRequestedFeatures(deviceFeatures);
+
+    device = std::make_unique<Device>(std::move(physicalDevice), surface, deviceExtensions);
 }
 
 void MainApp::createSwapchain()
@@ -302,7 +317,14 @@ void MainApp::createDescriptorSetLayout()
     uboLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
     uboLayoutBinding.pImmutableSamplers = nullptr; // Optional
 
-    std::vector<VkDescriptorSetLayoutBinding> descriptorSetLayoutBindings{ uboLayoutBinding };
+    VkDescriptorSetLayoutBinding samplerLayoutBinding{};
+    samplerLayoutBinding.binding = 1;
+    samplerLayoutBinding.descriptorCount = 1;
+    samplerLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    samplerLayoutBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    samplerLayoutBinding.pImmutableSamplers = nullptr;
+
+    std::vector<VkDescriptorSetLayoutBinding> descriptorSetLayoutBindings{ uboLayoutBinding, samplerLayoutBinding };
 
     descriptorSetLayout = std::make_unique<DescriptorSetLayout>(*device, descriptorSetLayoutBindings);
 }
@@ -312,7 +334,7 @@ void MainApp::createGraphicsPipeline()
     // Setup pipeline
     VertexInputState vertexInputState{};
     vertexInputState.bindingDescriptions.reserve(1);
-    vertexInputState.attributeDescriptions.reserve(2);
+    vertexInputState.attributeDescriptions.reserve(3);
 
     VkVertexInputBindingDescription bindingDescription{};
     bindingDescription.binding = 0;
@@ -320,19 +342,25 @@ void MainApp::createGraphicsPipeline()
     bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
     vertexInputState.bindingDescriptions.emplace_back(bindingDescription);
 
-    VkVertexInputAttributeDescription posAttributeDescription;
-    posAttributeDescription.binding = 0;
-    posAttributeDescription.location = 0;
-    posAttributeDescription.format = VK_FORMAT_R32G32_SFLOAT;
-    posAttributeDescription.offset = offsetof(Vertex, pos);
+    VkVertexInputAttributeDescription positionAttributeDescription;
+    positionAttributeDescription.binding = 0;
+    positionAttributeDescription.location = 0;
+    positionAttributeDescription.format = VK_FORMAT_R32G32_SFLOAT;
+    positionAttributeDescription.offset = offsetof(Vertex, position);
     VkVertexInputAttributeDescription colorAttributeDescription;
     colorAttributeDescription.binding = 0;
     colorAttributeDescription.location = 1;
     colorAttributeDescription.format = VK_FORMAT_R32G32B32_SFLOAT;
     colorAttributeDescription.offset = offsetof(Vertex, color);
+    VkVertexInputAttributeDescription textureCoordinateAttributeDescription;
+    textureCoordinateAttributeDescription.binding = 0;
+    textureCoordinateAttributeDescription.location = 2;
+    textureCoordinateAttributeDescription.format = VK_FORMAT_R32G32_SFLOAT;
+    textureCoordinateAttributeDescription.offset = offsetof(Vertex, textureCoordinate);
 
-    vertexInputState.attributeDescriptions.emplace_back(posAttributeDescription);
+    vertexInputState.attributeDescriptions.emplace_back(positionAttributeDescription);
     vertexInputState.attributeDescriptions.emplace_back(colorAttributeDescription);
+    vertexInputState.attributeDescriptions.emplace_back(textureCoordinateAttributeDescription);
 
     InputAssemblyState inputAssemblyState{};
     inputAssemblyState.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
@@ -414,7 +442,158 @@ void MainApp::createCommandPool()
     commandPool = std::make_unique<CommandPool>(*device, device->getOptimalGraphicsQueue().getFamilyIndex(), 0u);
 }
 
-void MainApp::copyBuffer(Buffer& srcBuffer, Buffer& dstBuffer, VkDeviceSize size)
+void MainApp::transitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout)
+{
+    std::unique_ptr<CommandBuffer> commandBuffer = std::make_unique<CommandBuffer>(*commandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+
+    commandBuffer->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
+
+    VkImageMemoryBarrier barrier{};
+    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrier.oldLayout = oldLayout;
+    barrier.newLayout = newLayout;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.image = image;
+    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    barrier.subresourceRange.baseMipLevel = 0;
+    barrier.subresourceRange.levelCount = 1;
+    barrier.subresourceRange.baseArrayLayer = 0;
+    barrier.subresourceRange.layerCount = 1;
+
+    VkPipelineStageFlags sourceStage;
+    VkPipelineStageFlags destinationStage;
+
+    if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED && newLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
+    {
+        barrier.srcAccessMask = 0;
+        barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+
+        sourceStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+        destinationStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    }
+    else if (oldLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL && newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+    {
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+        sourceStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+        destinationStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    }
+    else
+    {
+        LOGEANDABORT("unsupported layout transition!");
+    }
+
+    vkCmdPipelineBarrier(
+        commandBuffer->getHandle(),
+        sourceStage, destinationStage,
+        0,
+        0, nullptr,
+        0, nullptr,
+        1, &barrier
+    );
+
+    commandBuffer->end();
+
+    VkSubmitInfo submitInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &commandBuffer->getHandle();
+
+    vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
+    vkQueueWaitIdle(graphicsQueue);
+}
+
+void MainApp::copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height)
+{
+    std::unique_ptr<CommandBuffer> commandBuffer = std::make_unique<CommandBuffer>(*commandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+
+    commandBuffer->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
+
+    VkBufferImageCopy region{};
+    region.bufferOffset = 0;
+    region.bufferRowLength = 0;
+    region.bufferImageHeight = 0;
+    region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    region.imageSubresource.mipLevel = 0;
+    region.imageSubresource.baseArrayLayer = 0;
+    region.imageSubresource.layerCount = 1;
+    region.imageOffset = { 0, 0, 0 };
+    region.imageExtent = { width, height, 1 };
+
+    vkCmdCopyBufferToImage(commandBuffer->getHandle(), buffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+
+    commandBuffer->end();
+
+    VkSubmitInfo submitInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &commandBuffer->getHandle();
+
+    vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
+    vkQueueWaitIdle(graphicsQueue);
+}
+
+void MainApp::createTextureImage()
+{
+    // TODO: move this elsewhere?
+    int texWidth, texHeight, texChannels;
+    stbi_uc *pixels = stbi_load("../../../../assets/textures/statue.jpg", &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+    VkDeviceSize imageSize{ static_cast<VkDeviceSize>(texWidth * texHeight * 4) };
+
+    if (!pixels) {
+        LOGEANDABORT("failed to load texture image!");
+    }
+
+    VkBufferCreateInfo bufferInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+    bufferInfo.size = imageSize;
+    bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+    VmaAllocationCreateInfo memoryInfo{};
+    memoryInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
+
+    std::unique_ptr<Buffer> stagingBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
+
+    void *mappedData = stagingBuffer->map();
+    memcpy(mappedData, pixels, static_cast<size_t>(imageSize));
+    stagingBuffer->unmap();
+
+    stbi_image_free(pixels);
+
+    VkExtent3D extent{ texWidth, texHeight, 1 };
+    textureImage = std::make_unique<Image>(*device, VK_FORMAT_R8G8B8A8_SRGB, extent, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VMA_MEMORY_USAGE_GPU_ONLY /* default values for remaining params */);
+
+    transitionImageLayout(textureImage->getHandle(), VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    copyBufferToImage(stagingBuffer->getHandle(), textureImage->getHandle(), static_cast<uint32_t>(texWidth), static_cast<uint32_t>(texHeight));
+    transitionImageLayout(textureImage->getHandle(), VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+}
+
+void MainApp::createTextureImageView()
+{
+    textureImageView = std::make_unique<ImageView>(*textureImage, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, VK_FORMAT_R8G8B8A8_SRGB);
+}
+
+void MainApp::createTextureSampler()
+{
+    VkSamplerCreateInfo samplerInfo{};
+    samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    samplerInfo.magFilter = VK_FILTER_LINEAR;
+    samplerInfo.minFilter = VK_FILTER_LINEAR;
+    samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    samplerInfo.anisotropyEnable = VK_TRUE;
+    samplerInfo.maxAnisotropy = device->getPhysicalDevice().getProperties().limits.maxSamplerAnisotropy;
+    samplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
+    samplerInfo.unnormalizedCoordinates = VK_FALSE;
+    samplerInfo.compareEnable = VK_FALSE;
+    samplerInfo.compareOp = VK_COMPARE_OP_ALWAYS;
+    samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+
+    textureSampler = std::make_unique<Sampler>(*device, samplerInfo);
+}
+
+void MainApp::copyBuffer(Buffer &srcBuffer, Buffer &dstBuffer, VkDeviceSize size)
 {
     // TODO: move this elsewhere?
     std::unique_ptr<CommandBuffer> commandBuffer = std::make_unique<CommandBuffer>(*commandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
@@ -478,7 +657,7 @@ void MainApp::createIndexBuffer()
     indexBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
 
     void *mappedData = stagingBuffer->map();
-    memcpy(mappedData, indices.data(), (size_t)bufferSize);
+    memcpy(mappedData, indices.data(), static_cast<size_t>(bufferSize));
     stagingBuffer->unmap();
     copyBuffer(*stagingBuffer, *indexBuffer, bufferSize);
 }
@@ -505,9 +684,11 @@ void MainApp::createUniformBuffers()
 void MainApp::createDescriptorPool()
 {
     std::vector<VkDescriptorPoolSize> poolSizes{};
-    poolSizes.resize(1);
+    poolSizes.resize(2);
     poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     poolSizes[0].descriptorCount = to_u32(swapChainImageViews.size());
+    poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    poolSizes[1].descriptorCount = to_u32(swapChainImageViews.size());
 
     descriptorPool = std::make_unique<DescriptorPool>(*device, *descriptorSetLayout, poolSizes, to_u32(swapChainImageViews.size()));
 }
@@ -534,7 +715,22 @@ void MainApp::createDescriptorSets()
         descriptorWriteUniformBuffer.pImageInfo = nullptr; // Optional
         descriptorWriteUniformBuffer.pTexelBufferView = nullptr; // Optional
 
-        std::vector<VkWriteDescriptorSet> writeDescriptorSets{ descriptorWriteUniformBuffer };
+        VkDescriptorImageInfo imageInfo{};
+        imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        imageInfo.imageView = textureImageView->getHandle();
+        imageInfo.sampler = textureSampler->getHandle();
+
+        VkWriteDescriptorSet descriptorWritCombinedImageSampler{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        descriptorWritCombinedImageSampler.dstSet = descriptorSets[i]->getHandle();
+        descriptorWritCombinedImageSampler.dstBinding = 1;
+        descriptorWritCombinedImageSampler.dstArrayElement = 0;
+        descriptorWritCombinedImageSampler.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        descriptorWritCombinedImageSampler.descriptorCount = 1;
+        descriptorWritCombinedImageSampler.pImageInfo = &imageInfo;
+        descriptorWritCombinedImageSampler.pBufferInfo = nullptr; // Optional
+        descriptorWritCombinedImageSampler.pTexelBufferView = nullptr; // Optional
+
+        std::vector<VkWriteDescriptorSet> writeDescriptorSets{ descriptorWriteUniformBuffer, descriptorWritCombinedImageSampler };
 
         descriptorSets[i]->update(writeDescriptorSets);
     }

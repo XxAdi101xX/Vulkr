@@ -89,4 +89,9 @@ VkBool32 PhysicalDevice::isPresentSupported(VkSurfaceKHR surface, uint32_t queue
 	return presentSupported;
 }
 
+void PhysicalDevice::setRequestedFeatures(VkPhysicalDeviceFeatures &requestedFeatures)
+{
+	this->requestedFeatures = requestedFeatures;
+}
+
 } // namespace vulkr
