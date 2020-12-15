@@ -45,3 +45,20 @@
 
 /* @brief Overload the << operator to print out the VkResult enum name */
 std::ostream& operator<<(std::ostream & os, const VkResult result);
+
+/* @brief Determine whether a format ONLY has the depth component available */
+bool isDepthOnlyFormat(VkFormat format);
+
+/* @brief Determine whether a format has both the depth AND stencil components available */
+bool isDepthStencilFormat(VkFormat format);
+
+/* @brief Determine a suitable supported depth format */
+VkFormat getSupportedDepthFormat(
+	VkPhysicalDevice  physicalDeviceHandle,
+	bool depthOnly = false,
+	const std::vector<VkFormat> &formatPriorityList = {
+		VK_FORMAT_D32_SFLOAT,
+		VK_FORMAT_D32_SFLOAT_S8_UINT,
+		VK_FORMAT_D24_UNORM_S8_UINT
+	}
+);

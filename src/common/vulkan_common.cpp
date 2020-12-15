@@ -22,6 +22,7 @@
 
 #include "vulkan_common.h"
 
+// TODO: change this from overloading the ostream and make it work with the LOG* functions
 std::ostream& operator<<(std::ostream& os, const VkResult result)
 {
 #define PRINT_VK_RESULT_ENUM_NAME(r) \
@@ -78,4 +79,37 @@ std::ostream& operator<<(std::ostream& os, const VkResult result)
 #undef PRINT_VK_RESULT_ENUM_NAME
 
 	return os;
+}
+
+// Note that we don't use 16 bit float for depth, only 24 or 32
+bool isDepthOnlyFormat(VkFormat format)
+{
+	return format == VK_FORMAT_D32_SFLOAT;
+}
+
+bool isDepthStencilFormat(VkFormat format)
+{
+	return format == VK_FORMAT_D24_UNORM_S8_UINT || format == VK_FORMAT_D32_SFLOAT_S8_UINT;
+}
+
+VkFormat getSupportedDepthFormat(VkPhysicalDevice physicalDeviceHandle, bool depthOnly, const std::vector<VkFormat> &formatPriorityList)
+{
+	for (auto& format : formatPriorityList)
+	{
+		if (depthOnly && !isDepthOnlyFormat(format))
+		{
+			continue;
+		}
+
+		VkFormatProperties properties;
+		vkGetPhysicalDeviceFormatProperties(physicalDeviceHandle, format, &properties);
+
+		// Format must support depth stencil attachment for optimal tiling
+		if (properties.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT)
+		{
+			return format;
+		}
+	}
+
+	throw std::runtime_error("Failed to find a supported format");
 }

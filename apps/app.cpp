@@ -28,6 +28,7 @@
 namespace vulkr
 {
 
+// TODO: implement camera movements
 MainApp::MainApp(Platform& platform, std::string name) : Application{ platform, name } {}
 
  MainApp::~MainApp()
@@ -70,6 +71,10 @@ MainApp::MainApp(Platform& platform, std::string name) : Application{ platform, 
          commandBuffers[i].reset();
      }
      commandBuffers.clear();
+
+     depthImage.reset();
+
+     depthImageView.reset();
 
      for (uint32_t i = 0; i < swapchainFramebuffers.size(); ++i) {
          swapchainFramebuffers[i].reset();
@@ -129,8 +134,9 @@ void MainApp::prepare()
     createRenderPass();
     createDescriptorSetLayout();
     createGraphicsPipeline();
-    createFramebuffers();
     createCommandPool();
+    createDepthResources();
+    createFramebuffers();
     createTextureImage();
     createTextureImageView();
     createTextureSampler();
@@ -219,6 +225,7 @@ void MainApp::recreateSwapchain()
     createImageViews();
     createRenderPass();
     createGraphicsPipeline();
+    createDepthResources();
     createFramebuffers();
     createUniformBuffers();
     createDescriptorPool();
@@ -295,15 +302,31 @@ void MainApp::createRenderPass()
     colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     colorAttachments.push_back(colorAttachmentRef);
 
+    Attachment depthAttachment{};
+    depthAttachment.format = getSupportedDepthFormat(device->getPhysicalDevice().getHandle());
+    depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+    depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    depthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    depthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    depthAttachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+    attachments.push_back(depthAttachment);
+
+    VkAttachmentReference depthAttachmentRef{};
+    depthAttachmentRef.attachment = 1;
+    depthAttachmentRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+    depthStencilAttachments.push_back(depthAttachmentRef);
+
     subpasses.emplace_back(inputAttachments, colorAttachments, resolveAttachments, depthStencilAttachments, preserveAttachments, VK_PIPELINE_BIND_POINT_GRAPHICS);
 
     VkSubpassDependency subpassDependency{};
     subpassDependency.srcSubpass = VK_SUBPASS_EXTERNAL;
     subpassDependency.dstSubpass = 0;
-    subpassDependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    subpassDependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
     subpassDependency.srcAccessMask = 0;
-    subpassDependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    subpassDependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    subpassDependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+    subpassDependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
     std::vector<VkSubpassDependency> subpassDependencies{ subpassDependency };
     renderPass = std::make_unique<RenderPass>(*device, attachments, subpasses, subpassDependencies);
 }
@@ -345,7 +368,7 @@ void MainApp::createGraphicsPipeline()
     VkVertexInputAttributeDescription positionAttributeDescription;
     positionAttributeDescription.binding = 0;
     positionAttributeDescription.location = 0;
-    positionAttributeDescription.format = VK_FORMAT_R32G32_SFLOAT;
+    positionAttributeDescription.format = VK_FORMAT_R32G32B32_SFLOAT;
     positionAttributeDescription.offset = offsetof(Vertex, position);
     VkVertexInputAttributeDescription colorAttributeDescription;
     colorAttributeDescription.binding = 0;
@@ -388,6 +411,12 @@ void MainApp::createGraphicsPipeline()
     multisampleState.sampleShadingEnable = VK_FALSE;
 
     DepthStencilState depthStencilState{};
+    depthStencilState.depthTestEnable = VK_TRUE;
+    depthStencilState.depthWriteEnable = VK_TRUE;
+    // TODO: change this to VK_COMPARE_OP_GREATER: https://developer.nvidia.com/content/depth-precision-visualized , will need to also change the depthStencil clearValue to 0.0f instead of 1.0f
+    depthStencilState.depthCompareOp = VK_COMPARE_OP_LESS;
+    depthStencilState.depthBoundsTestEnable = VK_FALSE;
+    depthStencilState.stencilTestEnable = VK_FALSE;
 
     ColorBlendAttachmentState colorBlendAttachmentState{};
     colorBlendAttachmentState.blendEnable = VK_FALSE;
@@ -431,7 +460,7 @@ void MainApp::createFramebuffers()
     swapchainFramebuffers.reserve(swapchain->getImages().size());
     for (uint32_t i = 0; i < swapchain->getImages().size(); ++i)
     {
-        std::vector<VkImageView> attachments{ swapChainImageViews[i]->getHandle() };
+        std::vector<VkImageView> attachments{ swapChainImageViews[i]->getHandle(), depthImageView->getHandle() };
 
         swapchainFramebuffers.emplace_back(std::make_unique<Framebuffer>(*device, *swapchain, *renderPass, attachments));
     }
@@ -531,6 +560,17 @@ void MainApp::copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, 
 
     vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
     vkQueueWaitIdle(graphicsQueue);
+}
+
+void MainApp::createDepthResources()
+{
+    VkFormat depthFormat = getSupportedDepthFormat(device->getPhysicalDevice().getHandle());
+
+    VkExtent3D extent{ swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, 1 };
+    // TODO: a single depth buffer may not be correct... https://stackoverflow.com/questions/62371266/why-is-a-single-depth-buffer-sufficient-for-this-vulkan-swapchain-render-loop
+    // TODO: understand why I don't need to use a staging buffer here to access the depth buffer
+    depthImage = std::make_unique<Image>(*device, depthFormat, extent, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VMA_MEMORY_USAGE_GPU_ONLY /* default values for remaining params */);
+    depthImageView = std::make_unique<ImageView>(*depthImage, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_DEPTH_BIT, depthFormat);
 }
 
 void MainApp::createTextureImage()
@@ -740,8 +780,9 @@ void MainApp::createDescriptorSets()
 void MainApp::createCommandBuffers()
 {
     std::vector<VkClearValue> clearValues;
-    VkClearValue clearColor{ 0.0f, 0.0f, 0.0f, 1.0f };
-    clearValues.emplace_back(clearColor);
+    clearValues.resize(2);
+    clearValues[0].color = { 0.0f, 0.0f, 0.0f, 1.0f };
+    clearValues[1].depthStencil = { 1.0f, 0 };
 
     commandBuffers.reserve(swapchainFramebuffers.size());
     for (uint32_t i = 0; i < swapchainFramebuffers.size(); ++i) {

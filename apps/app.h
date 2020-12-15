@@ -53,6 +53,7 @@
 #include "platform/application.h"
 
 #define GLM_FORCE_RADIANS
+#define GLM_FORCE_DEPTH_ZERO_TO_ONE // don't use the OpenGL default depth range of -1.0 to 1.0 and use 0.0 to 1.0
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -106,6 +107,8 @@ private:
 
     std::vector<std::unique_ptr<CommandBuffer>> commandBuffers;
 
+    std::unique_ptr<Image> depthImage{ nullptr };
+    std::unique_ptr<ImageView> depthImageView{ nullptr };
     std::unique_ptr<Image> textureImage{ nullptr };
     std::unique_ptr<ImageView> textureImageView{ nullptr };
     std::unique_ptr<Sampler> textureSampler{ nullptr };
@@ -128,7 +131,7 @@ private:
 
     std::unique_ptr<Timer> drawingTimer;
 
-    const uint32_t MAX_FRAMES_IN_FLIGHT{ 2 };
+    const uint32_t MAX_FRAMES_IN_FLIGHT{ 2 }; // Explanation on this how we got this number: https://software.intel.com/content/www/us/en/develop/articles/practical-approach-to-vulkan-part-1.html
     size_t currentFrame{ 0 };
 
     const std::vector<const char *> deviceExtensions {
@@ -136,7 +139,7 @@ private:
     };
 
     struct Vertex {
-        glm::vec2 position;
+        glm::vec3 position;
         glm::vec3 color;
         glm::vec2 textureCoordinate;
     };
@@ -148,14 +151,20 @@ private:
     };
 
     const std::vector<Vertex> vertices = {
-        {{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
-        {{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
-        {{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
-        {{-0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}}
+        {{-0.5f, -0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
+        {{0.5f, -0.5f, 0.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
+        {{0.5f, 0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
+        {{-0.5f, 0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}},
+
+        {{-0.5f, -0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
+        {{0.5f, -0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
+        {{0.5f, 0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
+        {{-0.5f, 0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}}
     };
 
-    const std::vector<uint16_t> indices {
-        0, 1, 2, 2, 3, 0
+    const std::vector<uint16_t> indices = {
+        0, 1, 2, 2, 3, 0,
+        4, 5, 6, 6, 7, 4
     };
 
     void cleanupSwapchain();
@@ -172,6 +181,7 @@ private:
     void createCommandPool();
     void transitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout);
     void copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height);
+    void createDepthResources();
     void createTextureImage();
     void createTextureImageView();
     void createTextureSampler();

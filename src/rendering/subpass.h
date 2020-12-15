@@ -39,6 +39,7 @@ public:
 		VkPipelineBindPoint bindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
 		VkSubpassDescriptionFlags descriptionFlags = 0u
 	);
+	~Subpass() = default;
 	Subpass(Subpass &&) = default;
 
 	/* Disable unnecessary operators to prevent error prone usages */
