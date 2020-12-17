@@ -6,8 +6,8 @@
 			"generator": "Ninja",
 			"configurationType": "Debug",
 			"inheritEnvironments": [ "msvc_x64_x64" ],
-			"buildRoot": "${projectDir}\\out\\build\\${name}",
-			"installRoot": "${projectDir}\\out\\install\\${name}",
+			"buildRoot": "${projectDir}\\build\\${name}",
+			"installRoot": "${projectDir}\\install\\${name}",
 			"cmakeCommandArgs": "",
 			"buildCommandArgs": "",
 			"ctestCommandArgs": ""

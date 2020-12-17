@@ -437,8 +437,8 @@ void MainApp::createGraphicsPipeline()
     colorBlendState.blendConstants[2] = 0.0f;
     colorBlendState.blendConstants[3] = 0.0f;
 
-    shaderModules.emplace_back(*device, VK_SHADER_STAGE_VERTEX_BIT, std::make_unique<ShaderSource>("../../../../src/shaders/vert.spv"));
-    shaderModules.emplace_back(*device, VK_SHADER_STAGE_FRAGMENT_BIT, std::make_unique<ShaderSource>("../../../../src/shaders/frag.spv"));
+    shaderModules.emplace_back(*device, VK_SHADER_STAGE_VERTEX_BIT, std::make_unique<ShaderSource>("../../../src/shaders/vert.spv"));
+    shaderModules.emplace_back(*device, VK_SHADER_STAGE_FRAGMENT_BIT, std::make_unique<ShaderSource>("../../../src/shaders/frag.spv"));
 
     pipelineState = std::make_unique<PipelineState>(
         std::make_unique<PipelineLayout>(*device, shaderModules, *descriptorSetLayout),
@@ -577,7 +577,7 @@ void MainApp::createTextureImage()
 {
     // TODO: move this elsewhere?
     int texWidth, texHeight, texChannels;
-    stbi_uc *pixels = stbi_load("../../../../assets/textures/statue.jpg", &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+    stbi_uc *pixels = stbi_load("../../../assets/textures/statue.jpg", &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
     VkDeviceSize imageSize{ static_cast<VkDeviceSize>(texWidth * texHeight * 4) };
 
     if (!pixels) {
