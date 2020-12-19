@@ -160,10 +160,13 @@ Device::~Device()
 {
 	if (memoryAllocator != VK_NULL_HANDLE)
 	{
-		//VmaStats stats;
-		//vmaCalculateStats(memoryAllocator, &stats);
+		VmaStats stats;
+		vmaCalculateStats(memoryAllocator, &stats);
 
-		//LOGI("Total device memory leaked: {} bytes.", stats.total.usedBytes);
+		if (stats.total.usedBytes > 0)
+		{
+			std::cerr << "Total device memory leaked: " << stats.total.usedBytes << " bytes\n";
+		}
 
 		vmaDestroyAllocator(memoryAllocator);
 	}
