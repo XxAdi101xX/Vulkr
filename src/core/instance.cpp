@@ -141,7 +141,30 @@ VKAPI_ATTR VkBool32 VKAPI_CALL Instance::debugUtilsMessengerCallback (
     const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
     void* pUserData) 
 {
-    std::cerr << pCallbackData->messageIdNumber << " - " << pCallbackData->pMessageIdName << ": " << pCallbackData->pMessage << std::endl;
+    // messageIdName could be null but the messageIdNumber and Message can not
+    const char *messageIdName = pCallbackData->pMessageIdName;
+    if (pCallbackData->pMessageIdName == nullptr)
+    {
+        messageIdName =  "";
+    }
+
+    if (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT)
+    {
+        LOGI("{} - {}: {}", pCallbackData->messageIdNumber, messageIdName, pCallbackData->pMessage);
+    }
+    else if (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
+    {
+        LOGW("{} - {}: {}", pCallbackData->messageIdNumber, messageIdName, pCallbackData->pMessage);
+    }
+    else if (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
+    {
+        LOGEANDABORT("{} - {}: {}", pCallbackData->messageIdNumber,messageIdName, pCallbackData->pMessage);
+    }
+    else if (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT)
+    {
+        // TODO: Log messages that are triggered after the cleanup process begin to fail since it seems like the spdlog context cleanup process has already begun
+        std::cerr << pCallbackData->messageIdNumber << " - " << messageIdName << ": " << pCallbackData->pMessage << std::endl;
+    }
 
     return VK_FALSE;
 }
