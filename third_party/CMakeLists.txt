@@ -24,6 +24,12 @@ cmake_minimum_required(VERSION 3.10)
 
 project(third_party LANGUAGES C CXX)
 
+# tinyobjloader
+add_library(tinyobjloader INTERFACE)
+set(TINYOBJLOADER_DIR ${CMAKE_CURRENT_SOURCE_DIR}/tinyobjloader)
+target_sources(tinyobjloader INTERFACE ${TINYOBJLOADER_DIR}/tiny_obj_loader.h)
+target_include_directories(tinyobjloader INTERFACE ${TINYOBJLOADER_DIR})
+
 # vulkan
 add_library(vulkan INTERFACE)
 set(VULKAN_INCLUDE_DIR $ENV{VULKAN_SDK}/Include)

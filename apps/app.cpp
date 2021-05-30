@@ -140,6 +140,7 @@ void MainApp::prepare()
     createTextureImage();
     createTextureImageView();
     createTextureSampler();
+    loadModel();
     createVertexBuffer();
     createIndexBuffer();
     createUniformBuffers();
@@ -577,7 +578,7 @@ void MainApp::createTextureImage()
 {
     // TODO: move this elsewhere?
     int texWidth, texHeight, texChannels;
-    stbi_uc *pixels = stbi_load("../../../assets/textures/statue.jpg", &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+    stbi_uc *pixels = stbi_load(TEXTURE_PATH.c_str(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
     VkDeviceSize imageSize{ static_cast<VkDeviceSize>(texWidth * texHeight * 4) };
 
     if (!pixels) {
@@ -631,6 +632,46 @@ void MainApp::createTextureSampler()
     samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
 
     textureSampler = std::make_unique<Sampler>(*device, samplerInfo);
+}
+
+void MainApp::loadModel()
+{
+    tinyobj::attrib_t attrib;
+    std::vector<tinyobj::shape_t> shapes;
+    std::vector<tinyobj::material_t> materials;
+    std::string warn, err;
+
+    if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, MODEL_PATH.c_str())) {
+        LOGEANDABORT(warn + err);
+    }
+
+    std::unordered_map<Vertex, uint32_t> uniqueVertices{};
+
+    for (const auto &shape : shapes) {
+        for (const auto &index : shape.mesh.indices) {
+            Vertex vertex{};
+
+            vertex.position = {
+                attrib.vertices[3 * index.vertex_index + 0],
+                attrib.vertices[3 * index.vertex_index + 1],
+                attrib.vertices[3 * index.vertex_index + 2]
+            };
+
+            vertex.textureCoordinate = {
+                attrib.texcoords[2 * index.texcoord_index + 0],
+                1.0 - attrib.texcoords[2 * index.texcoord_index + 1]
+            };
+
+            vertex.color = {1.0f, 1.0f, 1.0f};
+
+            if (uniqueVertices.count(vertex) == 0) {
+                uniqueVertices[vertex] = static_cast<uint32_t>(vertices.size());
+                vertices.push_back(vertex);
+            }
+
+            indices.push_back(uniqueVertices[vertex]);
+        }
+    }
 }
 
 void MainApp::copyBuffer(Buffer &srcBuffer, Buffer &dstBuffer, VkDeviceSize size)
@@ -798,7 +839,7 @@ void MainApp::createCommandBuffers()
         VkDeviceSize offsets[] = { 0 };
         vkCmdBindVertexBuffers(commandBuffers[i]->getHandle(), 0, 1, vertexBuffers, offsets);
 
-        vkCmdBindIndexBuffer(commandBuffers[i]->getHandle(), indexBuffer->getHandle(), 0, VK_INDEX_TYPE_UINT16);
+        vkCmdBindIndexBuffer(commandBuffers[i]->getHandle(), indexBuffer->getHandle(), 0, VK_INDEX_TYPE_UINT32);
 
         vkCmdBindDescriptorSets(commandBuffers[i]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineState->getPipelineLayout().getHandle(), 0, 1, &(descriptorSets[i]->getHandle()), 0, nullptr);
 

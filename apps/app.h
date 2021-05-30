@@ -52,15 +52,43 @@
 
 #include "platform/application.h"
 
+#define TINYOBJLOADER_IMPLEMENTATION
+#include <tiny_obj_loader.h>
+
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE // don't use the OpenGL default depth range of -1.0 to 1.0 and use 0.0 to 1.0
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
+#define GLM_ENABLE_EXPERIMENTAL
+#include <glm/gtx/hash.hpp>
+
 #include <chrono>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
+
+struct Vertex {
+    glm::vec3 position;
+    glm::vec3 color;
+    glm::vec2 textureCoordinate;
+
+    bool operator==(const Vertex &other) const {
+    return position == other.position && color == other.color &&
+            textureCoordinate == other.textureCoordinate;
+    }
+};
+
+namespace std {
+    template <> struct hash<Vertex> {
+        size_t operator()(Vertex const &vertex) const {
+        return ((hash<glm::vec3>()(vertex.position) ^
+                    (hash<glm::vec3>()(vertex.color) << 1)) >>
+                1) ^
+                (hash<glm::vec2>()(vertex.textureCoordinate) << 1);
+        }
+    };
+} // namespace std
 
 namespace vulkr
 {
@@ -78,6 +106,9 @@ public:
 
     virtual void recreateSwapchain() override;
 private:
+    const std::string MODEL_PATH = "../../../assets/models/viking_room.obj";
+    const std::string TEXTURE_PATH = "../../../assets/textures/viking_room.png";
+
     std::unique_ptr<Instance> instance{ nullptr };
 
     VkSurfaceKHR surface{ VK_NULL_HANDLE };
@@ -138,34 +169,14 @@ private:
         VK_KHR_SWAPCHAIN_EXTENSION_NAME
     };
 
-    struct Vertex {
-        glm::vec3 position;
-        glm::vec3 color;
-        glm::vec2 textureCoordinate;
-    };
-
     struct UniformBufferObject {
         alignas(16) glm::mat4 model;
         alignas(16) glm::mat4 view;
         alignas(16) glm::mat4 proj;
     };
 
-    const std::vector<Vertex> vertices = {
-        {{-0.5f, -0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
-        {{0.5f, -0.5f, 0.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
-        {{0.5f, 0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
-        {{-0.5f, 0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}},
-
-        {{-0.5f, -0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
-        {{0.5f, -0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
-        {{0.5f, 0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
-        {{-0.5f, 0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}}
-    };
-
-    const std::vector<uint16_t> indices = {
-        0, 1, 2, 2, 3, 0,
-        4, 5, 6, 6, 7, 4
-    };
+    std::vector<Vertex> vertices;
+    std::vector<uint32_t> indices;
 
     void cleanupSwapchain();
 
@@ -185,6 +196,7 @@ private:
     void createTextureImage();
     void createTextureImageView();
     void createTextureSampler();
+    void loadModel();
     void copyBuffer(Buffer &srcBuffer, Buffer &dstBuffer, VkDeviceSize size);
     void createVertexBuffer();
     void createIndexBuffer();
