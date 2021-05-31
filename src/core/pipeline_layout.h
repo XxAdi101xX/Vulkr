@@ -1,4 +1,4 @@
-/* Copyright (c) 2020 Adithya Venkatarao
+/* Copyright (c) 2021  Adithya Venkatarao
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
@@ -34,14 +34,14 @@ class DescriptorSetLayout;
 class PipelineLayout
 {
 public:
-	PipelineLayout(Device &device, const std::vector<ShaderModule> &shaderModules, DescriptorSetLayout &descriptorSetLayout);
+	PipelineLayout(Device& device, const std::vector<ShaderModule>& shaderModules, std::vector<VkDescriptorSetLayout>& descriptorSetLayoutHandles);
 	~PipelineLayout();
 
 	/* Disable unnecessary operators to prevent error prone usages */
-	PipelineLayout(const PipelineLayout &) = delete;
-	PipelineLayout(PipelineLayout &&) = delete;
-	PipelineLayout& operator=(const PipelineLayout &) = delete;
-	PipelineLayout& operator=(PipelineLayout &&) = delete;
+	PipelineLayout(const PipelineLayout&) = delete;
+	PipelineLayout(PipelineLayout&&) = delete;
+	PipelineLayout& operator=(const PipelineLayout&) = delete;
+	PipelineLayout& operator=(PipelineLayout&&) = delete;
 
 	VkPipelineLayout getHandle() const;
 
@@ -52,9 +52,9 @@ public:
 private:
 	VkPipelineLayout handle{ VK_NULL_HANDLE };
 
-	Device &device;
+	Device& device;
 
-	const std::vector<ShaderModule> &shaderModules;
+	const std::vector<ShaderModule>& shaderModules;
 };
 
 } // namespace vulkr

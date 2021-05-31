@@ -1,4 +1,4 @@
-/* Copyright (c) 2020 Adithya Venkatarao
+/* Copyright (c) 2021 Adithya Venkatarao
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
@@ -27,13 +27,13 @@
 namespace vulkr
 {
 
-PipelineLayout::PipelineLayout(Device& device, const std::vector<ShaderModule> &shaderModules, DescriptorSetLayout &descriptorSetLayout) :
+PipelineLayout::PipelineLayout(Device& device, const std::vector<ShaderModule>& shaderModules, std::vector<VkDescriptorSetLayout>& descriptorSetLayoutHandles) :
 	device{ device },
 	shaderModules{ shaderModules }
 {
 	VkPipelineLayoutCreateInfo pipelineLayoutInfo{ VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
-	pipelineLayoutInfo.setLayoutCount = 1;
-	pipelineLayoutInfo.pSetLayouts = &(descriptorSetLayout.getHandle());
+	pipelineLayoutInfo.setLayoutCount = static_cast<uint32_t>(descriptorSetLayoutHandles.size());
+	pipelineLayoutInfo.pSetLayouts = descriptorSetLayoutHandles.data();
 	pipelineLayoutInfo.pushConstantRangeCount = 0;
 
 	VK_CHECK(vkCreatePipelineLayout(device.getHandle(), &pipelineLayoutInfo, nullptr, &handle));
@@ -52,7 +52,7 @@ VkPipelineLayout PipelineLayout::getHandle() const
 	return handle;
 }
 
-const std::vector<ShaderModule> &PipelineLayout::getShaderModules() const
+const std::vector<ShaderModule>& PipelineLayout::getShaderModules() const
 {
 	return shaderModules;
 }

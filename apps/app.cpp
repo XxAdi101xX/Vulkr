@@ -179,7 +179,7 @@ void MainApp::update()
 
     std::vector<VkSemaphore> waitSemaphores{ imageAvailableSemaphores[currentFrame] };
     std::vector<VkPipelineStageFlags> waitStages{ VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
-    submitInfo.waitSemaphoreCount = waitSemaphores.size();
+    submitInfo.waitSemaphoreCount = static_cast<uint32_t>(waitSemaphores.size());
     submitInfo.pWaitSemaphores = waitSemaphores.data();
     submitInfo.pWaitDstStageMask = waitStages.data();
 
@@ -187,7 +187,7 @@ void MainApp::update()
     submitInfo.pCommandBuffers = &commandBuffers[imageIndex]->getHandle();
 
     std::vector<VkSemaphore> signalSemaphores{ renderFinishedSemaphores[currentFrame] };
-    submitInfo.signalSemaphoreCount = signalSemaphores.size();
+    submitInfo.signalSemaphoreCount = static_cast<uint32_t>(signalSemaphores.size());
     submitInfo.pSignalSemaphores = signalSemaphores.data();
 
     fencePool->reset(&inFlightFences[currentFrame]);
@@ -199,7 +199,7 @@ void MainApp::update()
     presentInfo.pWaitSemaphores = signalSemaphores.data();
 
     std::vector<VkSwapchainKHR> swapchains{ swapchain->getHandle() };
-    presentInfo.swapchainCount = swapchains.size();
+    presentInfo.swapchainCount = static_cast<uint32_t>(swapchains.size());
     presentInfo.pSwapchains = swapchains.data();
 
     presentInfo.pImageIndices = &imageIndex;
@@ -441,8 +441,10 @@ void MainApp::createGraphicsPipeline()
     shaderModules.emplace_back(*device, VK_SHADER_STAGE_VERTEX_BIT, std::make_unique<ShaderSource>("../../../src/shaders/vert.spv"));
     shaderModules.emplace_back(*device, VK_SHADER_STAGE_FRAGMENT_BIT, std::make_unique<ShaderSource>("../../../src/shaders/frag.spv"));
 
+    std::vector<VkDescriptorSetLayout> descriptorSetLayoutHandles{descriptorSetLayout->getHandle()};
+
     pipelineState = std::make_unique<PipelineState>(
-        std::make_unique<PipelineLayout>(*device, shaderModules, *descriptorSetLayout),
+        std::make_unique<PipelineLayout>(*device, shaderModules, descriptorSetLayoutHandles),
         *renderPass,
         vertexInputState,
         inputAssemblyState,
@@ -601,7 +603,7 @@ void MainApp::createTextureImage()
 
     stbi_image_free(pixels);
 
-    VkExtent3D extent{ texWidth, texHeight, 1 };
+    VkExtent3D extent{ static_cast<uint32_t>(texWidth), static_cast<uint32_t>(texHeight), 1u };
     textureImage = std::make_unique<Image>(*device, VK_FORMAT_R8G8B8A8_SRGB, extent, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VMA_MEMORY_USAGE_GPU_ONLY /* default values for remaining params */);
 
     transitionImageLayout(textureImage->getHandle(), VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
