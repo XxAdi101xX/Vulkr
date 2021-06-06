@@ -50,8 +50,8 @@ public:
 	/* Disable unnecessary operators to prevent error prone usages */
 	CommandBuffer(const CommandBuffer &) = delete;
 	CommandBuffer(CommandBuffer &&) = delete;
-	CommandBuffer& operator=(const CommandBuffer &) = delete;
-	CommandBuffer& operator=(CommandBuffer &&) = delete;
+	CommandBuffer &operator=(const CommandBuffer &) = delete;
+	CommandBuffer &operator=(CommandBuffer &&) = delete;
 
 	Device &getDevice();
 

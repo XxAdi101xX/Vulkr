@@ -55,8 +55,8 @@ public:
 	/* Disable unnecessary operators to prevent error prone usages */
 	RenderPass(const RenderPass &) = delete;
 	RenderPass(RenderPass &&) = delete; // TODO: check if we need this
-	RenderPass& operator=(const RenderPass &) = delete;
-	RenderPass& operator=(RenderPass &&) = delete;
+	RenderPass &operator=(const RenderPass &) = delete;
+	RenderPass &operator=(RenderPass &&) = delete;
 
 	VkRenderPass getHandle() const;
 

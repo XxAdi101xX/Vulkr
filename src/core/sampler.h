@@ -37,12 +37,12 @@ public:
 
 	Sampler(Sampler &&) = delete;
 	Sampler(const Sampler &) = delete;
-	Sampler& operator=(const Sampler &) = delete;
-	Sampler& operator=(Sampler &&) = delete;
+	Sampler &operator=(const Sampler &) = delete;
+	Sampler &operator=(Sampler &&) = delete;
 
 	VkSampler getHandle() const;
 private:
-	Device& device;
+	Device &device;
 	VkSampler handle{ VK_NULL_HANDLE };
 };
 

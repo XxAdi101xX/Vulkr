@@ -38,8 +38,8 @@ public:
 	Buffer(Buffer &&other);
 
 	Buffer(const Buffer &) = delete;
-	Buffer& operator=(const Buffer &) = delete;
-	Buffer& operator=(Buffer &&) = delete;
+	Buffer &operator=(const Buffer &) = delete;
+	Buffer &operator=(Buffer &&) = delete;
 
 	const Device &getDevice() const;
 
@@ -100,7 +100,7 @@ public:
 	}
 
 private:
-	Device& device;
+	Device &device;
 
 	VkBuffer handle{ VK_NULL_HANDLE };
 

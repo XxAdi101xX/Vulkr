@@ -53,7 +53,7 @@ CommandBuffer::~CommandBuffer()
 	}
 }
 
-Device& CommandBuffer::getDevice()
+Device &CommandBuffer::getDevice()
 {
 	return commandPool.getDevice();
 }
@@ -63,7 +63,7 @@ const VkCommandBufferLevel CommandBuffer::getLevel() const
 	return level;
 }
 
-const VkCommandBuffer& CommandBuffer::getHandle() const
+const VkCommandBuffer &CommandBuffer::getHandle() const
 {
 	return handle;
 }

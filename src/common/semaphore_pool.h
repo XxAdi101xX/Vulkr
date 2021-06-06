@@ -35,10 +35,10 @@ public:
 	~SemaphorePool();
 
 	/* Disable unnecessary operators to prevent error prone usages */
-	SemaphorePool(const SemaphorePool&) = delete;
+	SemaphorePool(const SemaphorePool &) = delete;
 	SemaphorePool(SemaphorePool &&) = delete;
-	SemaphorePool& operator=(const SemaphorePool&) = delete;
-	SemaphorePool& operator=(SemaphorePool&&) = delete;
+	SemaphorePool &operator=(const SemaphorePool &) = delete;
+	SemaphorePool &operator=(SemaphorePool &&) = delete;
 
 	VkSemaphore requestSemaphore();
 

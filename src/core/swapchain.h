@@ -60,8 +60,8 @@ public:
 	/* Disable unnecessary operators to prevent error prone usages */
 	Swapchain(const Swapchain &) = delete;
 	Swapchain(Swapchain &&) = delete;
-	Swapchain& operator=(const Swapchain &) = delete;
-	Swapchain& operator=(Swapchain &&) = delete;
+	Swapchain &operator=(const Swapchain &) = delete;
+	Swapchain &operator=(Swapchain &&) = delete;
 
 	VkSwapchainKHR getHandle() const;
 	const SwapchainProperties &getProperties() const;

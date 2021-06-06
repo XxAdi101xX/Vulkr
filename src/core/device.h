@@ -39,8 +39,8 @@ public:
 	/* Disable unnecessary operators to prevent error prone usages */
 	Device(const Device &) = delete;
 	Device(Device &&) = delete;
-	Device& operator=(const Device &) = delete;
-	Device& operator=(Device &&) = delete;
+	Device &operator=(const Device &) = delete;
+	Device &operator=(Device &&) = delete;
 
 	/* Wait for a device to be fully idle, is the equivilant of calling vkQueueWaitIdle on all the queues owned by the device */
 	void Device::waitIdle() const;

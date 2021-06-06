@@ -28,7 +28,7 @@
 namespace vulkr
 {
 
-DescriptorPool::DescriptorPool(Device& device, DescriptorSetLayout &descriptorSetLayout, std::vector<VkDescriptorPoolSize>& poolSizes, uint32_t maxSets) : 
+DescriptorPool::DescriptorPool(Device &device, DescriptorSetLayout &descriptorSetLayout, std::vector<VkDescriptorPoolSize> &poolSizes, uint32_t maxSets) :
 	device{ device },
 	descriptorSetLayout{ descriptorSetLayout }
 {

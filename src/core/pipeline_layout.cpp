@@ -27,7 +27,7 @@
 namespace vulkr
 {
 
-PipelineLayout::PipelineLayout(Device& device, const std::vector<ShaderModule>& shaderModules, std::vector<VkDescriptorSetLayout>& descriptorSetLayoutHandles) :
+PipelineLayout::PipelineLayout(Device &device, const std::vector<ShaderModule> &shaderModules, std::vector<VkDescriptorSetLayout> &descriptorSetLayoutHandles) :
 	device{ device },
 	shaderModules{ shaderModules }
 {
@@ -52,7 +52,7 @@ VkPipelineLayout PipelineLayout::getHandle() const
 	return handle;
 }
 
-const std::vector<ShaderModule>& PipelineLayout::getShaderModules() const
+const std::vector<ShaderModule> &PipelineLayout::getShaderModules() const
 {
 	return shaderModules;
 }

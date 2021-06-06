@@ -39,14 +39,14 @@ public:
 
 	/* Disable unnecessary operators to prevent error prone usages */
 	Queue(const Queue &) = delete;
-	Queue& operator=(const Queue &) = delete;
-	Queue& operator=(Queue &&) = delete;
+	Queue &operator=(const Queue &) = delete;
+	Queue &operator=(Queue &&) = delete;
 
 	/* Get the handle to the queue */
 	VkQueue getHandle() const;
 
 	/* Get the associating logical device for the queue */
-	Device& getDevice() const;
+	Device &getDevice() const;
 
 	/* Get the family queue index */
 	uint32_t getFamilyIndex() const;

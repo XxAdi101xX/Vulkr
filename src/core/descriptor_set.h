@@ -40,8 +40,8 @@ public:
 	// The descriptor set handle will be destroyed when the pool is reset
 	DescriptorSet(const DescriptorSet &) = delete;
 	DescriptorSet(DescriptorSet &&) = delete;
-	DescriptorSet& operator=(const DescriptorSet &) = delete;
-	DescriptorSet& operator=(DescriptorSet &&) = delete;
+	DescriptorSet &operator=(const DescriptorSet &) = delete;
+	DescriptorSet &operator=(DescriptorSet &&) = delete;
 
 	const VkDescriptorSet &getHandle() const;
 
@@ -51,7 +51,7 @@ private:
 
 	VkDescriptorSet handle;
 
-	DescriptorSetLayout& descriptorSetLayout;
+	DescriptorSetLayout &descriptorSetLayout;
 };
 
 } // namespace vulkr

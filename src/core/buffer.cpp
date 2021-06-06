@@ -40,7 +40,7 @@ Buffer::Buffer(Device &device, VkBufferCreateInfo bufferInfo, VmaAllocationCreat
 	}
 }
 
-Buffer::Buffer(Buffer&& other) :
+Buffer::Buffer(Buffer &&other) :
 	device{ other.device },
 	handle{ other.handle },
 	allocation{ other.allocation },
@@ -132,7 +132,7 @@ void Buffer::update(void* data, size_t size, size_t offset)
 	update(reinterpret_cast<const uint8_t*>(data), size, offset);
 }
 
-void Buffer::update(const uint8_t* data, const size_t size, const size_t offset)
+void Buffer::update(const uint8_t *data, const size_t size, const size_t offset)
 {
 	// TODO fix this
 	//if (persistent)

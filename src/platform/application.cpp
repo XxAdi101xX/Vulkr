@@ -76,7 +76,7 @@ void Application::handleFocusChange(bool isFocused)
 	focused = isFocused;
 }
 
-void Application::handleInputEvents(const InputEvent &inputEvent) const
+void Application::handleInputEvents(const InputEvent &inputEvent)
 {
 	// TODO handle input events
 }

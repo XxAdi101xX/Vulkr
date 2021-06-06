@@ -76,16 +76,16 @@ void keyCallback(GLFWwindow *window, int key, int /*scancode*/, int action, int 
 		keyAction = keyActionIt->second;
 	}
 
-	if (Window *windowClassHandle = reinterpret_cast<Window*>(glfwGetWindowUserPointer(window)))
+	if (Window *windowClassHandle = reinterpret_cast<Window *>(glfwGetWindowUserPointer(window)))
 	{
 		const Platform &platform = windowClassHandle->getPlatform();
 		platform.handleInputEvents(KeyInputEvent{ keyInput, keyAction });
 	}
 }
 
-void cursorPositionCallback(GLFWwindow* window, double xPos, double yPos)
+void cursorPositionCallback(GLFWwindow *window, double xPos, double yPos)
 {
-	if (Window *windowClassHandle = reinterpret_cast<Window*>(glfwGetWindowUserPointer(window)))
+	if (Window *windowClassHandle = reinterpret_cast<Window *>(glfwGetWindowUserPointer(window)))
 	{
 		const Platform &platform = windowClassHandle->getPlatform();
 		platform.handleInputEvents(MouseInputEvent{
@@ -97,7 +97,7 @@ void cursorPositionCallback(GLFWwindow* window, double xPos, double yPos)
 	}
 }
 
-void mouseButtonBallback(GLFWwindow* window, int button, int action, int /*mods*/)
+void mouseButtonBallback(GLFWwindow *window, int button, int action, int /*mods*/)
 {
 	MouseInput mouseInput = MouseInput::None;
 	MouseAction mouseAction = MouseAction::Unknown;
@@ -116,7 +116,7 @@ void mouseButtonBallback(GLFWwindow* window, int button, int action, int /*mods*
 
 	if (Window *windowClassHandle = reinterpret_cast<Window*>(glfwGetWindowUserPointer(window)))
 	{
-		const Platform& platform = windowClassHandle->getPlatform();
+		const Platform &platform = windowClassHandle->getPlatform();
 		double xPos, yPos;
 		glfwGetCursorPos(window, &xPos, &yPos);
 
@@ -132,7 +132,7 @@ void mouseButtonBallback(GLFWwindow* window, int button, int action, int /*mods*
 } // namespace vulkr
 
 
-Window::Window(Platform& platform) : platform{ platform }
+Window::Window(Platform &platform) : platform{ platform }
 {
 	if (!glfwInit())
 	{

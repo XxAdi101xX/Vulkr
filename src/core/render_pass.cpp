@@ -31,7 +31,7 @@
 namespace vulkr
 {
 
-RenderPass::RenderPass(Device& device, const std::vector<Attachment> &attachments, const std::vector<Subpass> &subpasses, const std::vector<VkSubpassDependency> subpassDependencies) :
+RenderPass::RenderPass(Device &device, const std::vector<Attachment> &attachments, const std::vector<Subpass> &subpasses, const std::vector<VkSubpassDependency> subpassDependencies) :
 	device{ device },
 	attachments{ attachments },
 	subpasses{ subpasses }

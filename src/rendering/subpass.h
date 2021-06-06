@@ -44,8 +44,8 @@ public:
 
 	/* Disable unnecessary operators to prevent error prone usages */
 	Subpass(const Subpass &) = delete;
-	Subpass& operator=(const Subpass &) = delete;
-	Subpass& operator=(Subpass &&) = delete;
+	Subpass &operator=(const Subpass &) = delete;
+	Subpass &operator=(Subpass &&) = delete;
 
 	std::vector<VkAttachmentReference> &getInputAttachments() const;
 	std::vector<VkAttachmentReference> &getColorAttachments() const;

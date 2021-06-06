@@ -99,11 +99,11 @@ bool Instance::checkValidationLayerSupport() const
     std::vector<VkLayerProperties> availableLayers(layerCount);
     vkEnumerateInstanceLayerProperties(&layerCount, availableLayers.data());
 
-    for (const char* layerName : requiredValidationLayers)
+    for (const char *layerName : requiredValidationLayers)
     {
         bool layerFound = false;
 
-        for (const auto& layerProperties : availableLayers) 
+        for (const auto &layerProperties : availableLayers)
         {
             if (strcmp(layerName, layerProperties.layerName) == 0) 
             {
@@ -121,12 +121,12 @@ bool Instance::checkValidationLayerSupport() const
     return true;
 }
 
-std::vector<const char*> Instance::getRequiredInstanceExtensions() const
+std::vector<const char *> Instance::getRequiredInstanceExtensions() const
 {
     uint32_t glfwExtensionCount{ 0u };
-    const char** glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
+    const char **glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
 
-    std::vector<const char*> extensions(glfwExtensions, glfwExtensions + glfwExtensionCount);
+    std::vector<const char *> extensions(glfwExtensions, glfwExtensions + glfwExtensionCount);
 
 #ifdef VULKR_DEBUG
     extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
@@ -135,11 +135,11 @@ std::vector<const char*> Instance::getRequiredInstanceExtensions() const
     return extensions;
 }
 
-VKAPI_ATTR VkBool32 VKAPI_CALL Instance::debugUtilsMessengerCallback (
+VKAPI_ATTR VkBool32 VKAPI_CALL Instance::debugUtilsMessengerCallback(
     VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
     VkDebugUtilsMessageTypeFlagsEXT messageType,
-    const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
-    void* pUserData) 
+    const VkDebugUtilsMessengerCallbackDataEXT *pCallbackData,
+    void *pUserData)
 {
     // messageIdName could be null but the messageIdNumber and Message can not
     const char *messageIdName = pCallbackData->pMessageIdName;

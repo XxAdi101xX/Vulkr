@@ -40,8 +40,8 @@ public:
 	/* Disable unnecessary operators to prevent error prone usages */
 	Framebuffer(Framebuffer &&) = delete;
 	Framebuffer(Framebuffer &) = delete;
-	Framebuffer& operator=(const Framebuffer &) = delete;
-	Framebuffer& operator=(Framebuffer &&) = delete;
+	Framebuffer &operator=(const Framebuffer &) = delete;
+	Framebuffer &operator=(Framebuffer &&) = delete;
 
 
 	VkFramebuffer getHandle() const;

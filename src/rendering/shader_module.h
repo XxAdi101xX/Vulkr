@@ -39,8 +39,8 @@ public:
 	/* Disable unnecessary operators to prevent error prone usages */
 	ShaderSource(const ShaderSource &) = delete;
 	ShaderSource(ShaderSource &&) = delete;
-	ShaderSource& operator=(const ShaderSource &) = delete;
-	ShaderSource& operator=(ShaderSource &&) = delete;
+	ShaderSource &operator=(const ShaderSource &) = delete;
+	ShaderSource &operator=(ShaderSource &&) = delete;
 
 	const std::string &getFileName() const;
 
@@ -53,14 +53,14 @@ private:
 	/* The contents of the spirv file */
 	std::vector<char> data;
 
-	std::vector<char> readFile(const std::string& filename) const;
+	std::vector<char> readFile(const std::string &filename) const;
 };
 
 class ShaderModule
 {
 public:
 	ShaderModule(
-		Device& device,
+		Device &device,
 		VkShaderStageFlagBits stage,
 		std::unique_ptr<ShaderSource> &&shaderSource,
 		const char *entryPoint = "main"
@@ -70,8 +70,8 @@ public:
 
 	/* Disable unnecessary operators to prevent error prone usages */
 	ShaderModule(const ShaderModule &) = delete;
-	ShaderModule& operator=(const ShaderModule &) = delete;
-	ShaderModule& operator=(ShaderModule &&) = delete;
+	ShaderModule &operator=(const ShaderModule &) = delete;
+	ShaderModule &operator=(ShaderModule &&) = delete;
 
 	VkShaderModule getHandle() const;
 	VkShaderStageFlagBits getStage() const;

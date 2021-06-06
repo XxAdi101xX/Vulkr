@@ -31,9 +31,9 @@ namespace vulkr
 {
 
 DescriptorSet::DescriptorSet(
-    Device& device,
-    DescriptorSetLayout& descriptorSetLayout,
-    DescriptorPool& descriptorPool) :
+    Device &device,
+    DescriptorSetLayout &descriptorSetLayout,
+    DescriptorPool &descriptorPool) :
     device{ device },
     descriptorSetLayout{ descriptorSetLayout },
     handle{ descriptorPool.allocate() }

@@ -40,16 +40,16 @@ public:
 	/* Disable unnecessary operators to prevent error prone usages */
 	Application(const Application &) = delete;
 	Application(Application &&) = delete;
-	Application& operator=(const Application &) = delete;
-	Application& operator=(Application &&) = delete;
+	Application &operator=(const Application &) = delete;
+	Application &operator=(Application &&) = delete;
 
 	virtual void prepare();
 
-	void step();
+	virtual void step();
 
 	virtual void update() = 0;
 
-	void finish();
+	virtual void finish();
 
 	virtual void recreateSwapchain();
 
@@ -57,7 +57,7 @@ public:
 
 	virtual void handleFocusChange(bool isFocused);
 
-	virtual void handleInputEvents(const InputEvent& inputEvent) const;
+	virtual void handleInputEvents(const InputEvent &inputEvent);
 
 	/* Getters */
 	bool isFocused() const;

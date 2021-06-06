@@ -36,8 +36,8 @@ public:
 
 	FencePool(const FencePool &) = delete;
 	FencePool(FencePool &&) = delete;
-	FencePool& operator=(const FencePool &) = delete;
-	FencePool& operator=(FencePool &&) = delete;
+	FencePool &operator=(const FencePool &) = delete;
+	FencePool &operator=(FencePool &&) = delete;
 
 	VkFence requestFence();
 

@@ -156,8 +156,8 @@ public:
 	/* Disable unnecessary operators to prevent error prone usages */
 	PipelineState(const PipelineState &) = delete;
 	PipelineState(PipelineState &&) = delete;
-	PipelineState& operator=(const PipelineState &) = delete;
-	PipelineState& operator=(PipelineState &&) = delete;
+	PipelineState &operator=(const PipelineState &) = delete;
+	PipelineState &operator=(PipelineState &&) = delete;
 
 	const PipelineLayout &getPipelineLayout() const;
 

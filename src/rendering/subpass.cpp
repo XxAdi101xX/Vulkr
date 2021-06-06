@@ -59,12 +59,12 @@ std::vector<VkAttachmentReference> &Subpass::getResolveAttachments() const
 	return resolveAttachments;
 }
 
-std::vector<VkAttachmentReference>& Subpass::getDepthStencilAttachments() const
+std::vector<VkAttachmentReference> &Subpass::getDepthStencilAttachments() const
 {
 	return depthStencilAttachments;
 }
 
-std::vector<uint32_t>& Subpass::getPreserveAttachments() const
+std::vector<uint32_t> &Subpass::getPreserveAttachments() const
 {
 	return preserveAttachments;
 }

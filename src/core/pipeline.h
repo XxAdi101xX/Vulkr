@@ -38,8 +38,8 @@ public:
 
 	/* Disable unnecessary operators to prevent error prone usages */
 	Pipeline(const Pipeline &) = delete;
-	Pipeline& operator=(const Pipeline &) = delete;
-	Pipeline& operator=(Pipeline &&) = delete;
+	Pipeline &operator=(const Pipeline &) = delete;
+	Pipeline &operator=(Pipeline &&) = delete;
 
 	VkPipeline getHandle() const;
 
@@ -55,7 +55,7 @@ class GraphicsPipeline final : public Pipeline
 public:
 	GraphicsPipeline(Device &device, PipelineState &pipelineState, VkPipelineCache pipelineCache); // TODO: incorportate pipeline cache
 	~GraphicsPipeline() = default;
-	GraphicsPipeline(GraphicsPipeline&&) = default;
+	GraphicsPipeline(GraphicsPipeline &&) = default;
 };
 
 // TODO: create compute pipeline

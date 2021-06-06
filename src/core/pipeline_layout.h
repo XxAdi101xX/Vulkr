@@ -38,10 +38,10 @@ public:
 	~PipelineLayout();
 
 	/* Disable unnecessary operators to prevent error prone usages */
-	PipelineLayout(const PipelineLayout&) = delete;
-	PipelineLayout(PipelineLayout&&) = delete;
-	PipelineLayout& operator=(const PipelineLayout&) = delete;
-	PipelineLayout& operator=(PipelineLayout&&) = delete;
+	PipelineLayout(const PipelineLayout &) = delete;
+	PipelineLayout(PipelineLayout &&) = delete;
+	PipelineLayout &operator=(const PipelineLayout &) = delete;
+	PipelineLayout &operator=(PipelineLayout &&) = delete;
 
 	VkPipelineLayout getHandle() const;
 
@@ -52,7 +52,7 @@ public:
 private:
 	VkPipelineLayout handle{ VK_NULL_HANDLE };
 
-	Device& device;
+	Device &device;
 
 	const std::vector<ShaderModule>& shaderModules;
 };

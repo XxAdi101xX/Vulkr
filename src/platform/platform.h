@@ -40,8 +40,8 @@ public:
 	/* Disable unnecessary operators to prevent error prone usages */
 	Platform(const Platform &) = delete;
 	Platform(Platform &&) = delete;
-	Platform& operator=(const Platform &) = delete;
-	Platform& operator=(Platform &&) = delete;
+	Platform &operator=(const Platform &) = delete;
+	Platform &operator=(Platform &&) = delete;
 
 	/* Initialize the platform by creating the window and logger */
 	void initialize(std::unique_ptr<Application> &&application);

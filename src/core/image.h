@@ -62,8 +62,8 @@ public:
 	/* Disable unnecessary operators to prevent error prone usages */
 	Image(Image &&) = delete; // TODO: do we need this?
 	Image(const Image &) = delete;
-	Image& operator=(const Image &) = delete;
-	Image& operator=(Image &&) = delete;
+	Image &operator=(const Image &) = delete;
+	Image &operator=(Image &&) = delete;
 
 	void *map();
 
@@ -92,7 +92,7 @@ public:
 	uint32_t getArrayLayerCount() const;
 
 private:
-	Device& device;
+	Device &device;
 
 	VkImage handle{ VK_NULL_HANDLE };
 
@@ -100,7 +100,7 @@ private:
 
 	// Whether the buffer has been mapped with vmaMapMemory
 	bool mapped{ false };
-	void* mappedData{ nullptr };
+	void *mappedData{ nullptr };
 
 	VkImageType type{};
 

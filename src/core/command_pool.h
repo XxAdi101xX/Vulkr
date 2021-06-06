@@ -38,12 +38,12 @@ public:
 	CommandPool(Device &device, uint32_t queueFamilyIndex, VkCommandPoolCreateFlags flags);
 	~CommandPool();
 
-	CommandPool(CommandPool&& other);
+	CommandPool(CommandPool &&other);
 
 	/* Disable unnecessary operators to prevent error prone usages */
 	CommandPool(const CommandPool &) = delete;
-	CommandPool& operator=(const CommandPool &) = delete;
-	CommandPool& operator=(CommandPool &&) = delete;
+	CommandPool &operator=(const CommandPool &) = delete;
+	CommandPool &operator=(CommandPool &&) = delete;
 
 	Device &getDevice();
 	VkCommandPool getHandle() const;
@@ -55,7 +55,7 @@ public:
 	// TODO: look into vkresetcommandpool and vkreset command buffers
 
 private:
-	Device& device;
+	Device &device;
 
 	VkCommandPool handle{ VK_NULL_HANDLE };
 

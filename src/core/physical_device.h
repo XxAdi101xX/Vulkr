@@ -40,14 +40,14 @@ public:
 	/* Disable unnecessary operators to prevent error prone usages */
 	PhysicalDevice(const PhysicalDevice &) = delete;
 	PhysicalDevice(PhysicalDevice &&) = delete;
-	PhysicalDevice& operator=(const PhysicalDevice &) = delete;
-	PhysicalDevice& operator=(PhysicalDevice &&) = delete;
+	PhysicalDevice &operator=(const PhysicalDevice &) = delete;
+	PhysicalDevice &operator=(PhysicalDevice &&) = delete;
 
 	/* Get the physical device handle */
 	VkPhysicalDevice getHandle() const;
 
 	/* Get instance */
-	Instance& getInstance() const;
+	Instance &getInstance() const;
 
 	/* Get all the physical device features supported */
 	const VkPhysicalDeviceFeatures &getFeatures() const;

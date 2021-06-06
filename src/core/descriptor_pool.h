@@ -33,14 +33,14 @@ class DescriptorSetLayout;
 class DescriptorPool
 {
 public:
-	DescriptorPool(Device& device, DescriptorSetLayout &descriptorSetLayout, std::vector<VkDescriptorPoolSize> &poolSizes, uint32_t maxSets);
+	DescriptorPool(Device &device, DescriptorSetLayout &descriptorSetLayout, std::vector<VkDescriptorPoolSize> &poolSizes, uint32_t maxSets);
 	~DescriptorPool();
 
 	DescriptorPool(DescriptorPool &&) = default;
 
 	DescriptorPool(const DescriptorPool &) = delete;
-	DescriptorPool& operator=(const DescriptorPool &) = delete;
-	DescriptorPool& operator=(DescriptorPool &&) = delete;
+	DescriptorPool &operator=(const DescriptorPool &) = delete;
+	DescriptorPool &operator=(DescriptorPool &&) = delete;
 
 	VkDescriptorPool getHandle() const;
 

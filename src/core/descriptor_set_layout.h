@@ -37,9 +37,9 @@ public:
 
 	DescriptorSetLayout(DescriptorSetLayout &&other);
 
-	DescriptorSetLayout(const DescriptorSetLayout&) = delete;
-	DescriptorSetLayout& operator=(const DescriptorSetLayout&) = delete;
-	DescriptorSetLayout& operator=(DescriptorSetLayout&&) = delete;
+	DescriptorSetLayout(const DescriptorSetLayout &) = delete;
+	DescriptorSetLayout &operator=(const DescriptorSetLayout &) = delete;
+	DescriptorSetLayout &operator=(DescriptorSetLayout &&) = delete;
 
 	const VkDescriptorSetLayout &getHandle() const;
 

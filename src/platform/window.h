@@ -39,8 +39,8 @@ public:
 	/* Disable unnecessary operators to prevent error prone usages */
 	Window(const Window &) = delete;
 	Window(Window &&) = delete;
-	Window& operator=(const Window &) = delete;
-	Window& operator=(Window &&) = delete;
+	Window &operator=(const Window &) = delete;
+	Window &operator=(Window &&) = delete;
 
 	/* Create the window surface */
 	void createSurface(VkInstance instance);

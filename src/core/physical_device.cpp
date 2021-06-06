@@ -52,12 +52,12 @@ Instance &PhysicalDevice::getInstance() const
 	return instance;
 }
 
-const VkPhysicalDeviceFeatures& PhysicalDevice::getFeatures() const
+const VkPhysicalDeviceFeatures &PhysicalDevice::getFeatures() const
 {
 	return features;
 }
 
-const VkPhysicalDeviceFeatures& PhysicalDevice::getRequestedFeatures() const
+const VkPhysicalDeviceFeatures &PhysicalDevice::getRequestedFeatures() const
 {
 	return requestedFeatures;
 }
@@ -72,7 +72,7 @@ const VkPhysicalDeviceMemoryProperties PhysicalDevice::getMemoryProperties() con
 	return memoryProperties;
 }
 
-const std::vector<VkQueueFamilyProperties>& PhysicalDevice::getQueueFamilyProperties() const
+const std::vector<VkQueueFamilyProperties> &PhysicalDevice::getQueueFamilyProperties() const
 {
 	return queueFamilyProperties;
 }

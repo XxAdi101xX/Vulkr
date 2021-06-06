@@ -51,7 +51,7 @@ Queue::Queue(Queue &&other) :
 	other.index = 0;
 }
 
-Device& Queue::getDevice() const
+Device &Queue::getDevice() const
 {
 	return device;
 }

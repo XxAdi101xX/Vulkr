@@ -37,10 +37,10 @@ public:
 	~ImageView();
 
 	/* Disable unnecessary operators to prevent error prone usages */
-	ImageView(ImageView &&other) = delete; // TODO: check if we need this
+	ImageView(ImageView &&other) = delete;
 	ImageView(ImageView &) = delete;
-	ImageView& operator=(const ImageView &) = delete;
-	ImageView& operator=(ImageView &&) = delete;
+	ImageView &operator=(const ImageView &) = delete;
+	ImageView &operator=(ImageView &&) = delete;
 
 	const Image &getImage() const;
 
