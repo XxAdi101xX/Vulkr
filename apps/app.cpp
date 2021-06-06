@@ -56,7 +56,6 @@ MainApp::MainApp(Platform& platform, std::string name) : Application{ platform, 
 
      device.reset();
 
-     // Must destroy surface before instance
 	 if (surface != VK_NULL_HANDLE)
 	 {
 		 vkDestroySurfaceKHR(instance->getHandle(), surface, nullptr);
@@ -108,6 +107,8 @@ MainApp::MainApp(Platform& platform, std::string name) : Application{ platform, 
 
      descriptorSets.clear();
      descriptorPool.reset();
+
+     camera.reset();
  }
 
 void MainApp::prepare()
@@ -130,7 +131,7 @@ void MainApp::prepare()
     }
 
     createSwapchain();
-    createImageViews();
+    createSwapchainImageViews();
     createRenderPass();
     createDescriptorSetLayout();
     createGraphicsPipeline();
@@ -150,14 +151,14 @@ void MainApp::prepare()
     createSemaphoreAndFencePools();
     setupSynchronizationObjects();
     setupTimer();
+    setupCamera();
 }
 
 void MainApp::update()
 {
     fencePool->wait(&inFlightFences[currentFrame]);
 
-    uint32_t imageIndex;
-    VkResult result = vkAcquireNextImageKHR(device->getHandle(), swapchain->getHandle(), std::numeric_limits<uint64_t>::max(), imageAvailableSemaphores[currentFrame], VK_NULL_HANDLE, &imageIndex);
+    VkResult result = vkAcquireNextImageKHR(device->getHandle(), swapchain->getHandle(), std::numeric_limits<uint64_t>::max(), imageAvailableSemaphores[currentFrame], VK_NULL_HANDLE, &currentImageIndex);
     if (result == VK_ERROR_OUT_OF_DATE_KHR)
     {
         recreateSwapchain();
@@ -168,26 +169,26 @@ void MainApp::update()
         LOGEANDABORT("Failed to acquire swap chain image");
     }
 
-    updateUniformBuffer(imageIndex);
+    updateUniformBuffer();
 
-    if (imagesInFlight[imageIndex] != VK_NULL_HANDLE) {
-        fencePool->wait(&imagesInFlight[imageIndex]);
+    if (imagesInFlight[currentImageIndex] != VK_NULL_HANDLE) {
+        fencePool->wait(&imagesInFlight[currentImageIndex]);
     }
-    imagesInFlight[imageIndex] = inFlightFences[currentFrame];
+    imagesInFlight[currentImageIndex] = inFlightFences[currentFrame];
     
     VkSubmitInfo submitInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
 
-    std::vector<VkSemaphore> waitSemaphores{ imageAvailableSemaphores[currentFrame] };
-    std::vector<VkPipelineStageFlags> waitStages{ VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
-    submitInfo.waitSemaphoreCount = static_cast<uint32_t>(waitSemaphores.size());
+    std::array<VkSemaphore, 1> waitSemaphores{ imageAvailableSemaphores[currentFrame] };
+    std::array<VkPipelineStageFlags, 1> waitStages{ VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
+    submitInfo.waitSemaphoreCount = to_u32(waitSemaphores.size());
     submitInfo.pWaitSemaphores = waitSemaphores.data();
     submitInfo.pWaitDstStageMask = waitStages.data();
 
     submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &commandBuffers[imageIndex]->getHandle();
+    submitInfo.pCommandBuffers = &commandBuffers[currentImageIndex]->getHandle();
 
-    std::vector<VkSemaphore> signalSemaphores{ renderFinishedSemaphores[currentFrame] };
-    submitInfo.signalSemaphoreCount = static_cast<uint32_t>(signalSemaphores.size());
+    std::array<VkSemaphore, 1> signalSemaphores{ renderFinishedSemaphores[currentFrame] };
+    submitInfo.signalSemaphoreCount = to_u32(signalSemaphores.size());
     submitInfo.pSignalSemaphores = signalSemaphores.data();
 
     fencePool->reset(&inFlightFences[currentFrame]);
@@ -195,14 +196,14 @@ void MainApp::update()
     VK_CHECK(vkQueueSubmit(graphicsQueue, 1, &submitInfo, inFlightFences[currentFrame]));
 
     VkPresentInfoKHR presentInfo{ VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
-    presentInfo.waitSemaphoreCount = 1;
+    presentInfo.waitSemaphoreCount = to_u32(signalSemaphores.size());
     presentInfo.pWaitSemaphores = signalSemaphores.data();
 
-    std::vector<VkSwapchainKHR> swapchains{ swapchain->getHandle() };
-    presentInfo.swapchainCount = static_cast<uint32_t>(swapchains.size());
+    std::array<VkSwapchainKHR, 1> swapchains{ swapchain->getHandle() };
+    presentInfo.swapchainCount = to_u32(swapchains.size());
     presentInfo.pSwapchains = swapchains.data();
 
-    presentInfo.pImageIndices = &imageIndex;
+    presentInfo.pImageIndices = &currentImageIndex;
 
     result = vkQueuePresentKHR(presentQueue, &presentInfo);
     if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR)
@@ -223,7 +224,7 @@ void MainApp::recreateSwapchain()
     cleanupSwapchain();
 
     createSwapchain();
-    createImageViews();
+    createSwapchainImageViews();
     createRenderPass();
     createGraphicsPipeline();
     createDepthResources();
@@ -232,21 +233,60 @@ void MainApp::recreateSwapchain()
     createDescriptorPool();
     createDescriptorSets();
     createCommandBuffers();
+    setupCamera();
 }
 
-void MainApp::updateUniformBuffer(uint32_t currentImage)
+void MainApp::handleInputEvents(const InputEvent& inputEvent)
+{
+    if (inputEvent.getEventSource() == EventSource::Keyboard)
+    {
+        const KeyInputEvent& keyInputEvent = static_cast<const KeyInputEvent&>(inputEvent);
+
+        switch (keyInputEvent.getInput())
+        {
+        case KeyInput::Up:
+            if (keyInputEvent.getAction() == KeyAction::Press || keyInputEvent.getAction() == KeyAction::Repeat)
+            {
+                // TODO
+            }
+            break;
+        case KeyInput::Down:
+            if (keyInputEvent.getAction() == KeyAction::Press || keyInputEvent.getAction() == KeyAction::Repeat)
+            {
+                // TODO
+            }
+            break;
+        }
+    }
+    else if (inputEvent.getEventSource() == EventSource::Mouse)
+    {
+        const MouseInputEvent &mouseInputEvent = static_cast<const MouseInputEvent &>(inputEvent);
+
+        switch (mouseInputEvent.getInput())
+        {
+            case MouseInput::Middle:
+                if (mouseInputEvent.getAction() == MouseAction::Scroll)
+                {
+                    camera->zoom(glm::vec3(0.20f * static_cast<float>(mouseInputEvent.getPositionY())));
+                }
+                break;
+        }
+    }
+}
+
+void MainApp::updateUniformBuffer()
 {
     float elapsedTime = static_cast<float>(drawingTimer->elapsed<Timer::Seconds>());
 
     UniformBufferObject ubo{};
     ubo.model = glm::rotate(glm::mat4(1.0f), elapsedTime * glm::radians(180.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-    ubo.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-    ubo.proj = glm::perspective(glm::radians(45.0f), swapchain->getProperties().imageExtent.width / (float)swapchain->getProperties().imageExtent.height, 0.1f, 10.0f);
-    ubo.proj[1][1] *= -1;
+    //ubo.model = glm::mat4(1.0f);
+    ubo.view = camera->getView();
+    ubo.proj = camera->getProjection();
 
-    void *mappedData = uniformBuffers[currentImage]->map();
+    void *mappedData = uniformBuffers[currentImageIndex]->map();
     memcpy(mappedData, &ubo, sizeof(ubo));
-    uniformBuffers[currentImage]->unmap();
+    uniformBuffers[currentImageIndex]->unmap();
 }
 
 void MainApp::createInstance()
@@ -277,7 +317,7 @@ void MainApp::createSwapchain()
     swapchain = std::make_unique<Swapchain>(*device, surface, VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR, VK_PRESENT_MODE_FIFO_KHR, imageUsageFlags);
 }
 
-void MainApp::createImageViews()
+void MainApp::createSwapchainImageViews()
 {
     swapChainImageViews.reserve(swapchain->getImages().size());
     for (uint32_t i = 0; i < swapchain->getImages().size(); ++i) {
@@ -603,11 +643,11 @@ void MainApp::createTextureImage()
 
     stbi_image_free(pixels);
 
-    VkExtent3D extent{ static_cast<uint32_t>(texWidth), static_cast<uint32_t>(texHeight), 1u };
+    VkExtent3D extent{ to_u32(texWidth), to_u32(texHeight), 1u };
     textureImage = std::make_unique<Image>(*device, VK_FORMAT_R8G8B8A8_SRGB, extent, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VMA_MEMORY_USAGE_GPU_ONLY /* default values for remaining params */);
 
     transitionImageLayout(textureImage->getHandle(), VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-    copyBufferToImage(stagingBuffer->getHandle(), textureImage->getHandle(), static_cast<uint32_t>(texWidth), static_cast<uint32_t>(texHeight));
+    copyBufferToImage(stagingBuffer->getHandle(), textureImage->getHandle(), to_u32(texWidth), to_u32(texHeight));
     transitionImageLayout(textureImage->getHandle(), VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 }
 
@@ -667,7 +707,7 @@ void MainApp::loadModel()
             vertex.color = {1.0f, 1.0f, 1.0f};
 
             if (uniqueVertices.count(vertex) == 0) {
-                uniqueVertices[vertex] = static_cast<uint32_t>(vertices.size());
+                uniqueVertices[vertex] = to_u32(vertices.size());
                 vertices.push_back(vertex);
             }
 
@@ -845,7 +885,7 @@ void MainApp::createCommandBuffers()
 
         vkCmdBindDescriptorSets(commandBuffers[i]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineState->getPipelineLayout().getHandle(), 0, 1, &(descriptorSets[i]->getHandle()), 0, nullptr);
 
-        vkCmdDrawIndexed(commandBuffers[i]->getHandle(), static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
+        vkCmdDrawIndexed(commandBuffers[i]->getHandle(), to_u32(indices.size()), 1, 0, 0, 0);
 
         commandBuffers[i]->endRenderPass();
 
@@ -877,6 +917,13 @@ void MainApp::setupTimer()
 {
     drawingTimer = std::make_unique<Timer>();
     drawingTimer->start();
+}
+
+void MainApp::setupCamera()
+{
+    camera = std::make_unique<Camera>();
+    camera->setPerspectiveProjection(45.0f, swapchain->getProperties().imageExtent.width / (float)swapchain->getProperties().imageExtent.height, 0.1f, 20.0f);
+    camera->setView(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
 }
 
 } // namespace vulkr

@@ -100,10 +100,12 @@ set(RENDERING_FILES
     rendering/subpass.h
     rendering/shader_module.h
     rendering/pipeline_state.h
+    rendering/camera.h
     # Source Files
     rendering/subpass.cpp
     rendering/shader_module.cpp
     rendering/pipeline_state.cpp
+    rendering/camera.cpp
 )
 
 source_group("common\\" FILES ${COMMON_FILES})

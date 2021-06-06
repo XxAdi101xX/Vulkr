@@ -32,6 +32,7 @@
 #include "core/descriptor_set_layout.h"
 #include "core/descriptor_pool.h"
 #include "core/descriptor_set.h"
+#include "rendering/camera.h"
 #include "rendering/subpass.h"
 #include "rendering/shader_module.h"
 #include "rendering/pipeline_state.h"
@@ -51,6 +52,7 @@
 #include "common/timer.h"
 
 #include "platform/application.h"
+#include "platform/input_event.h"
 
 #define TINYOBJLOADER_IMPLEMENTATION
 #include <tiny_obj_loader.h>
@@ -102,21 +104,24 @@ public:
 
     virtual void prepare() override;
 
-    virtual void update();
+    virtual void update() override;
 
     virtual void recreateSwapchain() override;
+
+    virtual void handleInputEvents(const InputEvent& inputEvent) override;
 private:
-    const std::string MODEL_PATH = "../../../assets/models/viking_room.obj";
-    const std::string TEXTURE_PATH = "../../../assets/textures/viking_room.png";
+    struct UniformBufferObject
+    {
+        alignas(16) glm::mat4 model;
+        alignas(16) glm::mat4 view;
+        alignas(16) glm::mat4 proj;
+    };
 
     std::unique_ptr<Instance> instance{ nullptr };
-
     VkSurfaceKHR surface{ VK_NULL_HANDLE };
-
     std::unique_ptr<Device> device{ nullptr };
 
     std::unique_ptr<Swapchain> swapchain{ nullptr };
-
     std::vector<std::unique_ptr<ImageView>> swapChainImageViews;
 
     std::vector<VkAttachmentReference> inputAttachments;
@@ -133,9 +138,7 @@ private:
     std::unique_ptr<GraphicsPipeline> pipeline{ nullptr };
 
     std::vector<std::unique_ptr<Framebuffer>> swapchainFramebuffers;
-
     std::unique_ptr<CommandPool> commandPool{ nullptr };
-
     std::vector<std::unique_ptr<CommandBuffer>> commandBuffers;
 
     std::unique_ptr<Image> depthImage{ nullptr };
@@ -157,6 +160,11 @@ private:
     std::vector<VkFence> inFlightFences;
     std::vector<VkFence> imagesInFlight;
 
+    std::unique_ptr<Camera> camera;
+
+    const std::string MODEL_PATH = "../../../assets/models/viking_room.obj";
+    const std::string TEXTURE_PATH = "../../../assets/textures/viking_room.png";
+
     VkQueue graphicsQueue{ VK_NULL_HANDLE };
     VkQueue presentQueue{ VK_NULL_HANDLE };
 
@@ -164,27 +172,22 @@ private:
 
     const uint32_t MAX_FRAMES_IN_FLIGHT{ 2 }; // Explanation on this how we got this number: https://software.intel.com/content/www/us/en/develop/articles/practical-approach-to-vulkan-part-1.html
     size_t currentFrame{ 0 };
+    uint32_t currentImageIndex;
 
     const std::vector<const char *> deviceExtensions {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME
     };
 
-    struct UniformBufferObject {
-        alignas(16) glm::mat4 model;
-        alignas(16) glm::mat4 view;
-        alignas(16) glm::mat4 proj;
-    };
-
     std::vector<Vertex> vertices;
     std::vector<uint32_t> indices;
 
+    // Subroutines
     void cleanupSwapchain();
-
     void createInstance();
     void createSurface();
     void createDevice();
     void createSwapchain();
-    void createImageViews();
+    void createSwapchainImageViews();
     void createRenderPass();
     void createDescriptorSetLayout();
     void createGraphicsPipeline();
@@ -207,8 +210,8 @@ private:
     void createSemaphoreAndFencePools();
     void setupSynchronizationObjects();
     void setupTimer();
-
-    void updateUniformBuffer(uint32_t currentImage);
+    void setupCamera();
+    void updateUniformBuffer();
 };
 
 } // namespace vulkr

@@ -164,7 +164,8 @@ enum class MouseAction
 	Click,
 	Release,
 	Move,
-	Unknown
+	Unknown,
+	Scroll
 };
 
 const std::unordered_map<int, KeyInput> keyInputMap =
@@ -273,7 +274,7 @@ const std::unordered_map<int, KeyInput> keyInputMap =
 	{GLFW_KEY_RIGHT_ALT, KeyInput::RightAlt},
 };
 
-const std::unordered_map<int, KeyAction> keyActiontMap =
+const std::unordered_map<int, KeyAction> keyActionMap =
 {
 	{GLFW_PRESS, KeyAction::Press},
 	{GLFW_RELEASE, KeyAction::Release},

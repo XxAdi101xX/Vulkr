@@ -70,8 +70,8 @@ void keyCallback(GLFWwindow *window, int key, int /*scancode*/, int action, int 
 		keyInput = keyInputIt->second;
 	}
 
-	auto keyActionIt = keyActiontMap.find(action);
-	if (keyActionIt != keyActiontMap.end())
+	auto keyActionIt = keyActionMap.find(action);
+	if (keyActionIt != keyActionMap.end())
 	{
 		keyAction = keyActionIt->second;
 	}
@@ -97,7 +97,7 @@ void cursorPositionCallback(GLFWwindow *window, double xPos, double yPos)
 	}
 }
 
-void mouseButtonBallback(GLFWwindow *window, int button, int action, int /*mods*/)
+void mouseButtonCallback(GLFWwindow *window, int button, int action, int /*mods*/)
 {
 	MouseInput mouseInput = MouseInput::None;
 	MouseAction mouseAction = MouseAction::Unknown;
@@ -129,7 +129,24 @@ void mouseButtonBallback(GLFWwindow *window, int button, int action, int /*mods*
 	}
 }
 
-} // namespace vulkr
+void scrollCallback(GLFWwindow *window, double xoffset, double yoffset)
+{
+	if (Window *windowClassHandle = reinterpret_cast<Window *>(glfwGetWindowUserPointer(window)))
+	{
+		MouseInput mouseInput = MouseInput::Middle;
+		MouseAction mouseAction = MouseAction::Scroll;
+		const Platform &platform = windowClassHandle->getPlatform();
+
+		platform.handleInputEvents(MouseInputEvent{
+			mouseInput,
+			mouseAction,
+			xoffset,
+			yoffset
+		});
+	}
+}
+
+} // namespace
 
 
 Window::Window(Platform &platform) : platform{ platform }
@@ -158,7 +175,8 @@ Window::Window(Platform &platform) : platform{ platform }
 	/* Window input callbacks */
 	glfwSetKeyCallback(handle, keyCallback);
 	glfwSetCursorPosCallback(handle, cursorPositionCallback);
-	glfwSetMouseButtonCallback(handle, mouseButtonBallback);
+	glfwSetMouseButtonCallback(handle, mouseButtonCallback);
+	glfwSetScrollCallback(handle, scrollCallback);
 
 	/* Prevent inputs from being lost if actions happen between pollEvent calls */
 	glfwSetInputMode(handle, GLFW_STICKY_KEYS, 1);
