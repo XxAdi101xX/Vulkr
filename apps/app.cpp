@@ -108,7 +108,7 @@ MainApp::MainApp(Platform& platform, std::string name) : Application{ platform, 
      descriptorSets.clear();
      descriptorPool.reset();
 
-     camera.reset();
+     cameraController.reset();
  }
 
 void MainApp::prepare()
@@ -236,42 +236,9 @@ void MainApp::recreateSwapchain()
     setupCamera();
 }
 
-void MainApp::handleInputEvents(const InputEvent& inputEvent)
+void MainApp::handleInputEvents(const InputEvent &inputEvent)
 {
-    if (inputEvent.getEventSource() == EventSource::Keyboard)
-    {
-        const KeyInputEvent& keyInputEvent = static_cast<const KeyInputEvent&>(inputEvent);
-
-        switch (keyInputEvent.getInput())
-        {
-        case KeyInput::Up:
-            if (keyInputEvent.getAction() == KeyAction::Press || keyInputEvent.getAction() == KeyAction::Repeat)
-            {
-                // TODO
-            }
-            break;
-        case KeyInput::Down:
-            if (keyInputEvent.getAction() == KeyAction::Press || keyInputEvent.getAction() == KeyAction::Repeat)
-            {
-                // TODO
-            }
-            break;
-        }
-    }
-    else if (inputEvent.getEventSource() == EventSource::Mouse)
-    {
-        const MouseInputEvent &mouseInputEvent = static_cast<const MouseInputEvent &>(inputEvent);
-
-        switch (mouseInputEvent.getInput())
-        {
-            case MouseInput::Middle:
-                if (mouseInputEvent.getAction() == MouseAction::Scroll)
-                {
-                    camera->zoom(glm::vec3(0.20f * static_cast<float>(mouseInputEvent.getPositionY())));
-                }
-                break;
-        }
-    }
+    cameraController->handleInputEvents(inputEvent);
 }
 
 void MainApp::updateUniformBuffer()
@@ -281,8 +248,8 @@ void MainApp::updateUniformBuffer()
     UniformBufferObject ubo{};
     ubo.model = glm::rotate(glm::mat4(1.0f), elapsedTime * glm::radians(180.0f), glm::vec3(0.0f, 0.0f, 1.0f));
     //ubo.model = glm::mat4(1.0f);
-    ubo.view = camera->getView();
-    ubo.proj = camera->getProjection();
+    ubo.view = cameraController->getCamera()->getView();
+    ubo.proj = cameraController->getCamera()->getProjection();
 
     void *mappedData = uniformBuffers[currentImageIndex]->map();
     memcpy(mappedData, &ubo, sizeof(ubo));
@@ -921,9 +888,9 @@ void MainApp::setupTimer()
 
 void MainApp::setupCamera()
 {
-    camera = std::make_unique<Camera>();
-    camera->setPerspectiveProjection(45.0f, swapchain->getProperties().imageExtent.width / (float)swapchain->getProperties().imageExtent.height, 0.1f, 20.0f);
-    camera->setView(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+    cameraController = std::make_unique<CameraController>();
+    cameraController->getCamera()->setPerspectiveProjection(45.0f, swapchain->getProperties().imageExtent.width / (float)swapchain->getProperties().imageExtent.height, 0.1f, 20.0f);
+    cameraController->getCamera()->setView(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
 }
 
 } // namespace vulkr

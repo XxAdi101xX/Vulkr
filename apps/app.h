@@ -32,7 +32,7 @@
 #include "core/descriptor_set_layout.h"
 #include "core/descriptor_pool.h"
 #include "core/descriptor_set.h"
-#include "rendering/camera.h"
+#include "rendering/camera_controller.h"
 #include "rendering/subpass.h"
 #include "rendering/shader_module.h"
 #include "rendering/pipeline_state.h"
@@ -160,7 +160,7 @@ private:
     std::vector<VkFence> inFlightFences;
     std::vector<VkFence> imagesInFlight;
 
-    std::unique_ptr<Camera> camera;
+    std::unique_ptr<CameraController> cameraController;
 
     const std::string MODEL_PATH = "../../../assets/models/viking_room.obj";
     const std::string TEXTURE_PATH = "../../../assets/textures/viking_room.png";

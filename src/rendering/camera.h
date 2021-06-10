@@ -57,6 +57,7 @@ public:
 	glm::mat4 getView() const;
 
 	/* Setters */
+	void setFovY(float fovy);
 	void setPosition(glm::vec3 position);
 	void setView(glm::vec3 position, glm::vec3 center, glm::vec3 up);
 	void setPerspectiveProjection(float fovy, float aspect, float znear, float zfar);

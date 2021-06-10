@@ -1,4 +1,4 @@
-/* Copyright (c) 2020 Adithya Venkatarao
+/* Copyright (c) 2021 Adithya Venkatarao
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
@@ -68,6 +68,12 @@ glm::mat4 Camera::getProjection() const
 glm::mat4 Camera::getView() const
 {
 	return view;
+}
+
+void Camera::setFovY(float fovy)
+{
+	this->fovy = fovy;
+	updatePerspectiveProjection();
 }
 
 void Camera::setPosition(glm::vec3 position)
