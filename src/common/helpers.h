@@ -22,9 +22,10 @@
 
 #pragma once
 
+#include <type_traits>
+
 namespace vulkr
 {
-
 /* Convert a numeric type to uint32_t */
 template <class T>
 uint32_t to_u32(T value)
@@ -37,6 +38,14 @@ uint32_t to_u32(T value)
 	}
 
 	return static_cast<uint32_t>(value);
+}
+
+template <typename T>
+int sgn(T val)
+{
+	static_assert(std::is_arithmetic<T>::value, "T must be numeric");
+
+	return (T(0) < val) - (val < T(0));
 }
 
 } // namespace vulkr

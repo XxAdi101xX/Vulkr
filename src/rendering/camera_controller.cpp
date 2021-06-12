@@ -20,6 +20,10 @@
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+#define _USE_MATH_DEFINES
+#include <math.h>
+
+#include "common/helpers.h"
 #include "camera_controller.h"
 
 namespace
@@ -50,9 +54,9 @@ float calculateZoom(float delta, float positionCoordinate, float centerCoordinat
 namespace vulkr
 {
 
-CameraController::CameraController()
+CameraController::CameraController(int32_t viewportWidth, int32_t viewportHeight)
 {
-	camera = std::make_shared<Camera>();
+	camera = std::make_shared<Camera>(viewportWidth, viewportHeight);
 }
 
 std::shared_ptr<Camera> CameraController::getCamera() const
@@ -71,6 +75,7 @@ void CameraController::handleInputEvents(const InputEvent &inputEvent)
             LOGEANDABORT("Unknown key action encountered");
         }
 
+        // Handle key input
         switch (keyInputEvent.getInput())
         {
         case KeyInput::Up:
@@ -130,7 +135,7 @@ void CameraController::handleMouseButtonClick(const MouseInputEvent &mouseInputE
 
 void CameraController::handleMouseScroll(const MouseInputEvent &mouseInputEvent)
 {
-	zoom(glm::vec3(0.20f * static_cast<float>(mouseInputEvent.getPositionY())));
+    camera->setFovY(camera->getFovY() + (zoomStepSize * static_cast<float>(mouseInputEvent.getPositionY())));
 }
 
 void CameraController::handleCursorPositionChange(const MouseInputEvent &mouseInputEvent)
@@ -143,34 +148,70 @@ void CameraController::handleCursorPositionChange(const MouseInputEvent &mouseIn
     switch (activeMouseInput)
     {
     case MouseInput::Left:
-        // TODO: implement rotation with respect to the center
+        orbit(mouseInputEvent);
         break;
     case MouseInput::Right:
-        if (abs(mouseInputEvent.getPositionX()) > abs(mouseInputEvent.getPositionY()))
-        {
-            zoom(glm::vec3(zoomDragStepSize * static_cast<float>(mouseInputEvent.getPositionX() - lastMousePosition.x)));
-        }
-        else
-        {
-            zoom(glm::vec3(zoomDragStepSize * static_cast<float>(lastMousePosition.y - mouseInputEvent.getPositionY())));
-        }
-
-        lastMousePosition = glm::vec2(mouseInputEvent.getPositionX(), mouseInputEvent.getPositionY());
+        zoomOnMouseDrag(mouseInputEvent);
         break;
     case MouseInput::Middle:
-        // TODO: implement translatation of the camera
+        pan(mouseInputEvent);
         break;
     }
 }
 
-void CameraController::zoom(glm::vec3 magnitude) const
+void CameraController::orbit(const MouseInputEvent &mouseInputEvent)
 {
-	glm::vec3 newPosition;
-	newPosition.x = calculateZoom(magnitude.x, camera->getPosition().x, camera->getCenter().x);
-	newPosition.y = calculateZoom(magnitude.y, camera->getPosition().y, camera->getCenter().y);
-	newPosition.z = calculateZoom(magnitude.z, camera->getPosition().z, camera->getCenter().z);
+    // Calculate the rotation magnitude along the x and y axis
+    const float deltaAngleX = (2.0f * M_PI / camera->getViewport().x);
+    const float deltaAngleY = (M_PI / camera->getViewport().y);
+    float rotationAngleX = (lastMousePosition.x - mouseInputEvent.getPositionX()) * deltaAngleX;
+    float rotationAngleY = (lastMousePosition.y - mouseInputEvent.getPositionY()) * deltaAngleY;
 
-	camera->setPosition(newPosition);
+    // If the viewing direction is the same as the up direction, we will get rapid model flipping so we want to avoid that
+    if (glm::dot(camera->getViewDirection(), camera->getUp()) * sgn(rotationAngleY) > 0.99f)
+    {
+        rotationAngleY = 0;
+    }
+
+    glm::vec4 newPosition{ camera->getPosition(), 1 };
+    glm::vec4 pivot{ camera->getCenter(), 1 };
+    glm::mat4 rotationMatrixX{ 1.0f };
+    glm::mat4 rotationMatrixY{ 1.0f };
+
+    // Rotate the camera around the pivot with respect to the x axis
+    rotationMatrixX = glm::rotate(rotationMatrixX, rotationAngleX, camera->getUp());
+    newPosition = (rotationMatrixX * (newPosition - pivot)) + pivot;
+
+    // Rotate the camera around the pivot with respect to the y axis
+    rotationMatrixY = glm::rotate(rotationMatrixY, rotationAngleY, camera->getRight());
+    newPosition = (rotationMatrixY * (newPosition - pivot)) + pivot;
+
+    // Update the camera view
+    camera->setView(newPosition, camera->getCenter(), camera->getUp());
+
+    // Update the last mouse position
+    lastMousePosition = glm::vec2(mouseInputEvent.getPositionX(), mouseInputEvent.getPositionY());
+}
+
+void CameraController::zoomOnMouseDrag(const MouseInputEvent &mouseInputEvent)
+{
+    // Increase or decrease the fovy depending on the delta of the mouse change
+    if (mouseInputEvent.getPositionX() > lastMousePosition.x)
+    {
+        camera->setFovY(camera->getFovY() - zoomStepSize);
+    }
+    else
+    {
+        camera->setFovY(camera->getFovY() + zoomStepSize);
+    }
+
+    // Update the last mouse position
+    lastMousePosition = glm::vec2(mouseInputEvent.getPositionX(), mouseInputEvent.getPositionY());
+}
+
+void CameraController::pan(const MouseInputEvent &mouseInputEvent)
+{
+    // TODO
 }
 
 } // namespace vulkr

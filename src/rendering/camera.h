@@ -36,7 +36,7 @@ namespace vulkr
 class Camera
 {
 public:
-	Camera() = default;
+	Camera(int32_t viewportWidth, int32_t viewportHeight);
 	virtual ~Camera() = default;
 
 	/* Disable unnecessary operators to prevent error prone usages */
@@ -46,6 +46,7 @@ public:
 	Camera &operator=(Camera &&) = delete;
 
 	/* Getters */
+	glm::vec2 getViewport() const;
 	float getFovY() const;
 	float getAspect() const;
 	float getClipNear() const;
@@ -55,17 +56,23 @@ public:
 	glm::vec3 getUp() const;
 	glm::mat4 getProjection() const;
 	glm::mat4 getView() const;
+	glm::vec3 getViewDirection() const;
+	glm::vec3 getRight() const;
 
 	/* Setters */
 	void setFovY(float fovy);
+	void setAspect(float aspect);
 	void setPosition(glm::vec3 position);
+	void setCenter(glm::vec3 center);
+	void setUp(glm::vec3 up);
 	void setView(glm::vec3 position, glm::vec3 center, glm::vec3 up);
 	void setPerspectiveProjection(float fovy, float aspect, float znear, float zfar);
 
 	void updateView();
 	void updatePerspectiveProjection();
-	void zoom(glm::vec3 magnitude);
 private:
+	glm::vec2 viewport;
+
 	float fovy;
 	float aspect;
 	float znear;
@@ -78,7 +85,7 @@ private:
 	glm::mat4 projection;
 	glm::mat4 view;
 
-	float calculateZoom(float delta, float positionCoordinate, float centerCoordinate);
+	float calculateZoom(float delta, float positionCoordinate, float centerCoordinate) const;
 };
 
 } // namespace vulkr

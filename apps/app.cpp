@@ -246,8 +246,8 @@ void MainApp::updateUniformBuffer()
     float elapsedTime = static_cast<float>(drawingTimer->elapsed<Timer::Seconds>());
 
     UniformBufferObject ubo{};
-    ubo.model = glm::rotate(glm::mat4(1.0f), elapsedTime * glm::radians(180.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-    //ubo.model = glm::mat4(1.0f);
+    // ubo.model = glm::rotate(glm::mat4(1.0f), elapsedTime * glm::radians(180.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+    ubo.model = glm::mat4(1.0f);
     ubo.view = cameraController->getCamera()->getView();
     ubo.proj = cameraController->getCamera()->getProjection();
 
@@ -888,7 +888,7 @@ void MainApp::setupTimer()
 
 void MainApp::setupCamera()
 {
-    cameraController = std::make_unique<CameraController>();
+    cameraController = std::make_unique<CameraController>(swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height);
     cameraController->getCamera()->setPerspectiveProjection(45.0f, swapchain->getProperties().imageExtent.width / (float)swapchain->getProperties().imageExtent.height, 0.1f, 20.0f);
     cameraController->getCamera()->setView(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
 }

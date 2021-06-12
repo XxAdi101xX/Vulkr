@@ -33,7 +33,7 @@ namespace vulkr
 class CameraController
 {
 public:
-	CameraController();
+	CameraController(int32_t viewportWidth, int32_t viewportHeight);
 	virtual ~CameraController() = default;
 
 	CameraController(CameraController &&) = delete;
@@ -45,16 +45,18 @@ public:
 
 	void handleInputEvents(const InputEvent &inputEvent);
 private:
+	const float zoomStepSize = 1.0f;
+
 	std::shared_ptr<Camera> camera;
 	MouseInput activeMouseInput{ MouseInput::None };
 	glm::vec2 lastMousePosition{ glm::vec2(0.0f) };
-	const float zoomDragStepSize = 0.0050f;
-
-
+	
 	void handleMouseButtonClick(const MouseInputEvent &mouseInputEvent);
 	void handleMouseScroll(const MouseInputEvent &mouseInputEvent);
 	void handleCursorPositionChange(const MouseInputEvent &mouseInputEvent);
-	void zoom(glm::vec3 magnitude) const;
+	void orbit(const MouseInputEvent &mouseInputEvent);
+	void zoomOnMouseDrag(const MouseInputEvent &mouseInputEvent);
+	void pan(const MouseInputEvent &mouseInputEvent);
 
 };
 
