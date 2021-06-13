@@ -26,31 +26,6 @@
 #include "common/helpers.h"
 #include "camera_controller.h"
 
-namespace
-{
-
-float calculateZoom(float delta, float positionCoordinate, float centerCoordinate)
-{
-	if (delta < 0.0f && positionCoordinate > centerCoordinate)
-	{
-		if ((delta + positionCoordinate) <= centerCoordinate)
-		{
-			return centerCoordinate + 0.001f;
-		}
-	}
-	else if (delta > 0.0f && positionCoordinate < centerCoordinate)
-	{
-		if ((delta + positionCoordinate) >= centerCoordinate)
-		{
-			return centerCoordinate - 0.001f;
-		}
-	}
-
-	return positionCoordinate + delta;
-}
-
-} // namespace
-
 namespace vulkr
 {
 
@@ -173,8 +148,8 @@ void CameraController::orbit(const MouseInputEvent &mouseInputEvent)
         rotationAngleY = 0;
     }
 
-    glm::vec4 newPosition{ camera->getPosition(), 1 };
-    glm::vec4 pivot{ camera->getCenter(), 1 };
+    glm::vec4 newPosition{ camera->getPosition(), 1.0f };
+    glm::vec4 pivot{ camera->getCenter(), 1.0f };
     glm::mat4 rotationMatrixX{ 1.0f };
     glm::mat4 rotationMatrixY{ 1.0f };
 
@@ -211,7 +186,21 @@ void CameraController::zoomOnMouseDrag(const MouseInputEvent &mouseInputEvent)
 
 void CameraController::pan(const MouseInputEvent &mouseInputEvent)
 {
-    // TODO
+    float dx = float(mouseInputEvent.getPositionX() - lastMousePosition.x) / float(camera->getViewport().x);
+    float dy = float(mouseInputEvent.getPositionY() - lastMousePosition.y) / float(camera->getViewport().y);
+
+    glm::vec3 z{ camera->getPosition() - camera->getCenter() };
+    float length = static_cast<float>(glm::length(z));
+    z = glm::normalize(z);
+    glm::vec3 x = glm::normalize(glm::cross(camera->getUp(), z));
+    glm::vec3 y = glm::normalize(glm::cross(z, x));
+    x *= -dx * length;
+    y *= dy * length;
+
+    camera->setPosition(camera->getPosition() + x + y);
+    camera->setCenter(camera->getCenter() + x + y);
+
+    lastMousePosition = glm::vec2(mouseInputEvent.getPositionX(), mouseInputEvent.getPositionY());
 }
 
 } // namespace vulkr

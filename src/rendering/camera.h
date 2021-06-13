@@ -33,6 +33,7 @@
 namespace vulkr
 {
 
+// Note that another intutitve way to implement the camera is displayed in the Vulkan repo by Sascha Willems (camera.hpp)
 class Camera
 {
 public:
