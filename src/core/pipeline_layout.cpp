@@ -20,6 +20,7 @@
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+#include "common/helpers.h"
 #include "pipeline_layout.h"
 #include "device.h"
 #include "descriptor_set_layout.h"
@@ -27,14 +28,15 @@
 namespace vulkr
 {
 
-PipelineLayout::PipelineLayout(Device &device, const std::vector<ShaderModule> &shaderModules, std::vector<VkDescriptorSetLayout> &descriptorSetLayoutHandles) :
+PipelineLayout::PipelineLayout(Device &device, const std::vector<ShaderModule> &shaderModules, std::vector<VkDescriptorSetLayout> &descriptorSetLayoutHandles, std::vector<VkPushConstantRange> &pushConstantRangeHandles) :
 	device{ device },
 	shaderModules{ shaderModules }
 {
 	VkPipelineLayoutCreateInfo pipelineLayoutInfo{ VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
-	pipelineLayoutInfo.setLayoutCount = static_cast<uint32_t>(descriptorSetLayoutHandles.size());
+	pipelineLayoutInfo.setLayoutCount = to_u32(descriptorSetLayoutHandles.size());
 	pipelineLayoutInfo.pSetLayouts = descriptorSetLayoutHandles.data();
-	pipelineLayoutInfo.pushConstantRangeCount = 0;
+	pipelineLayoutInfo.pushConstantRangeCount = to_u32(pushConstantRangeHandles.size());
+	pipelineLayoutInfo.pPushConstantRanges = pushConstantRangeHandles.data();
 
 	VK_CHECK(vkCreatePipelineLayout(device.getHandle(), &pipelineLayoutInfo, nullptr, &handle));
 }

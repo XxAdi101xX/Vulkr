@@ -449,9 +449,10 @@ void MainApp::createGraphicsPipeline()
     shaderModules.emplace_back(*device, VK_SHADER_STAGE_FRAGMENT_BIT, std::make_unique<ShaderSource>("../../../src/shaders/frag.spv"));
 
     std::vector<VkDescriptorSetLayout> descriptorSetLayoutHandles{descriptorSetLayout->getHandle()};
+    std::vector<VkPushConstantRange> pushConstantRangeHandles;
 
     pipelineState = std::make_unique<PipelineState>(
-        std::make_unique<PipelineLayout>(*device, shaderModules, descriptorSetLayoutHandles),
+        std::make_unique<PipelineLayout>(*device, shaderModules, descriptorSetLayoutHandles, pushConstantRangeHandles),
         *renderPass,
         vertexInputState,
         inputAssemblyState,
@@ -752,6 +753,7 @@ void MainApp::createIndexBuffer()
     copyBuffer(*stagingBuffer, *indexBuffer, bufferSize);
 }
 
+// TODO use push constants to pass in mvp matrix information to the vertext shader
 void MainApp::createUniformBuffers()
 {
     VkDeviceSize bufferSize{ sizeof(UniformBufferObject) };

@@ -34,7 +34,7 @@ class DescriptorSetLayout;
 class PipelineLayout
 {
 public:
-	PipelineLayout(Device& device, const std::vector<ShaderModule>& shaderModules, std::vector<VkDescriptorSetLayout>& descriptorSetLayoutHandles);
+	PipelineLayout(Device &device, const std::vector<ShaderModule> &shaderModules, std::vector<VkDescriptorSetLayout> &descriptorSetLayoutHandles, std::vector<VkPushConstantRange> &pushConstantRangeHandles);
 	~PipelineLayout();
 
 	/* Disable unnecessary operators to prevent error prone usages */
@@ -46,15 +46,12 @@ public:
 	VkPipelineLayout getHandle() const;
 
 	const std::vector<ShaderModule> &getShaderModules() const;
-
-	// TODO implement push constants
-
 private:
 	VkPipelineLayout handle{ VK_NULL_HANDLE };
 
 	Device &device;
 
-	const std::vector<ShaderModule>& shaderModules;
+	const std::vector<ShaderModule> &shaderModules;
 };
 
 } // namespace vulkr
