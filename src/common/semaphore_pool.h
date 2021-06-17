@@ -34,12 +34,12 @@ public:
 	SemaphorePool(Device &device);
 	~SemaphorePool();
 
-	/* Disable unnecessary operators to prevent error prone usages */
 	SemaphorePool(const SemaphorePool &) = delete;
 	SemaphorePool(SemaphorePool &&) = delete;
 	SemaphorePool &operator=(const SemaphorePool &) = delete;
 	SemaphorePool &operator=(SemaphorePool &&) = delete;
 
+	/* Obtain a semaphore */
 	VkSemaphore requestSemaphore();
 
 	void reset();

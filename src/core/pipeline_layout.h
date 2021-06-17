@@ -37,7 +37,6 @@ public:
 	PipelineLayout(Device &device, const std::vector<ShaderModule> &shaderModules, std::vector<VkDescriptorSetLayout> &descriptorSetLayoutHandles, std::vector<VkPushConstantRange> &pushConstantRangeHandles);
 	~PipelineLayout();
 
-	/* Disable unnecessary operators to prevent error prone usages */
 	PipelineLayout(const PipelineLayout &) = delete;
 	PipelineLayout(PipelineLayout &&) = delete;
 	PipelineLayout &operator=(const PipelineLayout &) = delete;

@@ -37,10 +37,8 @@ class CommandPool
 public:
 	CommandPool(Device &device, uint32_t queueFamilyIndex, VkCommandPoolCreateFlags flags);
 	~CommandPool();
-
 	CommandPool(CommandPool &&other);
 
-	/* Disable unnecessary operators to prevent error prone usages */
 	CommandPool(const CommandPool &) = delete;
 	CommandPool &operator=(const CommandPool &) = delete;
 	CommandPool &operator=(CommandPool &&) = delete;

@@ -40,7 +40,6 @@ public:
 	Camera(int32_t viewportWidth, int32_t viewportHeight);
 	virtual ~Camera() = default;
 
-	/* Disable unnecessary operators to prevent error prone usages */
 	Camera(Camera &&) = delete;
 	Camera(const Camera &) = delete;
 	Camera &operator=(const Camera &) = delete;

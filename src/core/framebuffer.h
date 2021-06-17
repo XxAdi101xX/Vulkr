@@ -37,7 +37,6 @@ public:
 	Framebuffer(Device &device, const Swapchain &swapchain, const RenderPass &renderPass, std::vector<VkImageView> attachments);
 	~Framebuffer();
 
-	/* Disable unnecessary operators to prevent error prone usages */
 	Framebuffer(Framebuffer &&) = delete;
 	Framebuffer(Framebuffer &) = delete;
 	Framebuffer &operator=(const Framebuffer &) = delete;

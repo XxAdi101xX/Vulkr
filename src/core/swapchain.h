@@ -57,14 +57,18 @@ public:
 		const std::set<VkImageUsageFlagBits> &imageUsageFlags);
 	~Swapchain();
 
-	/* Disable unnecessary operators to prevent error prone usages */
 	Swapchain(const Swapchain &) = delete;
 	Swapchain(Swapchain &&) = delete;
 	Swapchain &operator=(const Swapchain &) = delete;
 	Swapchain &operator=(Swapchain &&) = delete;
 
+	/* Get a handle to the swapchain */
 	VkSwapchainKHR getHandle() const;
+
+	/* Get the properties of the swapchain */
 	const SwapchainProperties &getProperties() const;
+
+	/* Get the swapchain images */
 	const std::vector<std::unique_ptr<Image>> &getImages() const;
 private:
 	/* The swapchain handle */

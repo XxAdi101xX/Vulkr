@@ -37,7 +37,6 @@ public:
 	~Queue() = default;
 	Queue(Queue &&);
 
-	/* Disable unnecessary operators to prevent error prone usages */
 	Queue(const Queue &) = delete;
 	Queue &operator=(const Queue &) = delete;
 	Queue &operator=(Queue &&) = delete;

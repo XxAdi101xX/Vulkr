@@ -37,7 +37,6 @@ public:
 	PhysicalDevice(Instance& instance, VkPhysicalDevice physicalDevice);
 	~PhysicalDevice() = default;
 
-	/* Disable unnecessary operators to prevent error prone usages */
 	PhysicalDevice(const PhysicalDevice &) = delete;
 	PhysicalDevice(PhysicalDevice &&) = delete;
 	PhysicalDevice &operator=(const PhysicalDevice &) = delete;

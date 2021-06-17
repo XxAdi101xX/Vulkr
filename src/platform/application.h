@@ -37,26 +37,33 @@ public:
 	Application(Platform &platform, std::string name);
 	virtual ~Application() = default;
 
-	/* Disable unnecessary operators to prevent error prone usages */
 	Application(const Application &) = delete;
 	Application(Application &&) = delete;
 	Application &operator=(const Application &) = delete;
 	Application &operator=(Application &&) = delete;
 
+	/* Conduct the initial preparation for the application */
 	virtual void prepare();
 
+	/* Step the application forward; called once per frame */
 	virtual void step();
 
+	/* Defines the contents of the core rendering loop */
 	virtual void update() = 0;
 
+	/* Cleanup the application before right before termination */
 	virtual void finish();
 
+	/* Recreate the swapchain */
 	virtual void recreateSwapchain();
 
+	/* Call by the Window when the application window is resized */
 	virtual void handleWindowResize(const uint32_t width, const uint32_t height);
 
+	/* Called by the Window when the focus state changes */
 	virtual void handleFocusChange(bool isFocused);
 
+	/* Called by the window whenever any input events are triggered */
 	virtual void handleInputEvents(const InputEvent &inputEvent);
 
 	/* Getters */

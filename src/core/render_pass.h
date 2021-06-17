@@ -52,9 +52,8 @@ public:
 	RenderPass(Device &device, const std::vector<Attachment> &attachments, const std::vector<Subpass> &subpasses, const std::vector<VkSubpassDependency> subpassDependencies);
 	~RenderPass();
 
-	/* Disable unnecessary operators to prevent error prone usages */
 	RenderPass(const RenderPass &) = delete;
-	RenderPass(RenderPass &&) = delete; // TODO: check if we need this
+	RenderPass(RenderPass &&) = delete;
 	RenderPass &operator=(const RenderPass &) = delete;
 	RenderPass &operator=(RenderPass &&) = delete;
 

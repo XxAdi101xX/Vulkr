@@ -36,7 +36,6 @@ public:
 	Device(std::unique_ptr<PhysicalDevice> &&physicalDevice, VkSurfaceKHR surface, const std::vector<const char*> requestedExtensions = {});
 	~Device();
 
-	/* Disable unnecessary operators to prevent error prone usages */
 	Device(const Device &) = delete;
 	Device(Device &&) = delete;
 	Device &operator=(const Device &) = delete;

@@ -39,7 +39,6 @@ public:
 	Instance(std::string applicationName);
 	~Instance();
 	
-	/* Disable unnecessary operators to prevent error prone usages */
 	Instance(const Instance &) = delete;
 	Instance(Instance &&) = delete;
 	Instance &operator=(const Instance &) = delete;

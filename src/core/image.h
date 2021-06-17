@@ -31,7 +31,6 @@ class Device;
 
 class Image
 {
-// TODO: consider how to do memeory management!
 public:
 	Image(
 		Device &device,
@@ -56,11 +55,9 @@ public:
 		VkImageUsageFlags imageUsageFlags,
 		VkSampleCountFlagBits sampleCount = VK_SAMPLE_COUNT_1_BIT
 	);
-
 	~Image();
  
-	/* Disable unnecessary operators to prevent error prone usages */
-	Image(Image &&) = delete; // TODO: do we need this?
+	Image(Image &&) = delete;
 	Image(const Image &) = delete;
 	Image &operator=(const Image &) = delete;
 	Image &operator=(Image &&) = delete;

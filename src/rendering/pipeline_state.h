@@ -153,7 +153,6 @@ public:
 	);
 	~PipelineState();
 
-	/* Disable unnecessary operators to prevent error prone usages */
 	PipelineState(const PipelineState &) = delete;
 	PipelineState(PipelineState &&) = delete;
 	PipelineState &operator=(const PipelineState &) = delete;
@@ -180,8 +179,6 @@ public:
 	const std::array<VkDynamicState, 9> &getDyanmicStates() const;
 
 	uint32_t getSubpassIndex() const;
-
-
 private:
 	std::unique_ptr<PipelineLayout> pipelineLayout{ nullptr };
 

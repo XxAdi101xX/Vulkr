@@ -36,7 +36,6 @@ public:
 	ImageView(Image &image, VkImageViewType viewType, VkImageCreateFlags aspectMask, VkFormat format = VK_FORMAT_UNDEFINED);
 	~ImageView();
 
-	/* Disable unnecessary operators to prevent error prone usages */
 	ImageView(ImageView &&other) = delete;
 	ImageView(ImageView &) = delete;
 	ImageView &operator=(const ImageView &) = delete;

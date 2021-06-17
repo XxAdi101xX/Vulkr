@@ -35,8 +35,6 @@ public:
 	ShaderSource(const std::string &filename);
 	~ShaderSource() = default;
 
-
-	/* Disable unnecessary operators to prevent error prone usages */
 	ShaderSource(const ShaderSource &) = delete;
 	ShaderSource(ShaderSource &&) = delete;
 	ShaderSource &operator=(const ShaderSource &) = delete;
@@ -68,16 +66,13 @@ public:
 	~ShaderModule() = default;
 	ShaderModule(ShaderModule &&) = default;
 
-	/* Disable unnecessary operators to prevent error prone usages */
 	ShaderModule(const ShaderModule &) = delete;
 	ShaderModule &operator=(const ShaderModule &) = delete;
 	ShaderModule &operator=(ShaderModule &&) = delete;
 
-	VkShaderModule getHandle() const;
 	VkShaderStageFlagBits getStage() const;
 	const std::string &getEntryPoint() const;
 	const ShaderSource &getShaderSource() const;
-
 private:
 	Device &device;
 
@@ -91,4 +86,4 @@ private:
 	std::unique_ptr<ShaderSource> shaderSource;
 };
 
-}
+} // namespace vulkr

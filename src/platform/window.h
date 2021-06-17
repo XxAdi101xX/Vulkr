@@ -36,7 +36,6 @@ public:
 	Window(Platform &platform);
 	~Window();
 
-	/* Disable unnecessary operators to prevent error prone usages */
 	Window(const Window &) = delete;
 	Window(Window &&) = delete;
 	Window &operator=(const Window &) = delete;

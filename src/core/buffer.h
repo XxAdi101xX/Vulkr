@@ -53,7 +53,7 @@ public:
 	void flush() const;
 
 	/**
-	 * @brief Maps vulkan memory if it isn't already mapped to an host visible address
+	 * Maps vulkan memory if it isn't already mapped to an host visible address
 	 * @return Pointer to host visible memory
 	 */
 	void *map();
@@ -66,37 +66,37 @@ public:
 
 	// TODO: take a look at these functions again to see if they're useful
 	/**
-		* @brief Copies byte data into the buffer
+		* Copies byte data into the buffer
 		* @param data The data to copy from
 		* @param size The amount of bytes to copy
 		* @param offset The offset to start the copying into the mapped data
 		*/
-	void update(const uint8_t* data, size_t size, size_t offset = 0);
+	void update(const uint8_t *data, size_t size, size_t offset = 0);
 
 	/**
-		* @brief Converts any non byte data into bytes and then updates the buffer
+		* Converts any non byte data into bytes and then updates the buffer
 		* @param data The data to copy from
 		* @param size The amount of bytes to copy
 		* @param offset The offset to start the copying into the mapped data
 		*/
-	void update(void* data, size_t size, size_t offset = 0);
+	void update(void *data, size_t size, size_t offset = 0);
 
 	/**
-		* @brief Copies a vector of bytes into the buffer
+		* Copies a vector of bytes into the buffer
 		* @param data The data vector to upload
 		* @param offset The offset to start the copying into the mapped data
 		*/
-	void update(const std::vector<uint8_t>& data, size_t offset = 0);
+	void update(const std::vector<uint8_t> &data, size_t offset = 0);
 
 	/**
-		* @brief Copies an object as byte data into the buffer
+		* Copies an object as byte data into the buffer
 		* @param object The object to convert into byte data
 		* @param offset The offset to start the copying into the mapped data
 		*/
 	template <class T>
-	void convert_and_update(const T& object, size_t offset = 0)
+	void convert_and_update(const T &object, size_t offset = 0)
 	{
-		update(reinterpret_cast<const uint8_t*>(&object), sizeof(T), offset);
+		update(reinterpret_cast<const uint8_t *>(&object), sizeof(T), offset);
 	}
 
 private:

@@ -37,7 +37,6 @@ public:
 	Platform() = default;
 	virtual ~Platform() = default;
 
-	/* Disable unnecessary operators to prevent error prone usages */
 	Platform(const Platform &) = delete;
 	Platform(Platform &&) = delete;
 	Platform &operator=(const Platform &) = delete;

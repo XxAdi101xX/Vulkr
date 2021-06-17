@@ -42,7 +42,6 @@ public:
 	~Subpass() = default;
 	Subpass(Subpass &&) = default;
 
-	/* Disable unnecessary operators to prevent error prone usages */
 	Subpass(const Subpass &) = delete;
 	Subpass &operator=(const Subpass &) = delete;
 	Subpass &operator=(Subpass &&) = delete;

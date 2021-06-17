@@ -36,7 +36,6 @@ public:
 	virtual ~Pipeline() = 0;
 	Pipeline(Pipeline &&other);
 
-	/* Disable unnecessary operators to prevent error prone usages */
 	Pipeline(const Pipeline &) = delete;
 	Pipeline &operator=(const Pipeline &) = delete;
 	Pipeline &operator=(Pipeline &&) = delete;

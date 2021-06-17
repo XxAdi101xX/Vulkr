@@ -47,7 +47,6 @@ public:
 	CommandBuffer(CommandPool &commandPool, VkCommandBufferLevel level);
 	~CommandBuffer();
 
-	/* Disable unnecessary operators to prevent error prone usages */
 	CommandBuffer(const CommandBuffer &) = delete;
 	CommandBuffer(CommandBuffer &&) = delete;
 	CommandBuffer &operator=(const CommandBuffer &) = delete;
