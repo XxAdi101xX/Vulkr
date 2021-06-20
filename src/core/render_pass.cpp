@@ -36,14 +36,16 @@ RenderPass::RenderPass(Device &device, const std::vector<Attachment> &attachment
 	attachments{ attachments },
 	subpasses{ subpasses }
 {
-	if (subpasses.empty()) {
+	if (subpasses.empty())
+	{
 		LOGEANDABORT("There are no associated subpasses for a render pass");
 	}
 
 	std::vector<VkAttachmentDescription> attachmentDescriptions;
 	attachmentDescriptions.reserve(attachments.size());
 
-	for (const auto &attachement : attachments) {
+	for (const auto &attachement : attachments)
+	{
 		VkAttachmentDescription attachmentDescription{};
 		attachmentDescription.format = attachement.format;
 		attachmentDescription.samples = attachement.samples;
@@ -60,7 +62,8 @@ RenderPass::RenderPass(Device &device, const std::vector<Attachment> &attachment
 	std::vector<VkSubpassDescription> subpassDescriptions;
 	subpassDescriptions.reserve(subpasses.size());
 
-	for (const auto& subpass : subpasses) {
+	for (const auto &subpass : subpasses)
+	{
 		VkSubpassDescription subpassDescription;
 		subpassDescription.flags = subpass.getDescriptionFlags();
 		subpassDescription.pipelineBindPoint = subpass.getBindPoint();
@@ -76,7 +79,11 @@ RenderPass::RenderPass(Device &device, const std::vector<Attachment> &attachment
 		subpassDescriptions.push_back(std::move(subpassDescription));
 	}
 
-	// TODO: check if we need to set subpass dependencies when we have more subpasses
+	if (subpasses.size() > 1)
+	{
+		LOGEANDABORT("TODO: check if we need to setup subpass dependencies between more than one subpass");
+	}
+	// TODO: check if we need to set subpass dependencies between subpasses when we have more subpasses
 	//std::vector<VkSubpassDependency> dependencies;
 	//dependencies.reserve(subpasses.size() - 1);
 
@@ -91,8 +98,6 @@ RenderPass::RenderPass(Device &device, const std::vector<Attachment> &attachment
 	//	dependencies[i].dstAccessMask = VK_ACCESS_INPUT_ATTACHMENT_READ_BIT;
 	//	dependencies[i].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
 	//}
-	
-
 
 	// Create render pass
 	VkRenderPassCreateInfo renderPassInfo{ VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO };

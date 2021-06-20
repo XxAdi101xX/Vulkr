@@ -179,6 +179,8 @@ void MainApp::update()
     VkSubmitInfo submitInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
 
     std::array<VkSemaphore, 1> waitSemaphores{ imageAvailableSemaphores[currentFrame] };
+    // I have setup a subpass dependency to ensure that the render pass waits for the swapchain to finish reading from the image before accessing it
+    // hence I don't need to set the wait stages to VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT 
     std::array<VkPipelineStageFlags, 1> waitStages{ VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
     submitInfo.waitSemaphoreCount = to_u32(waitSemaphores.size());
     submitInfo.pWaitSemaphores = waitSemaphores.data();
@@ -247,7 +249,7 @@ void MainApp::updateUniformBuffer()
 
     UniformBufferObject ubo{};
     // ubo.model = glm::rotate(glm::mat4(1.0f), elapsedTime * glm::radians(180.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-    ubo.model = glm::mat4(1.0f);
+    ubo.model = glm::mat4(1.0f); // TODO: remove model from this UBO since it should be separate from the camera controls
     ubo.view = cameraController->getCamera()->getView();
     ubo.proj = cameraController->getCamera()->getProjection();
 
@@ -328,15 +330,23 @@ void MainApp::createRenderPass()
 
     subpasses.emplace_back(inputAttachments, colorAttachments, resolveAttachments, depthStencilAttachments, preserveAttachments, VK_PIPELINE_BIND_POINT_GRAPHICS);
 
-    VkSubpassDependency subpassDependency{};
-    subpassDependency.srcSubpass = VK_SUBPASS_EXTERNAL;
-    subpassDependency.dstSubpass = 0;
-    subpassDependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-    subpassDependency.srcAccessMask = 0;
-    subpassDependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-    subpassDependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-    std::vector<VkSubpassDependency> subpassDependencies{ subpassDependency };
-    renderPass = std::make_unique<RenderPass>(*device, attachments, subpasses, subpassDependencies);
+    std::vector<VkSubpassDependency> dependencies;
+    dependencies.resize(1);
+
+    // Only need a dependency coming in to ensure that the first layout transition happens at the right time.
+    // Second external dependency is implied by having a different finalLayout and subpass layout.
+    dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
+    dependencies[0].dstSubpass = 0; // References the subpass index in the subpasses array
+    dependencies[0].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+    dependencies[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+    dependencies[0].srcAccessMask = 0; // We don't have anything that we need to flush
+    dependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+
+    // Normally, we would need an external dependency at the end as well since we are changing layout in finalLayout,
+    // but since we are signalling a semaphore, we can rely on Vulkan's default behavior,
+    // which injects an external dependency here with dstStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, dstAccessMask = 0. 
+
+    renderPass = std::make_unique<RenderPass>(*device, attachments, subpasses, dependencies);
 }
 
 void MainApp::createDescriptorSetLayout()
@@ -640,6 +650,9 @@ void MainApp::createTextureSampler()
     samplerInfo.compareEnable = VK_FALSE;
     samplerInfo.compareOp = VK_COMPARE_OP_ALWAYS;
     samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+    samplerInfo.mipLodBias = 0.0f;
+    samplerInfo.minLod = 0.0f;
+    samplerInfo.maxLod = 0.0f;
 
     textureSampler = std::make_unique<Sampler>(*device, samplerInfo);
 }
@@ -651,14 +664,22 @@ void MainApp::loadModel()
     std::vector<tinyobj::material_t> materials;
     std::string warn, err;
 
-    if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, MODEL_PATH.c_str())) {
+    if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, MODEL_PATH.c_str()))
+    {
         LOGEANDABORT(warn + err);
+    }
+
+    if (!warn.empty())
+    {
+        LOGW(warn);
     }
 
     std::unordered_map<Vertex, uint32_t> uniqueVertices{};
 
-    for (const auto &shape : shapes) {
-        for (const auto &index : shape.mesh.indices) {
+    for (const auto &shape : shapes)
+    {
+        for (const auto &index : shape.mesh.indices)
+        {
             Vertex vertex{};
 
             vertex.position = {
@@ -812,17 +833,17 @@ void MainApp::createDescriptorSets()
         imageInfo.imageView = textureImageView->getHandle();
         imageInfo.sampler = textureSampler->getHandle();
 
-        VkWriteDescriptorSet descriptorWritCombinedImageSampler{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        descriptorWritCombinedImageSampler.dstSet = descriptorSets[i]->getHandle();
-        descriptorWritCombinedImageSampler.dstBinding = 1;
-        descriptorWritCombinedImageSampler.dstArrayElement = 0;
-        descriptorWritCombinedImageSampler.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        descriptorWritCombinedImageSampler.descriptorCount = 1;
-        descriptorWritCombinedImageSampler.pImageInfo = &imageInfo;
-        descriptorWritCombinedImageSampler.pBufferInfo = nullptr; // Optional
-        descriptorWritCombinedImageSampler.pTexelBufferView = nullptr; // Optional
+        VkWriteDescriptorSet descriptorWriteCombinedImageSampler{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        descriptorWriteCombinedImageSampler.dstSet = descriptorSets[i]->getHandle();
+        descriptorWriteCombinedImageSampler.dstBinding = 1;
+        descriptorWriteCombinedImageSampler.dstArrayElement = 0;
+        descriptorWriteCombinedImageSampler.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        descriptorWriteCombinedImageSampler.descriptorCount = 1;
+        descriptorWriteCombinedImageSampler.pImageInfo = &imageInfo;
+        descriptorWriteCombinedImageSampler.pBufferInfo = nullptr; // Optional
+        descriptorWriteCombinedImageSampler.pTexelBufferView = nullptr; // Optional
 
-        std::vector<VkWriteDescriptorSet> writeDescriptorSets{ descriptorWriteUniformBuffer, descriptorWritCombinedImageSampler };
+        std::vector<VkWriteDescriptorSet> writeDescriptorSets{ descriptorWriteUniformBuffer, descriptorWriteCombinedImageSampler };
 
         descriptorSets[i]->update(writeDescriptorSets);
     }
@@ -834,7 +855,7 @@ void MainApp::createCommandBuffers()
     std::vector<VkClearValue> clearValues;
     clearValues.resize(2);
     clearValues[0].color = { 0.0f, 0.0f, 0.0f, 1.0f };
-    clearValues[1].depthStencil = { 1.0f, 0 };
+    clearValues[1].depthStencil = { 1.0f, 0u };
 
     commandBuffers.reserve(swapchainFramebuffers.size());
     for (uint32_t i = 0; i < swapchainFramebuffers.size(); ++i) {
