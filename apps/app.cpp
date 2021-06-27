@@ -48,11 +48,17 @@ MainApp::MainApp(Platform& platform, std::string name) : Application{ platform, 
 
      descriptorSetLayout.reset();
 
-     indexBuffer.reset();
+     for (auto &it : meshes)
+     {
+         it.second->indexBuffer.reset();
+         it.second->vertexBuffer.reset();
+     }
+     meshes.clear();
 
-     vertexBuffer.reset();
-
-     commandPool.reset();
+     for (uint32_t i = 0; i < maxFramesInFlight; ++i)
+     {
+         frameData.commandPools[i].reset();
+     }
 
      device.reset();
 
@@ -66,29 +72,36 @@ MainApp::MainApp(Platform& platform, std::string name) : Application{ platform, 
 
  void MainApp::cleanupSwapchain()
  {
-     for (uint32_t i = 0; i < commandBuffers.size(); ++i) {
-         commandBuffers[i].reset();
+     for (uint32_t i = 0; i < maxFramesInFlight; ++i)
+     {
+         frameData.commandBuffers[i].reset();
      }
-     commandBuffers.clear();
 
      depthImage.reset();
 
      depthImageView.reset();
 
-     for (uint32_t i = 0; i < swapchainFramebuffers.size(); ++i) {
+     for (uint32_t i = 0; i < swapchainFramebuffers.size(); ++i)
+     {
          swapchainFramebuffers[i].reset();
      }
      swapchainFramebuffers.clear();
 
      shaderModules.clear();
-     pipeline.reset();
 
-     pipelineState.reset(); // destroys pipeline layout as well
+     for (auto &it : materials)
+     {
+         it.second->pipeline.reset();
+         it.second->pipelineState.reset();
+     }
+     materials.clear();
+     renderables.clear();
 
      renderPass.reset();
      subpasses.clear();
 
-     for (uint32_t i = 0; i < swapChainImageViews.size(); ++i) {
+     for (uint32_t i = 0; i < swapChainImageViews.size(); ++i)
+     {
          swapChainImageViews[i].reset();
      }
      swapChainImageViews.clear();
@@ -100,10 +113,10 @@ MainApp::MainApp(Platform& platform, std::string name) : Application{ platform, 
 
      swapchain.reset();
 
-     for (uint32_t i = 0; i < uniformBuffers.size(); ++i) {
-         uniformBuffers[i].reset();
+     for (uint32_t i = 0; i < maxFramesInFlight; ++i)
+     {
+         frameData.uniformBuffers[i].reset();
      }
-     uniformBuffers.clear();
 
      descriptorSets.clear();
      descriptorPool.reset();
@@ -114,6 +127,8 @@ MainApp::MainApp(Platform& platform, std::string name) : Application{ platform, 
 void MainApp::prepare()
 {
     Application::prepare();
+
+    setupTimer();
 
     createInstance();
     createSurface();
@@ -132,33 +147,37 @@ void MainApp::prepare()
 
     createSwapchain();
     createSwapchainImageViews();
+    setupCamera();
     createRenderPass();
     createDescriptorSetLayout();
     createGraphicsPipeline();
     createCommandPool();
+    createCommandBuffers();
     createDepthResources();
     createFramebuffers();
     createTextureImage();
     createTextureImageView();
     createTextureSampler();
-    loadModel();
-    createVertexBuffer();
-    createIndexBuffer();
+    //loadModel(MODEL_PATH);
+    loadMeshes();
+    initScene();
     createUniformBuffers();
     createDescriptorPool();
     createDescriptorSets();
-    createCommandBuffers();
     createSemaphoreAndFencePools();
     setupSynchronizationObjects();
-    setupTimer();
-    setupCamera();
 }
 
 void MainApp::update()
 {
-    fencePool->wait(&inFlightFences[currentFrame]);
+    fencePool->wait(&frameData.inFlightFences[currentFrame]);
+    fencePool->reset(&frameData.inFlightFences[currentFrame]);
 
-    VkResult result = vkAcquireNextImageKHR(device->getHandle(), swapchain->getHandle(), std::numeric_limits<uint64_t>::max(), imageAvailableSemaphores[currentFrame], VK_NULL_HANDLE, &currentImageIndex);
+    //now that we are sure that the commands finished executing, we can safely reset the command buffer to begin recording again.
+    frameData.commandBuffers[currentFrame]->reset();
+
+    uint32_t swapchainImageIndex;
+    VkResult result = vkAcquireNextImageKHR(device->getHandle(), swapchain->getHandle(), std::numeric_limits<uint64_t>::max(), frameData.imageAvailableSemaphores[currentFrame], VK_NULL_HANDLE, &swapchainImageIndex);
     if (result == VK_ERROR_OUT_OF_DATE_KHR)
     {
         recreateSwapchain();
@@ -169,33 +188,41 @@ void MainApp::update()
         LOGEANDABORT("Failed to acquire swap chain image");
     }
 
-    updateUniformBuffer();
-
-    if (imagesInFlight[currentImageIndex] != VK_NULL_HANDLE) {
-        fencePool->wait(&imagesInFlight[currentImageIndex]);
+    if (imagesInFlight[swapchainImageIndex] != VK_NULL_HANDLE)
+    {
+        // TODO: enabling this check causes errors on swapchain recreation, will need to eventually resolve this for correctness
+        // fencePool->wait(&imagesInFlight[swapchainImageIndex]);
     }
-    imagesInFlight[currentImageIndex] = inFlightFences[currentFrame];
-    
-    VkSubmitInfo submitInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
+    imagesInFlight[swapchainImageIndex] = frameData.inFlightFences[currentFrame];
 
-    std::array<VkSemaphore, 1> waitSemaphores{ imageAvailableSemaphores[currentFrame] };
+
+    std::vector<VkClearValue> clearValues;
+    clearValues.resize(2);
+    clearValues[0].color = { 0.0f, 0.0f, 0.0f, 1.0f };
+    clearValues[1].depthStencil = { 1.0f, 0u };
+
+    frameData.commandBuffers[currentFrame]->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
+    frameData.commandBuffers[currentFrame]->beginRenderPass(*renderPass, *(swapchainFramebuffers[swapchainImageIndex]), swapchain->getProperties().imageExtent, clearValues, VK_SUBPASS_CONTENTS_INLINE);
+    drawObjects(currentFrame);
+    frameData.commandBuffers[currentFrame]->endRenderPass();
+    frameData.commandBuffers[currentFrame]->end();
+
     // I have setup a subpass dependency to ensure that the render pass waits for the swapchain to finish reading from the image before accessing it
     // hence I don't need to set the wait stages to VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT 
     std::array<VkPipelineStageFlags, 1> waitStages{ VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
+    std::array<VkSemaphore, 1> waitSemaphores{ frameData.imageAvailableSemaphores[currentFrame] };
+    std::array<VkSemaphore, 1> signalSemaphores{ frameData.renderingFinishedSemaphores[currentFrame] };
+
+    VkSubmitInfo submitInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
     submitInfo.waitSemaphoreCount = to_u32(waitSemaphores.size());
     submitInfo.pWaitSemaphores = waitSemaphores.data();
     submitInfo.pWaitDstStageMask = waitStages.data();
-
     submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &commandBuffers[currentImageIndex]->getHandle();
-
-    std::array<VkSemaphore, 1> signalSemaphores{ renderFinishedSemaphores[currentFrame] };
+    submitInfo.pCommandBuffers = &frameData.commandBuffers[currentFrame]->getHandle();
     submitInfo.signalSemaphoreCount = to_u32(signalSemaphores.size());
     submitInfo.pSignalSemaphores = signalSemaphores.data();
 
-    fencePool->reset(&inFlightFences[currentFrame]);
-
-    VK_CHECK(vkQueueSubmit(graphicsQueue, 1, &submitInfo, inFlightFences[currentFrame]));
+    VK_CHECK(vkQueueSubmit(graphicsQueue, 1, &submitInfo, frameData.inFlightFences[currentFrame]));
 
     VkPresentInfoKHR presentInfo{ VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
     presentInfo.waitSemaphoreCount = to_u32(signalSemaphores.size());
@@ -205,7 +232,7 @@ void MainApp::update()
     presentInfo.swapchainCount = to_u32(swapchains.size());
     presentInfo.pSwapchains = swapchains.data();
 
-    presentInfo.pImageIndices = &currentImageIndex;
+    presentInfo.pImageIndices = &swapchainImageIndex;
 
     result = vkQueuePresentKHR(presentQueue, &presentInfo);
     if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR)
@@ -217,45 +244,35 @@ void MainApp::update()
         LOGEANDABORT("Failed to present swap chain image!");
     }
 
-    currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
+    currentFrame = (currentFrame + 1) % maxFramesInFlight;
 }
 
 void MainApp::recreateSwapchain()
 {
+    // TODO: update window width and high variables on window resize callback??
+    // TODO: enable the imagesInFlight check in the update() function and resolve the swapchain recreation bug
     device->waitIdle();
     cleanupSwapchain();
 
     createSwapchain();
     createSwapchainImageViews();
+    setupCamera();
     createRenderPass();
     createGraphicsPipeline();
     createDepthResources();
     createFramebuffers();
+    initScene();
     createUniformBuffers();
     createDescriptorPool();
     createDescriptorSets();
     createCommandBuffers();
-    setupCamera();
+
+    imagesInFlight.resize(swapChainImageViews.size(), VK_NULL_HANDLE);
 }
 
 void MainApp::handleInputEvents(const InputEvent &inputEvent)
 {
     cameraController->handleInputEvents(inputEvent);
-}
-
-void MainApp::updateUniformBuffer()
-{
-    float elapsedTime = static_cast<float>(drawingTimer->elapsed<Timer::Seconds>());
-
-    UniformBufferObject ubo{};
-    // ubo.model = glm::rotate(glm::mat4(1.0f), elapsedTime * glm::radians(180.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-    ubo.model = glm::mat4(1.0f); // TODO: remove model from this UBO since it should be separate from the camera controls
-    ubo.view = cameraController->getCamera()->getView();
-    ubo.proj = cameraController->getCamera()->getProjection();
-
-    void *mappedData = uniformBuffers[currentImageIndex]->map();
-    memcpy(mappedData, &ubo, sizeof(ubo));
-    uniformBuffers[currentImageIndex]->unmap();
 }
 
 void MainApp::createInstance()
@@ -289,7 +306,8 @@ void MainApp::createSwapchain()
 void MainApp::createSwapchainImageViews()
 {
     swapChainImageViews.reserve(swapchain->getImages().size());
-    for (uint32_t i = 0; i < swapchain->getImages().size(); ++i) {
+    for (uint32_t i = 0; i < swapchain->getImages().size(); ++i)
+    {
         swapChainImageViews.emplace_back(std::make_unique<ImageView>(*(swapchain->getImages()[i]), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, swapchain->getProperties().surfaceFormat.format));
     }
 }
@@ -461,7 +479,7 @@ void MainApp::createGraphicsPipeline()
     std::vector<VkDescriptorSetLayout> descriptorSetLayoutHandles{descriptorSetLayout->getHandle()};
     std::vector<VkPushConstantRange> pushConstantRangeHandles;
 
-    pipelineState = std::make_unique<PipelineState>(
+    std::shared_ptr<PipelineState> pipelineState = std::make_shared<PipelineState>(
         std::make_unique<PipelineLayout>(*device, shaderModules, descriptorSetLayoutHandles, pushConstantRangeHandles),
         *renderPass,
         vertexInputState,
@@ -473,7 +491,9 @@ void MainApp::createGraphicsPipeline()
         colorBlendState
     );
 
-    pipeline = std::make_unique<GraphicsPipeline>(*device, *pipelineState, nullptr);
+    std::shared_ptr<GraphicsPipeline> pipeline = std::make_shared<GraphicsPipeline>(*device, *pipelineState, nullptr);
+
+    createMaterial(pipeline, pipelineState, "defaultmesh");
 }
 
 void MainApp::createFramebuffers()
@@ -489,12 +509,24 @@ void MainApp::createFramebuffers()
 
 void MainApp::createCommandPool()
 {
-    commandPool = std::make_unique<CommandPool>(*device, device->getOptimalGraphicsQueue().getFamilyIndex(), 0u);
+    for (uint32_t i = 0; i < maxFramesInFlight; ++i)
+    {
+        frameData.commandPools[i] = std::make_unique<CommandPool>(*device, device->getOptimalGraphicsQueue().getFamilyIndex(), VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT);
+    }
 }
 
+void MainApp::createCommandBuffers()
+{
+    for (uint32_t i = 0; i < maxFramesInFlight; ++i)
+    {
+        frameData.commandBuffers[i] = std::make_unique<CommandBuffer>(*frameData.commandPools[i], VK_COMMAND_BUFFER_LEVEL_PRIMARY);//frameData.commandPools[i]->requestCommandBuffer();
+    }
+}
+
+// TODO create a new command pool and allocate the command buffer using requestCommandBuffer
 void MainApp::transitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout)
 {
-    std::unique_ptr<CommandBuffer> commandBuffer = std::make_unique<CommandBuffer>(*commandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+    std::unique_ptr<CommandBuffer> commandBuffer = std::make_unique<CommandBuffer>(*frameData.commandPools[currentFrame], VK_COMMAND_BUFFER_LEVEL_PRIMARY);
 
     commandBuffer->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
 
@@ -554,9 +586,10 @@ void MainApp::transitionImageLayout(VkImage image, VkFormat format, VkImageLayou
     vkQueueWaitIdle(graphicsQueue);
 }
 
+// TODO create a new command pool and allocate the command buffer using requestCommandBuffer
 void MainApp::copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height)
 {
-    std::unique_ptr<CommandBuffer> commandBuffer = std::make_unique<CommandBuffer>(*commandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+    std::unique_ptr<CommandBuffer> commandBuffer = std::make_unique<CommandBuffer>(*frameData.commandPools[currentFrame], VK_COMMAND_BUFFER_LEVEL_PRIMARY);
 
     commandBuffer->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
 
@@ -657,58 +690,58 @@ void MainApp::createTextureSampler()
     textureSampler = std::make_unique<Sampler>(*device, samplerInfo);
 }
 
-void MainApp::loadModel()
+void MainApp::loadModel(const std::string &modelPath)
 {
-    tinyobj::attrib_t attrib;
-    std::vector<tinyobj::shape_t> shapes;
-    std::vector<tinyobj::material_t> materials;
-    std::string warn, err;
+    //tinyobj::attrib_t attrib;
+    //std::vector<tinyobj::shape_t> shapes;
+    //std::vector<tinyobj::material_t> materials;
+    //std::string warn, err;
 
-    if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, MODEL_PATH.c_str()))
-    {
-        LOGEANDABORT(warn + err);
-    }
+    //if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, modelPath.c_str()))
+    //{
+    //    LOGEANDABORT(warn + err);
+    //}
 
-    if (!warn.empty())
-    {
-        LOGW(warn);
-    }
+    //if (!warn.empty())
+    //{
+    //    LOGW(warn);
+    //}
 
-    std::unordered_map<Vertex, uint32_t> uniqueVertices{};
+    //std::unordered_map<Vertex, uint32_t> uniqueVertices{};
 
-    for (const auto &shape : shapes)
-    {
-        for (const auto &index : shape.mesh.indices)
-        {
-            Vertex vertex{};
+    //for (const auto &shape : shapes)
+    //{
+    //    for (const auto &index : shape.mesh.indices)
+    //    {
+    //        Vertex vertex{};
 
-            vertex.position = {
-                attrib.vertices[3 * index.vertex_index + 0],
-                attrib.vertices[3 * index.vertex_index + 1],
-                attrib.vertices[3 * index.vertex_index + 2]
-            };
+    //        vertex.position = {
+    //            attrib.vertices[3 * index.vertex_index + 0],
+    //            attrib.vertices[3 * index.vertex_index + 1],
+    //            attrib.vertices[3 * index.vertex_index + 2]
+    //        };
 
-            vertex.textureCoordinate = {
-                attrib.texcoords[2 * index.texcoord_index + 0],
-                1.0 - attrib.texcoords[2 * index.texcoord_index + 1]
-            };
+    //        vertex.textureCoordinate = {
+    //            attrib.texcoords[2 * index.texcoord_index + 0],
+    //            1.0 - attrib.texcoords[2 * index.texcoord_index + 1]
+    //        };
 
-            vertex.color = {1.0f, 1.0f, 1.0f};
+    //        vertex.color = {1.0f, 1.0f, 1.0f};
 
-            if (uniqueVertices.count(vertex) == 0) {
-                uniqueVertices[vertex] = to_u32(vertices.size());
-                vertices.push_back(vertex);
-            }
+    //        if (uniqueVertices.count(vertex) == 0) {
+    //            uniqueVertices[vertex] = to_u32(vertices.size());
+    //            vertices.push_back(vertex);
+    //        }
 
-            indices.push_back(uniqueVertices[vertex]);
-        }
-    }
+    //        indices.push_back(uniqueVertices[vertex]);
+    //    }
+    //}
 }
 
 void MainApp::copyBuffer(Buffer &srcBuffer, Buffer &dstBuffer, VkDeviceSize size)
 {
     // TODO: move this elsewhere?
-    std::unique_ptr<CommandBuffer> commandBuffer = std::make_unique<CommandBuffer>(*commandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+    std::unique_ptr<CommandBuffer> commandBuffer = std::make_unique<CommandBuffer>(*frameData.commandPools[currentFrame], VK_COMMAND_BUFFER_LEVEL_PRIMARY);
 
     commandBuffer->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
 
@@ -726,9 +759,9 @@ void MainApp::copyBuffer(Buffer &srcBuffer, Buffer &dstBuffer, VkDeviceSize size
     vkQueueWaitIdle(graphicsQueue);
 }
 
-void MainApp::createVertexBuffer()
+void MainApp::createVertexBuffer(std::shared_ptr<Mesh> mesh)
 {
-    VkDeviceSize bufferSize{ sizeof(vertices[0]) * vertices.size() };
+    VkDeviceSize bufferSize{ sizeof(mesh->vertices[0]) * mesh->vertices.size() };
 
     VkBufferCreateInfo bufferInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
     bufferInfo.size = bufferSize;
@@ -741,17 +774,17 @@ void MainApp::createVertexBuffer()
     bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
     memoryInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 
-    vertexBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
+    mesh->vertexBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
 
     void *mappedData = stagingBuffer->map();
-    memcpy(mappedData, vertices.data(), static_cast<size_t>(bufferSize));
+    memcpy(mappedData, mesh->vertices.data(), static_cast<size_t>(bufferSize));
     stagingBuffer->unmap();
-    copyBuffer(*stagingBuffer, *vertexBuffer, bufferSize);
+    copyBuffer(*stagingBuffer, *(mesh->vertexBuffer), bufferSize);
 }
 
-void MainApp::createIndexBuffer()
+void MainApp::createIndexBuffer(std::shared_ptr<Mesh> mesh)
 {
-    VkDeviceSize bufferSize{ sizeof(indices[0]) * indices.size() };
+    VkDeviceSize bufferSize{ sizeof(mesh->indices[0]) * mesh->indices.size() };
 
     VkBufferCreateInfo bufferInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
     bufferInfo.size = bufferSize;
@@ -766,12 +799,12 @@ void MainApp::createIndexBuffer()
     bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
     memoryInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 
-    indexBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
+    mesh->indexBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
 
     void *mappedData = stagingBuffer->map();
-    memcpy(mappedData, indices.data(), static_cast<size_t>(bufferSize));
+    memcpy(mappedData, mesh->indices.data(), static_cast<size_t>(bufferSize));
     stagingBuffer->unmap();
-    copyBuffer(*stagingBuffer, *indexBuffer, bufferSize);
+    copyBuffer(*stagingBuffer, *(mesh->indexBuffer), bufferSize);
 }
 
 // TODO use push constants to pass in mvp matrix information to the vertext shader
@@ -787,10 +820,9 @@ void MainApp::createUniformBuffers()
     VmaAllocationCreateInfo memoryInfo{};
     memoryInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
 
-    uniformBuffers.reserve(swapChainImageViews.size());
-    for (uint32_t i = 0; i < swapChainImageViews.size(); ++i)
+    for (uint32_t i = 0; i < maxFramesInFlight; ++i)
     {
-        uniformBuffers.emplace_back(std::make_unique<Buffer>(*device, bufferInfo, memoryInfo));
+        frameData.uniformBuffers[i] = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
     }
 }
 
@@ -799,22 +831,23 @@ void MainApp::createDescriptorPool()
     std::vector<VkDescriptorPoolSize> poolSizes{};
     poolSizes.resize(2);
     poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    poolSizes[0].descriptorCount = to_u32(swapChainImageViews.size());
+    poolSizes[0].descriptorCount = maxFramesInFlight;
     poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    poolSizes[1].descriptorCount = to_u32(swapChainImageViews.size());
+    poolSizes[1].descriptorCount = maxFramesInFlight;
 
-    descriptorPool = std::make_unique<DescriptorPool>(*device, *descriptorSetLayout, poolSizes, to_u32(swapChainImageViews.size()));
+    descriptorPool = std::make_unique<DescriptorPool>(*device, *descriptorSetLayout, poolSizes, to_u32(swapChainImageViews.size())); // TODO should maxSets be something other than maxFramesInFlight
 }
 
+// TODO put this in the framedata struct
 void MainApp::createDescriptorSets()
 {
-    descriptorSets.reserve(swapChainImageViews.size());
-    for (uint32_t i = 0; i < swapChainImageViews.size(); ++i)
+    descriptorSets.reserve(maxFramesInFlight);
+    for (uint32_t i = 0; i < maxFramesInFlight; ++i)
     {
         descriptorSets.emplace_back(std::make_unique<DescriptorSet>(*device, *descriptorSetLayout, *descriptorPool));
 
         VkDescriptorBufferInfo bufferInfo{};
-        bufferInfo.buffer = uniformBuffers[i]->getHandle();
+        bufferInfo.buffer = frameData.uniformBuffers[i]->getHandle();
         bufferInfo.offset = 0;
         bufferInfo.range = sizeof(UniformBufferObject); // can also use VK_WHOLE_SIZE in this case
 
@@ -849,40 +882,6 @@ void MainApp::createDescriptorSets()
     }
 }
 
-// TODO allocate command buffers using command_pool's requestCommandBuffer function??
-void MainApp::createCommandBuffers()
-{
-    std::vector<VkClearValue> clearValues;
-    clearValues.resize(2);
-    clearValues[0].color = { 0.0f, 0.0f, 0.0f, 1.0f };
-    clearValues[1].depthStencil = { 1.0f, 0u };
-
-    commandBuffers.reserve(swapchainFramebuffers.size());
-    for (uint32_t i = 0; i < swapchainFramebuffers.size(); ++i) {
-        commandBuffers.emplace_back(std::make_unique<CommandBuffer>(*commandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY));
-
-        commandBuffers[i]->begin(0u, nullptr);
-
-        commandBuffers[i]->beginRenderPass(*renderPass, *(swapchainFramebuffers[i]), swapchain->getProperties().imageExtent, clearValues, VK_SUBPASS_CONTENTS_INLINE);
-
-        vkCmdBindPipeline(commandBuffers[i]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->getHandle()); // TODO: put this in command buffer class?
-
-        VkBuffer vertexBuffers[] = { vertexBuffer->getHandle() };
-        VkDeviceSize offsets[] = { 0 };
-        vkCmdBindVertexBuffers(commandBuffers[i]->getHandle(), 0, 1, vertexBuffers, offsets);
-
-        vkCmdBindIndexBuffer(commandBuffers[i]->getHandle(), indexBuffer->getHandle(), 0, VK_INDEX_TYPE_UINT32);
-
-        vkCmdBindDescriptorSets(commandBuffers[i]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineState->getPipelineLayout().getHandle(), 0, 1, &(descriptorSets[i]->getHandle()), 0, nullptr);
-
-        vkCmdDrawIndexed(commandBuffers[i]->getHandle(), to_u32(indices.size()), 1, 0, 0, 0);
-
-        commandBuffers[i]->endRenderPass();
-
-        commandBuffers[i]->end();
-    }
-}
-
 void MainApp::createSemaphoreAndFencePools()
 {
     semaphorePool = std::make_unique<SemaphorePool>(*device);
@@ -891,15 +890,12 @@ void MainApp::createSemaphoreAndFencePools()
 
 void MainApp::setupSynchronizationObjects()
 {
-    imageAvailableSemaphores.reserve(MAX_FRAMES_IN_FLIGHT);
-    renderFinishedSemaphores.reserve(MAX_FRAMES_IN_FLIGHT);
-    inFlightFences.reserve(MAX_FRAMES_IN_FLIGHT);
-    imagesInFlight.resize(swapchain->getImages().size(), VK_NULL_HANDLE);
+    imagesInFlight.resize(swapchain->getImages().size(), VK_NULL_HANDLE); // TODO why is the size swapchain size
 
-    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        imageAvailableSemaphores.push_back(semaphorePool->requestSemaphore());
-        renderFinishedSemaphores.push_back(semaphorePool->requestSemaphore());
-        inFlightFences.push_back(fencePool->requestFence());
+    for (size_t i = 0; i < maxFramesInFlight; ++i) {
+        frameData.imageAvailableSemaphores[i] = semaphorePool->requestSemaphore();
+        frameData.renderingFinishedSemaphores[i] = semaphorePool->requestSemaphore();
+        frameData.inFlightFences[i] = fencePool->requestFence();
     }
 }
 
@@ -915,6 +911,259 @@ void MainApp::setupCamera()
     cameraController->getCamera()->setPerspectiveProjection(45.0f, swapchain->getProperties().imageExtent.width / (float)swapchain->getProperties().imageExtent.height, 0.1f, 20.0f);
     cameraController->getCamera()->setView(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
 }
+
+
+//create material and add it to the map
+std::shared_ptr<Material> MainApp::createMaterial(std::shared_ptr<GraphicsPipeline> pipeline, std::shared_ptr<PipelineState> pipelineState, const std::string &name)
+{
+    std::shared_ptr<Material> material = std::make_shared<Material>();
+    material->pipeline = pipeline;
+    material->pipelineState = pipelineState;
+    materials[name] = material;
+    return material;
+}
+
+//returns nullptr if it can't be found
+std::shared_ptr<Material> MainApp::getMaterial(const std::string &name)
+{
+    auto it = materials.find(name);
+    if (it == materials.end())
+    {
+        return nullptr;
+    }
+
+    return (*it).second;
+
+}
+
+//returns nullptr if it can't be found
+std::shared_ptr<Mesh> MainApp::getMesh(const std::string &name)
+{
+    auto it = meshes.find(name);
+    if (it == meshes.end())
+    {
+        return nullptr;
+    }
+
+    return (*it).second;
+}
+
+void MainApp::drawObjects(uint32_t frameIndex)
+{
+    std::shared_ptr<Mesh> lastMesh = nullptr;
+    std::shared_ptr<Material> lastMaterial = nullptr;
+    for (int index = 0; index < renderables.size(); index++)
+    {
+        RenderObject object = renderables[index];
+
+        //only bind the pipeline if it doesn't match with the already bound one
+        if (object.material != lastMaterial)
+        {
+
+            vkCmdBindPipeline(frameData.commandBuffers[frameIndex]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, object.material->pipeline->getHandle());
+            lastMaterial = object.material;
+        }
+
+
+        glm::mat4 model = object.transformMatrix;
+        //final render matrix, that we are calculating on the cpu
+        //glm::mat4 mesh_matrix = projection * view * model;
+
+        //MeshPushConstants constants;
+        //constants.render_matrix = mesh_matrix;
+
+        ////upload the mesh to the GPU via push constants
+        //vkCmdPushConstants(commandBuffers[swapchainImageIndex], object.material->pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(MeshPushConstants), &constants);
+
+        UniformBufferObject ubo{};
+        ubo.model = model;
+        ubo.view = cameraController->getCamera()->getView();
+        ubo.proj = cameraController->getCamera()->getProjection();
+
+        void *mappedData = frameData.uniformBuffers[frameIndex]->map();
+        memcpy(mappedData, &ubo, sizeof(ubo));
+        frameData.uniformBuffers[frameIndex]->unmap();
+
+        //only bind the mesh if it's a different one from last bind
+        if (object.mesh != lastMesh)
+        {
+            //bind the mesh vertex buffer with offset 0
+            VkBuffer vertexBuffers[] = { object.mesh->vertexBuffer->getHandle() };
+            VkDeviceSize offsets[] = { 0 };
+            vkCmdBindVertexBuffers(frameData.commandBuffers[frameIndex]->getHandle(), 0, 1, vertexBuffers, offsets);
+            vkCmdBindIndexBuffer(frameData.commandBuffers[frameIndex]->getHandle(), object.mesh->indexBuffer->getHandle(), 0, VK_INDEX_TYPE_UINT32);
+
+            vkCmdBindDescriptorSets(frameData.commandBuffers[frameIndex]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, object.material->pipelineState->getPipelineLayout().getHandle(), 0, 1, &(descriptorSets[frameIndex]->getHandle()), 0, nullptr); // TODO is it okay to just have one descriptor set?
+
+            lastMesh = object.mesh;
+        }
+
+        vkCmdDrawIndexed(frameData.commandBuffers[frameIndex]->getHandle(), to_u32(object.mesh->indices.size()), 1, 0, 0, 0);
+    }
+}
+
+bool Mesh::loadFromObj(const char *filename)
+{
+    //attrib will contain the vertex arrays of the file
+    tinyobj::attrib_t attrib;
+    //shapes contains the info for each separate object in the file
+    std::vector<tinyobj::shape_t> shapes;
+    //materials contains the information about the material of each shape, but we wont use it.
+    std::vector<tinyobj::material_t> materials;
+
+    //error and warning output from the load function
+    std::string warn;
+    std::string err;
+
+    //load the OBJ file
+    tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, filename,
+        nullptr);
+    //make sure to output the warnings to the console, in case there are issues with the file
+    if (!warn.empty())
+    {
+        std::cout << "WARN: " << warn << std::endl;
+    }
+    //if we have any error, print it to the console, and break the mesh loading. 
+    //This happens if the file cant be found or is malformed
+    if (!err.empty())
+    {
+        std::cerr << err << std::endl;
+        return false;
+    }
+
+    std::unordered_map<Vertex, uint32_t> uniqueVertices{};
+
+    // Loop over shapes
+    for (size_t s = 0; s < shapes.size(); s++)
+    {
+        // Loop over faces(polygon)
+        size_t index_offset = 0;
+        for (size_t f = 0; f < shapes[s].mesh.num_face_vertices.size(); f++)
+        {
+
+            //hardcode loading to triangles
+            int fv = 3;
+
+            // Loop over vertices in the face.
+            for (size_t v = 0; v < fv; v++)
+            {
+                // access to vertex
+                tinyobj::index_t idx = shapes[s].mesh.indices[index_offset + v];
+
+                //vertex position
+                tinyobj::real_t vx = attrib.vertices[3 * idx.vertex_index + 0];
+                tinyobj::real_t vy = attrib.vertices[3 * idx.vertex_index + 1];
+                tinyobj::real_t vz = attrib.vertices[3 * idx.vertex_index + 2];
+                //vertex normal
+                tinyobj::real_t nx = attrib.normals[3 * idx.normal_index + 0];
+                tinyobj::real_t ny = attrib.normals[3 * idx.normal_index + 1];
+                tinyobj::real_t nz = attrib.normals[3 * idx.normal_index + 2];
+
+                //copy it into our vertex
+                Vertex new_vert;
+                new_vert.position.x = vx;
+                new_vert.position.y = vy;
+                new_vert.position.z = vz;
+
+                //new_vert.normal.x = nx;
+                //new_vert.normal.y = ny;
+                //new_vert.normal.z = nz;
+
+                //we are setting the vertex color as the vertex normal. This is just for display purposes
+                new_vert.color = glm::vec3(nx, ny, nz);
+                new_vert.textureCoordinate = glm::vec2(0.0f, 0.0f);
+
+                if (uniqueVertices.count(new_vert) == 0)
+                {
+                    uniqueVertices[new_vert] = to_u32(vertices.size());
+                    vertices.push_back(new_vert);
+                }
+
+                indices.push_back(uniqueVertices[new_vert]);
+
+                //vertices.push_back(new_vert);
+            }
+            index_offset += fv;
+        }
+    }
+
+    return true;
+}
+
+void MainApp::loadMeshes()
+{
+    std::shared_ptr<Mesh> triMesh = std::make_shared<Mesh>();
+    //make the array 3 vertices long
+    triMesh->vertices.resize(3);
+
+    //vertex positions
+    triMesh->vertices[0].position = { 1.f,1.f, 0.0f };
+    triMesh->vertices[1].position = { -1.f,1.f, 0.0f };
+    triMesh->vertices[2].position = { 0.f,-1.f, 0.0f };
+    // TODO add indices to this triangle before rendering
+    triMesh->indices.push_back(0);
+    triMesh->indices.push_back(1);
+    triMesh->indices.push_back(2);
+
+    //vertex colors, all green
+    triMesh->vertices[0].color = { 0.f,1.f, 0.0f }; //pure green
+    triMesh->vertices[1].color = { 0.f,1.f, 0.0f }; //pure green
+    triMesh->vertices[2].color = { 0.f,1.f, 0.0f }; //pure green
+    //we dont care about the vertex normals
+
+    //load the monkey
+    std::shared_ptr<Mesh> monkeyMesh = std::make_shared<Mesh>();
+    monkeyMesh->loadFromObj("../../../assets/models/monkey_smooth.obj");
+
+    std::shared_ptr<Mesh> vikingMesh = std::make_shared<Mesh>();
+    vikingMesh->loadFromObj("../../../assets/models/viking_room.obj");
+
+    createVertexBuffer(triMesh);
+    createIndexBuffer(triMesh);
+    createVertexBuffer(monkeyMesh);
+    createIndexBuffer(monkeyMesh);
+    createVertexBuffer(vikingMesh);
+    createIndexBuffer(vikingMesh);
+
+    meshes["monkey"] = monkeyMesh;
+    meshes["viking"] = vikingMesh;
+    //meshes["triangle"] = triMesh;
+}
+
+void MainApp::initScene()
+{
+    RenderObject monkey;
+    monkey.mesh = getMesh("monkey");
+    monkey.material = getMaterial("defaultmesh");
+    monkey.transformMatrix = glm::mat4{ 1.0f };
+
+    RenderObject viking;
+    viking.mesh = getMesh("viking");
+    viking.material = getMaterial("defaultmesh");
+    viking.transformMatrix = glm::mat4{ 1.0f };// glm::translate(glm::mat4{ 1.0 }, glm::vec3(5, 5, 5));
+
+    renderables.push_back(monkey);
+    renderables.push_back(viking);
+    return; // TODO delete this
+
+    for (int x = -20; x <= 20; x++)
+    {
+        for (int y = -20; y <= 20; y++)
+        {
+
+            RenderObject tri;
+            tri.mesh = getMesh("triangle");
+            tri.material = getMaterial("defaultmesh");
+            glm::mat4 translation = glm::translate(glm::mat4{ 1.0 }, glm::vec3(x, 0, y));
+            glm::mat4 scale = glm::scale(glm::mat4{ 1.0 }, glm::vec3(0.2, 0.2, 0.2));
+            tri.transformMatrix = translation * scale;
+
+            renderables.push_back(tri);
+        }
+    }
+}
+
+
 
 } // namespace vulkr
 

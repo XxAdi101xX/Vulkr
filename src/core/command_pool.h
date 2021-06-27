@@ -48,7 +48,7 @@ public:
 
 	uint32_t getQueueFamilyIndex() const;
 
-	CommandBuffer &requestCommandBuffer(VkCommandBufferLevel level = VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+	std::shared_ptr<CommandBuffer> requestCommandBuffer(VkCommandBufferLevel level = VK_COMMAND_BUFFER_LEVEL_PRIMARY);
 
 	// TODO: look into vkresetcommandpool and vkreset command buffers
 
@@ -61,10 +61,10 @@ private:
 
 	VkCommandPoolCreateFlags flags{ 0 };
 
-	std::vector<std::unique_ptr<CommandBuffer>> primaryCommandBuffers;
+	std::vector<std::shared_ptr<CommandBuffer>> primaryCommandBuffers;
 	int32_t activePrimaryCommandBufferCount{ 0 };
 
-	std::vector<std::unique_ptr<CommandBuffer>> secondaryCommandBuffers;
+	std::vector<std::shared_ptr<CommandBuffer>> secondaryCommandBuffers;
 	int32_t activeSecondaryCommandBufferCount{ 0 };
 };
 

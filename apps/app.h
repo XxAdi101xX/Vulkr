@@ -95,6 +95,33 @@ namespace std {
 namespace vulkr
 {
 
+constexpr uint32_t maxFramesInFlight{ 2 }; // Explanation on this how we got this number: https://software.intel.com/content/www/us/en/develop/articles/practical-approach-to-vulkan-part-1.html
+
+struct Mesh
+{
+    std::vector<Vertex> vertices;
+    std::vector<uint32_t> indices;
+    std::unique_ptr<Buffer> vertexBuffer;
+    std::unique_ptr<Buffer> indexBuffer;
+
+    bool loadFromObj(const char *fileName);
+};
+
+struct Material
+{
+    std::shared_ptr<GraphicsPipeline> pipeline;
+    std::shared_ptr<PipelineState> pipelineState;
+};
+
+struct RenderObject
+{
+    std::shared_ptr<Mesh> mesh;
+
+    std::shared_ptr<Material> material;
+
+    glm::mat4 transformMatrix;
+};
+
 class MainApp : public Application
 {
 public:
@@ -134,30 +161,20 @@ private:
     std::unique_ptr<RenderPass> renderPass{ nullptr };
     std::unique_ptr<DescriptorSetLayout> descriptorSetLayout{ nullptr };
     std::vector<ShaderModule> shaderModules;
-    std::unique_ptr<PipelineState> pipelineState{ nullptr };
-    std::unique_ptr<GraphicsPipeline> pipeline{ nullptr };
 
     std::vector<std::unique_ptr<Framebuffer>> swapchainFramebuffers;
-    std::unique_ptr<CommandPool> commandPool{ nullptr };
-    std::vector<std::unique_ptr<CommandBuffer>> commandBuffers;
 
     std::unique_ptr<Image> depthImage{ nullptr };
     std::unique_ptr<ImageView> depthImageView{ nullptr };
     std::unique_ptr<Image> textureImage{ nullptr };
     std::unique_ptr<ImageView> textureImageView{ nullptr };
     std::unique_ptr<Sampler> textureSampler{ nullptr };
-    std::unique_ptr<Buffer> vertexBuffer{ nullptr };
-    std::unique_ptr<Buffer> indexBuffer{ nullptr };
-    std::vector<std::unique_ptr<Buffer>> uniformBuffers;
 
     std::unique_ptr<DescriptorPool> descriptorPool;
     std::vector<std::unique_ptr<DescriptorSet>> descriptorSets;
 
     std::unique_ptr<SemaphorePool> semaphorePool;
     std::unique_ptr<FencePool> fencePool;
-    std::vector<VkSemaphore> imageAvailableSemaphores;
-    std::vector<VkSemaphore> renderFinishedSemaphores;
-    std::vector<VkFence> inFlightFences;
     std::vector<VkFence> imagesInFlight;
 
     std::unique_ptr<CameraController> cameraController;
@@ -170,16 +187,11 @@ private:
 
     std::unique_ptr<Timer> drawingTimer;
 
-    const uint32_t MAX_FRAMES_IN_FLIGHT{ 2 }; // Explanation on this how we got this number: https://software.intel.com/content/www/us/en/develop/articles/practical-approach-to-vulkan-part-1.html
     size_t currentFrame{ 0 };
-    uint32_t currentImageIndex;
 
     const std::vector<const char *> deviceExtensions {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME
     };
-
-    std::vector<Vertex> vertices;
-    std::vector<uint32_t> indices;
 
     // Subroutines
     void cleanupSwapchain();
@@ -199,10 +211,10 @@ private:
     void createTextureImage();
     void createTextureImageView();
     void createTextureSampler();
-    void loadModel();
+    void loadModel(const std::string &modelPath);
     void copyBuffer(Buffer &srcBuffer, Buffer &dstBuffer, VkDeviceSize size);
-    void createVertexBuffer();
-    void createIndexBuffer();
+    void createVertexBuffer(std::shared_ptr<Mesh> mesh);
+    void createIndexBuffer(std::shared_ptr<Mesh> mesh);
     void createUniformBuffers();
     void createDescriptorPool();
     void createDescriptorSets();
@@ -211,7 +223,36 @@ private:
     void setupSynchronizationObjects();
     void setupTimer();
     void setupCamera();
-    void updateUniformBuffer();
+
+    struct FrameData
+    {
+        std::array<VkSemaphore, maxFramesInFlight> imageAvailableSemaphores;
+        std::array<VkSemaphore, maxFramesInFlight> renderingFinishedSemaphores;
+        std::array<VkFence, maxFramesInFlight> inFlightFences;
+
+        std::array<std::unique_ptr<CommandPool>, maxFramesInFlight> commandPools;
+        std::array<std::shared_ptr<CommandBuffer>, maxFramesInFlight> commandBuffers;
+
+        std::array<std::unique_ptr<Buffer>, maxFramesInFlight> uniformBuffers; // TODO split into camera data and object specific data
+    } frameData;
+
+    //default array of renderable objects
+    std::vector<RenderObject> renderables;
+
+    std::unordered_map<std::string, std::shared_ptr<Material>> materials;
+    std::unordered_map<std::string, std::shared_ptr<Mesh>> meshes;
+    //functions
+
+    //create material and add it to the map
+    std::shared_ptr<Material> createMaterial(std::shared_ptr<GraphicsPipeline> pipeline, std::shared_ptr<PipelineState> pipelineState, const std::string &name);
+
+    std::shared_ptr<Material> getMaterial(const std::string &name);
+    std::shared_ptr<Mesh> getMesh(const std::string &name);
+
+    void drawObjects(uint32_t frameIndex);
+
+    void loadMeshes();
+    void initScene();
 };
 
 } // namespace vulkr
