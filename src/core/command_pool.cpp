@@ -78,31 +78,31 @@ VkCommandPool CommandPool::getHandle() const
 	return handle;
 }
 
-CommandBuffer &CommandPool::requestCommandBuffer(VkCommandBufferLevel level)
+std::shared_ptr<CommandBuffer> CommandPool::requestCommandBuffer(VkCommandBufferLevel level)
 {
 	if (level == VK_COMMAND_BUFFER_LEVEL_PRIMARY)
 	{
 		if (activePrimaryCommandBufferCount < primaryCommandBuffers.size())
 		{
-			return *(primaryCommandBuffers.at(activePrimaryCommandBufferCount++));
+			return primaryCommandBuffers.at(activePrimaryCommandBufferCount++);
 		}
 
-		primaryCommandBuffers.emplace_back(std::make_unique<CommandBuffer>(*this, level));
-		activePrimaryCommandBufferCount++;
+		primaryCommandBuffers.emplace_back(std::make_shared<CommandBuffer>(*this, level));
+		++activePrimaryCommandBufferCount;
 
-		return *(primaryCommandBuffers.back());
+		return primaryCommandBuffers.back();
 	}
 	else if (level == VK_COMMAND_BUFFER_LEVEL_SECONDARY)
 	{
 		if (activeSecondaryCommandBufferCount < secondaryCommandBuffers.size())
 		{
-			return *(secondaryCommandBuffers.at(activeSecondaryCommandBufferCount++));
+			return secondaryCommandBuffers.at(activeSecondaryCommandBufferCount++);
 		}
 
-		secondaryCommandBuffers.emplace_back(std::make_unique<CommandBuffer>(*this, level));
-		activeSecondaryCommandBufferCount++;
+		secondaryCommandBuffers.emplace_back(std::make_shared<CommandBuffer>(*this, level));
+		++activeSecondaryCommandBufferCount;
 
-		return *(secondaryCommandBuffers.back());
+		return secondaryCommandBuffers.back();
 	}
 
 	LOGEANDABORT("Unknown command buffer level type requested");
