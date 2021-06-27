@@ -171,7 +171,6 @@ private:
     std::unique_ptr<Sampler> textureSampler{ nullptr };
 
     std::unique_ptr<DescriptorPool> descriptorPool;
-    std::vector<std::unique_ptr<DescriptorSet>> descriptorSets;
 
     std::unique_ptr<SemaphorePool> semaphorePool;
     std::unique_ptr<FencePool> fencePool;
@@ -211,7 +210,7 @@ private:
     void createTextureImage();
     void createTextureImageView();
     void createTextureSampler();
-    void loadModel(const std::string &modelPath);
+    void loadModel(const std::string &modelPath); // TODO remove
     void copyBuffer(Buffer &srcBuffer, Buffer &dstBuffer, VkDeviceSize size);
     void createVertexBuffer(std::shared_ptr<Mesh> mesh);
     void createIndexBuffer(std::shared_ptr<Mesh> mesh);
@@ -233,6 +232,7 @@ private:
         std::array<std::unique_ptr<CommandPool>, maxFramesInFlight> commandPools;
         std::array<std::shared_ptr<CommandBuffer>, maxFramesInFlight> commandBuffers;
 
+        std::array<std::unique_ptr<DescriptorSet>, maxFramesInFlight> descriptorSets;
         std::array<std::unique_ptr<Buffer>, maxFramesInFlight> uniformBuffers; // TODO split into camera data and object specific data
     } frameData;
 
