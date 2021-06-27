@@ -67,6 +67,8 @@ public:
 	void beginRenderPass(RenderPass &renderPass, Framebuffer &framebuffer, const VkExtent2D extent, const std::vector<VkClearValue> &clearValues, VkSubpassContents subpassContents = VK_SUBPASS_CONTENTS_INLINE);
 
 	void endRenderPass();
+
+	void reset();
 private:
 	VkCommandBuffer handle{ VK_NULL_HANDLE };
 

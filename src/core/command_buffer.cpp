@@ -49,7 +49,7 @@ CommandBuffer::~CommandBuffer()
 {
 	if (handle != VK_NULL_HANDLE)
 	{
-		vkFreeCommandBuffers(commandPool.getDevice().getHandle(), commandPool.getHandle(), 1, &handle);
+		vkFreeCommandBuffers(getDevice().getHandle(), commandPool.getHandle(), 1, &handle);
 	}
 }
 
@@ -143,6 +143,13 @@ void CommandBuffer::beginRenderPass(RenderPass &renderPass, Framebuffer &framebu
 void CommandBuffer::endRenderPass()
 {
 	vkCmdEndRenderPass(handle);
+}
+
+void CommandBuffer::reset()
+{
+	VK_CHECK(vkResetCommandBuffer(handle, 0));
+
+	state = State::Initial;
 }
 
 } // namespace vulkr
