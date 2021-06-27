@@ -28,7 +28,7 @@ namespace vulkr
 {
 /* Convert a numeric type to uint32_t */
 template <class T>
-uint32_t to_u32(T value)
+constexpr uint32_t to_u32(T value)
 {
 	static_assert(std::is_arithmetic<T>::value, "T must be numeric");
 
@@ -41,7 +41,7 @@ uint32_t to_u32(T value)
 }
 
 template <typename T>
-int sgn(T val)
+constexpr int sgn(T val)
 {
 	static_assert(std::is_arithmetic<T>::value, "T must be numeric");
 
