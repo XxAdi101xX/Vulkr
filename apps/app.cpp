@@ -115,10 +115,10 @@ MainApp::MainApp(Platform& platform, std::string name) : Application{ platform, 
 
      for (uint32_t i = 0; i < maxFramesInFlight; ++i)
      {
+         frameData.descriptorSets[i].reset();
          frameData.uniformBuffers[i].reset();
      }
 
-     descriptorSets.clear();
      descriptorPool.reset();
 
      cameraController.reset();
@@ -838,13 +838,11 @@ void MainApp::createDescriptorPool()
     descriptorPool = std::make_unique<DescriptorPool>(*device, *descriptorSetLayout, poolSizes, to_u32(swapChainImageViews.size())); // TODO should maxSets be something other than maxFramesInFlight
 }
 
-// TODO put this in the framedata struct
 void MainApp::createDescriptorSets()
 {
-    descriptorSets.reserve(maxFramesInFlight);
     for (uint32_t i = 0; i < maxFramesInFlight; ++i)
     {
-        descriptorSets.emplace_back(std::make_unique<DescriptorSet>(*device, *descriptorSetLayout, *descriptorPool));
+        frameData.descriptorSets[i] = std::make_unique<DescriptorSet>(*device, *descriptorSetLayout, *descriptorPool);
 
         VkDescriptorBufferInfo bufferInfo{};
         bufferInfo.buffer = frameData.uniformBuffers[i]->getHandle();
@@ -852,7 +850,7 @@ void MainApp::createDescriptorSets()
         bufferInfo.range = sizeof(UniformBufferObject); // can also use VK_WHOLE_SIZE in this case
 
         VkWriteDescriptorSet descriptorWriteUniformBuffer{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        descriptorWriteUniformBuffer.dstSet = descriptorSets[i]->getHandle();
+        descriptorWriteUniformBuffer.dstSet = frameData.descriptorSets[i]->getHandle();
         descriptorWriteUniformBuffer.dstBinding = 0;
         descriptorWriteUniformBuffer.dstArrayElement = 0;
         descriptorWriteUniformBuffer.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -867,7 +865,7 @@ void MainApp::createDescriptorSets()
         imageInfo.sampler = textureSampler->getHandle();
 
         VkWriteDescriptorSet descriptorWriteCombinedImageSampler{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        descriptorWriteCombinedImageSampler.dstSet = descriptorSets[i]->getHandle();
+        descriptorWriteCombinedImageSampler.dstSet = frameData.descriptorSets[i]->getHandle();
         descriptorWriteCombinedImageSampler.dstBinding = 1;
         descriptorWriteCombinedImageSampler.dstArrayElement = 0;
         descriptorWriteCombinedImageSampler.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -878,7 +876,7 @@ void MainApp::createDescriptorSets()
 
         std::vector<VkWriteDescriptorSet> writeDescriptorSets{ descriptorWriteUniformBuffer, descriptorWriteCombinedImageSampler };
 
-        descriptorSets[i]->update(writeDescriptorSets);
+        frameData.descriptorSets[i]->update(writeDescriptorSets);
     }
 }
 
@@ -993,7 +991,7 @@ void MainApp::drawObjects(uint32_t frameIndex)
             vkCmdBindVertexBuffers(frameData.commandBuffers[frameIndex]->getHandle(), 0, 1, vertexBuffers, offsets);
             vkCmdBindIndexBuffer(frameData.commandBuffers[frameIndex]->getHandle(), object.mesh->indexBuffer->getHandle(), 0, VK_INDEX_TYPE_UINT32);
 
-            vkCmdBindDescriptorSets(frameData.commandBuffers[frameIndex]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, object.material->pipelineState->getPipelineLayout().getHandle(), 0, 1, &(descriptorSets[frameIndex]->getHandle()), 0, nullptr); // TODO is it okay to just have one descriptor set?
+            vkCmdBindDescriptorSets(frameData.commandBuffers[frameIndex]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, object.material->pipelineState->getPipelineLayout().getHandle(), 0, 1, &(frameData.descriptorSets[frameIndex]->getHandle()), 0, nullptr); // TODO is it okay to just have one descriptor set?
 
             lastMesh = object.mesh;
         }
@@ -1162,8 +1160,6 @@ void MainApp::initScene()
         }
     }
 }
-
-
 
 } // namespace vulkr
 
