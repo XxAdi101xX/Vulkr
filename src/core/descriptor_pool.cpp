@@ -22,21 +22,19 @@
 
 #include "descriptor_pool.h"
 #include "device.h"
-#include "descriptor_set_layout.h"
+#include "descriptor_set.h"
 #include "common/helpers.h"
 
 namespace vulkr
 {
 
-DescriptorPool::DescriptorPool(Device &device, DescriptorSetLayout &descriptorSetLayout, std::vector<VkDescriptorPoolSize> &poolSizes, uint32_t maxSets) :
-	device{ device },
-	descriptorSetLayout{ descriptorSetLayout }
+DescriptorPool::DescriptorPool(Device &device, std::vector<VkDescriptorPoolSize> &poolSizes, uint32_t maxSets) : device{ device }
 {
     VkDescriptorPoolCreateInfo poolInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
-    poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
+    poolInfo.poolSizeCount = to_u32(poolSizes.size());
     poolInfo.pPoolSizes = poolSizes.data();
     poolInfo.maxSets = maxSets;
-    poolInfo.flags = 0; // We will not be checking if individual descriptor sets can be freed individually
+    poolInfo.flags = 0; // TODO: should we check if if individual descriptor sets can be freed individually?
 
     VK_CHECK(vkCreateDescriptorPool(device.getHandle(), &poolInfo, nullptr, &handle));
 }
@@ -49,21 +47,6 @@ DescriptorPool::~DescriptorPool()
 VkDescriptorPool DescriptorPool::getHandle() const
 {
     return handle;
-}
-
-VkDescriptorSet DescriptorPool::allocate()
-{
-	VkDescriptorSetAllocateInfo descriptorSetInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
-	descriptorSetInfo.descriptorPool = handle;
-	descriptorSetInfo.descriptorSetCount = 1u;
-	descriptorSetInfo.pSetLayouts = &(descriptorSetLayout.getHandle());
-
-	VkDescriptorSet descriptorSetHandle{ VK_NULL_HANDLE };
-
-	// Allocate a new descriptor set from the current pool
-	VK_CHECK(vkAllocateDescriptorSets(device.getHandle(), &descriptorSetInfo, &descriptorSetHandle));
-
-	return descriptorSetHandle;
 }
 
 } // namespace vulkr

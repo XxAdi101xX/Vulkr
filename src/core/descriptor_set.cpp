@@ -30,21 +30,18 @@
 namespace vulkr
 {
 
-DescriptorSet::DescriptorSet(
-    Device &device,
-    DescriptorSetLayout &descriptorSetLayout,
-    DescriptorPool &descriptorPool) :
-    device{ device },
-    descriptorSetLayout{ descriptorSetLayout },
-    handle{ descriptorPool.allocate() }
-{}
+DescriptorSet::DescriptorSet( Device &device, VkDescriptorSetAllocateInfo allocateInfo) :
+    device{ device }
+{
+    VK_CHECK(vkAllocateDescriptorSets(device.getHandle(), &allocateInfo, &handle));
+}
 
 const VkDescriptorSet &DescriptorSet::getHandle() const
 {
     return handle;
 }
 
-void DescriptorSet::update(std::vector<VkWriteDescriptorSet> writeDescriptorSets) const
+void DescriptorSet::update(std::vector<VkWriteDescriptorSet> &writeDescriptorSets) const
 {
     vkUpdateDescriptorSets(device.getHandle(), to_u32(writeDescriptorSets.size()), writeDescriptorSets.data(), 0, nullptr);
 }

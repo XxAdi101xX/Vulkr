@@ -96,6 +96,7 @@ namespace vulkr
 {
 
 constexpr uint32_t maxFramesInFlight{ 2 }; // Explanation on this how we got this number: https://software.intel.com/content/www/us/en/develop/articles/practical-approach-to-vulkan-part-1.html
+constexpr uint32_t MAX_OBJECT_COUNT{ 10000 };
 
 struct Mesh
 {
@@ -122,6 +123,17 @@ struct RenderObject
     glm::mat4 transformMatrix;
 };
 
+struct CameraData
+{
+    alignas(16) glm::mat4 view;
+    alignas(16) glm::mat4 proj;
+};
+
+struct ObjectData
+{
+    alignas(16) glm::mat4 model;
+};
+
 class MainApp : public Application
 {
 public:
@@ -137,13 +149,6 @@ public:
 
     virtual void handleInputEvents(const InputEvent& inputEvent) override;
 private:
-    struct UniformBufferObject
-    {
-        alignas(16) glm::mat4 model;
-        alignas(16) glm::mat4 view;
-        alignas(16) glm::mat4 proj;
-    };
-
     std::unique_ptr<Instance> instance{ nullptr };
     VkSurfaceKHR surface{ VK_NULL_HANDLE };
     std::unique_ptr<Device> device{ nullptr };
@@ -159,7 +164,8 @@ private:
 
     std::vector<Subpass> subpasses;
     std::unique_ptr<RenderPass> renderPass{ nullptr };
-    std::unique_ptr<DescriptorSetLayout> descriptorSetLayout{ nullptr };
+    std::unique_ptr<DescriptorSetLayout> globalDescriptorSetLayout{ nullptr };
+    std::unique_ptr<DescriptorSetLayout> objectDescriptorSetLayout{ nullptr };
     std::vector<ShaderModule> shaderModules;
 
     std::vector<std::unique_ptr<Framebuffer>> swapchainFramebuffers;
@@ -215,6 +221,7 @@ private:
     void createVertexBuffer(std::shared_ptr<Mesh> mesh);
     void createIndexBuffer(std::shared_ptr<Mesh> mesh);
     void createUniformBuffers();
+    void createSSBOs();
     void createDescriptorPool();
     void createDescriptorSets();
     void createCommandBuffers();
@@ -232,18 +239,18 @@ private:
         std::array<std::unique_ptr<CommandPool>, maxFramesInFlight> commandPools;
         std::array<std::shared_ptr<CommandBuffer>, maxFramesInFlight> commandBuffers;
 
-        std::array<std::unique_ptr<DescriptorSet>, maxFramesInFlight> descriptorSets;
+        std::array<std::unique_ptr<DescriptorSet>, maxFramesInFlight> globalDescriptorSets;
+        std::array<std::unique_ptr<DescriptorSet>, maxFramesInFlight> objectDescriptorSets;
         std::array<std::unique_ptr<Buffer>, maxFramesInFlight> uniformBuffers; // TODO split into camera data and object specific data
+        std::array<std::unique_ptr<Buffer>, maxFramesInFlight> objectBuffers; // TODO split into camera data and object specific data
     } frameData;
 
-    //default array of renderable objects
+    // TODO organize the ordering of these
     std::vector<RenderObject> renderables;
 
     std::unordered_map<std::string, std::shared_ptr<Material>> materials;
     std::unordered_map<std::string, std::shared_ptr<Mesh>> meshes;
-    //functions
 
-    //create material and add it to the map
     std::shared_ptr<Material> createMaterial(std::shared_ptr<GraphicsPipeline> pipeline, std::shared_ptr<PipelineState> pipelineState, const std::string &name);
 
     std::shared_ptr<Material> getMaterial(const std::string &name);

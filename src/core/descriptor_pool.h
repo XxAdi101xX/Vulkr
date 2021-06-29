@@ -28,12 +28,12 @@ namespace vulkr
 {
 
 class Device;
-class DescriptorSetLayout;
+class DescriptorSet;
 
 class DescriptorPool
 {
 public:
-	DescriptorPool(Device &device, DescriptorSetLayout &descriptorSetLayout, std::vector<VkDescriptorPoolSize> &poolSizes, uint32_t maxSets);
+	DescriptorPool(Device &device, std::vector<VkDescriptorPoolSize> &poolSizes, uint32_t maxSets);
 	~DescriptorPool();
 
 	DescriptorPool(DescriptorPool &&) = default;
@@ -43,12 +43,8 @@ public:
 	DescriptorPool &operator=(DescriptorPool &&) = delete;
 
 	VkDescriptorPool getHandle() const;
-
-	VkDescriptorSet allocate();
 private:
 	Device &device;
-
-	DescriptorSetLayout &descriptorSetLayout;
 
 	VkDescriptorPool handle;
 };
