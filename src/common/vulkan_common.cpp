@@ -22,12 +22,12 @@
 
 #include "vulkan_common.h"
 
-// TODO: change this from overloading the ostream and make it work with the LOG* functions
-std::ostream& operator<<(std::ostream& os, const VkResult result)
+const char *printVkResult(const VkResult result)
 {
+	const char *s = 0;
 #define PRINT_VK_RESULT_ENUM_NAME(r) \
 	case r:                          \
-		os << #r;                    \
+		s = #r;                      \
 		break;
 
 	switch (result) 
@@ -72,12 +72,12 @@ std::ostream& operator<<(std::ostream& os, const VkResult result)
 		PRINT_VK_RESULT_ENUM_NAME(VK_PIPELINE_COMPILE_REQUIRED_EXT);
 		PRINT_VK_RESULT_ENUM_NAME(VK_RESULT_MAX_ENUM);
 	default:
-		os << "UNKNOWN_ERROR with code " << result;
+		s = "UNKNOWN_ERROR with code " + result;
 	}
 
 #undef PRINT_VK_RESULT_ENUM_NAME
 
-	return os;
+	return s;
 }
 
 // Note that we don't use 16 bit float for depth, only 24 or 32
