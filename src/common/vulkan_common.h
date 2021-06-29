@@ -33,26 +33,26 @@
 #define VULKR_DEBUG /* Enable the validation layers */
 
 /* @brief Assert whether an VkResult has returned an error */
-#define VK_CHECK(r)                                   \
-	do                                                \
-	{                                                 \
-		VkResult result = r;                          \
-		if (result != VK_SUCCESS)                     \
-		{                                             \
-			LOGEANDABORT("Vulkan Error: {}", result); \
-		}                                             \
+#define VK_CHECK(r)                                                  \
+	do                                                               \
+	{                                                                \
+		VkResult result = r;                                         \
+		if (result != VK_SUCCESS)                                    \
+		{                                                            \
+			LOGEANDABORT("Vulkan Error: {}", printVkResult(result)); \
+		}                                                            \
 	} while (0);
 
-/* @brief Overload the << operator to print out the VkResult enum name */
-std::ostream& operator<<(std::ostream & os, const VkResult result);
+/* Printing out the VkResult enum name */
+const char *printVkResult(const VkResult result);
 
-/* @brief Determine whether a format ONLY has the depth component available */
+/* Determine whether a format ONLY has the depth component available */
 bool isDepthOnlyFormat(VkFormat format);
 
-/* @brief Determine whether a format has both the depth AND stencil components available */
+/* Determine whether a format has both the depth AND stencil components available */
 bool isDepthStencilFormat(VkFormat format);
 
-/* @brief Determine a suitable supported depth format */
+/* Determine a suitable supported depth format */
 VkFormat getSupportedDepthFormat(
 	VkPhysicalDevice  physicalDeviceHandle,
 	bool depthOnly = false,
