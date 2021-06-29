@@ -34,7 +34,7 @@ class DescriptorPool;
 class DescriptorSet
 {
 public:
-	DescriptorSet(Device &device, DescriptorSetLayout &descriptorSetLayout, DescriptorPool &descriptorPool);
+	DescriptorSet(Device &device, VkDescriptorSetAllocateInfo allocateInfo);
 	~DescriptorSet() = default;
 
 	// The descriptor set handle will be destroyed when the pool is reset
@@ -45,13 +45,11 @@ public:
 
 	const VkDescriptorSet &getHandle() const;
 
-	void update(std::vector<VkWriteDescriptorSet> writeDescriptorSets) const;
+	void update(std::vector<VkWriteDescriptorSet> &writeDescriptorSets) const;
 private:
 	Device &device;
 
 	VkDescriptorSet handle;
-
-	DescriptorSetLayout &descriptorSetLayout;
 };
 
 } // namespace vulkr

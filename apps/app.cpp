@@ -1,4 +1,4 @@
-/* Copyright (c) 2020 Adithya Venkatarao
+/* Copyright (c) 2021 Adithya Venkatarao
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
@@ -20,15 +20,12 @@
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-//#include <iostream>
-
 #include "app.h"
 #include "platform/platform.h"
 
 namespace vulkr
 {
 
-// TODO: implement camera movements
 MainApp::MainApp(Platform& platform, std::string name) : Application{ platform, name } {}
 
  MainApp::~MainApp()
@@ -46,7 +43,8 @@ MainApp::MainApp(Platform& platform, std::string name) : Application{ platform, 
 
      textureImage.reset();
 
-     descriptorSetLayout.reset();
+     globalDescriptorSetLayout.reset();
+     objectDescriptorSetLayout.reset();
 
      for (auto &it : meshes)
      {
@@ -115,8 +113,10 @@ MainApp::MainApp(Platform& platform, std::string name) : Application{ platform, 
 
      for (uint32_t i = 0; i < maxFramesInFlight; ++i)
      {
-         frameData.descriptorSets[i].reset();
+         frameData.globalDescriptorSets[i].reset();
+         frameData.objectDescriptorSets[i].reset();
          frameData.uniformBuffers[i].reset();
+         frameData.objectBuffers[i].reset();
      }
 
      descriptorPool.reset();
@@ -162,6 +162,7 @@ void MainApp::prepare()
     loadMeshes();
     initScene();
     createUniformBuffers();
+    createSSBOs();
     createDescriptorPool();
     createDescriptorSets();
     createSemaphoreAndFencePools();
@@ -263,6 +264,7 @@ void MainApp::recreateSwapchain()
     createFramebuffers();
     initScene();
     createUniformBuffers();
+    createSSBOs();
     createDescriptorPool();
     createDescriptorSets();
     createCommandBuffers();
@@ -369,6 +371,7 @@ void MainApp::createRenderPass()
 
 void MainApp::createDescriptorSetLayout()
 {
+    // Global descriptor set layout
     VkDescriptorSetLayoutBinding uboLayoutBinding{};
     uboLayoutBinding.binding = 0;
     uboLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -383,9 +386,19 @@ void MainApp::createDescriptorSetLayout()
     samplerLayoutBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
     samplerLayoutBinding.pImmutableSamplers = nullptr;
 
-    std::vector<VkDescriptorSetLayoutBinding> descriptorSetLayoutBindings{ uboLayoutBinding, samplerLayoutBinding };
+    std::vector<VkDescriptorSetLayoutBinding> globalDescriptorSetLayoutBindings{ uboLayoutBinding, samplerLayoutBinding };
+    globalDescriptorSetLayout = std::make_unique<DescriptorSetLayout>(*device, globalDescriptorSetLayoutBindings);
 
-    descriptorSetLayout = std::make_unique<DescriptorSetLayout>(*device, descriptorSetLayoutBindings);
+    // Object descriptor set layout
+    VkDescriptorSetLayoutBinding objectLayoutBinding{};
+    objectLayoutBinding.binding = 0;
+    objectLayoutBinding.descriptorCount = 1;
+    objectLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    objectLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    objectLayoutBinding.pImmutableSamplers = nullptr;
+
+    std::vector<VkDescriptorSetLayoutBinding> objectDescriptorSetLayoutBindings{ objectLayoutBinding };
+    objectDescriptorSetLayout = std::make_unique<DescriptorSetLayout>(*device, objectDescriptorSetLayoutBindings);
 }
 
 void MainApp::createGraphicsPipeline()
@@ -476,7 +489,7 @@ void MainApp::createGraphicsPipeline()
     shaderModules.emplace_back(*device, VK_SHADER_STAGE_VERTEX_BIT, std::make_unique<ShaderSource>("../../../src/shaders/vert.spv"));
     shaderModules.emplace_back(*device, VK_SHADER_STAGE_FRAGMENT_BIT, std::make_unique<ShaderSource>("../../../src/shaders/frag.spv"));
 
-    std::vector<VkDescriptorSetLayout> descriptorSetLayoutHandles{descriptorSetLayout->getHandle()};
+    std::vector<VkDescriptorSetLayout> descriptorSetLayoutHandles{ globalDescriptorSetLayout->getHandle(), objectDescriptorSetLayout->getHandle() };
     std::vector<VkPushConstantRange> pushConstantRangeHandles;
 
     std::shared_ptr<PipelineState> pipelineState = std::make_shared<PipelineState>(
@@ -810,7 +823,7 @@ void MainApp::createIndexBuffer(std::shared_ptr<Mesh> mesh)
 // TODO use push constants to pass in mvp matrix information to the vertext shader
 void MainApp::createUniformBuffers()
 {
-    VkDeviceSize bufferSize{ sizeof(UniformBufferObject) };
+    VkDeviceSize bufferSize{ sizeof(CameraData) };
 
     VkBufferCreateInfo bufferInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
     bufferInfo.size = bufferSize;
@@ -826,57 +839,105 @@ void MainApp::createUniformBuffers()
     }
 }
 
+void MainApp::createSSBOs()
+{
+    VkDeviceSize bufferSize{ sizeof(ObjectData) * MAX_OBJECT_COUNT };
+
+    VkBufferCreateInfo bufferInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+    bufferInfo.size = bufferSize;
+    bufferInfo.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+    VmaAllocationCreateInfo memoryInfo{};
+    memoryInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
+
+    for (uint32_t i = 0; i < maxFramesInFlight; ++i)
+    {
+        frameData.objectBuffers[i] = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
+    }
+}
+
 void MainApp::createDescriptorPool()
 {
     std::vector<VkDescriptorPoolSize> poolSizes{};
-    poolSizes.resize(2);
+    poolSizes.resize(3);
     poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     poolSizes[0].descriptorCount = maxFramesInFlight;
     poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     poolSizes[1].descriptorCount = maxFramesInFlight;
+    poolSizes[2].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    poolSizes[2].descriptorCount = maxFramesInFlight;
 
-    descriptorPool = std::make_unique<DescriptorPool>(*device, *descriptorSetLayout, poolSizes, to_u32(swapChainImageViews.size())); // TODO should maxSets be something other than maxFramesInFlight
+    descriptorPool = std::make_unique<DescriptorPool>(*device, poolSizes, 10u); // TODO should maxSets be something other than maxFramesInFlight
 }
 
 void MainApp::createDescriptorSets()
 {
     for (uint32_t i = 0; i < maxFramesInFlight; ++i)
     {
-        frameData.descriptorSets[i] = std::make_unique<DescriptorSet>(*device, *descriptorSetLayout, *descriptorPool);
+        // Global Descriptor Set
+        VkDescriptorSetAllocateInfo globalDescriptorSetAllocateInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+        globalDescriptorSetAllocateInfo.descriptorPool = descriptorPool->getHandle();
+        globalDescriptorSetAllocateInfo.descriptorSetCount = 1;
+        globalDescriptorSetAllocateInfo.pSetLayouts = &globalDescriptorSetLayout->getHandle();
+        frameData.globalDescriptorSets[i] = std::make_unique<DescriptorSet>(*device, globalDescriptorSetAllocateInfo);
 
-        VkDescriptorBufferInfo bufferInfo{};
-        bufferInfo.buffer = frameData.uniformBuffers[i]->getHandle();
-        bufferInfo.offset = 0;
-        bufferInfo.range = sizeof(UniformBufferObject); // can also use VK_WHOLE_SIZE in this case
+        VkDescriptorBufferInfo cameraBufferInfo{};
+        cameraBufferInfo.buffer = frameData.uniformBuffers[i]->getHandle();
+        cameraBufferInfo.offset = 0;
+        cameraBufferInfo.range = sizeof(CameraData); // can also use VK_WHOLE_SIZE in this case
 
         VkWriteDescriptorSet descriptorWriteUniformBuffer{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        descriptorWriteUniformBuffer.dstSet = frameData.descriptorSets[i]->getHandle();
+        descriptorWriteUniformBuffer.dstSet = frameData.globalDescriptorSets[i]->getHandle();
         descriptorWriteUniformBuffer.dstBinding = 0;
         descriptorWriteUniformBuffer.dstArrayElement = 0;
         descriptorWriteUniformBuffer.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         descriptorWriteUniformBuffer.descriptorCount = 1;
-        descriptorWriteUniformBuffer.pBufferInfo = &bufferInfo;
+        descriptorWriteUniformBuffer.pBufferInfo = &cameraBufferInfo;
         descriptorWriteUniformBuffer.pImageInfo = nullptr; // Optional
         descriptorWriteUniformBuffer.pTexelBufferView = nullptr; // Optional
 
-        VkDescriptorImageInfo imageInfo{};
-        imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        imageInfo.imageView = textureImageView->getHandle();
-        imageInfo.sampler = textureSampler->getHandle();
+        VkDescriptorImageInfo textureImageInfo{};
+        textureImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        textureImageInfo.imageView = textureImageView->getHandle();
+        textureImageInfo.sampler = textureSampler->getHandle();
 
         VkWriteDescriptorSet descriptorWriteCombinedImageSampler{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        descriptorWriteCombinedImageSampler.dstSet = frameData.descriptorSets[i]->getHandle();
+        descriptorWriteCombinedImageSampler.dstSet = frameData.globalDescriptorSets[i]->getHandle();
         descriptorWriteCombinedImageSampler.dstBinding = 1;
         descriptorWriteCombinedImageSampler.dstArrayElement = 0;
         descriptorWriteCombinedImageSampler.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         descriptorWriteCombinedImageSampler.descriptorCount = 1;
-        descriptorWriteCombinedImageSampler.pImageInfo = &imageInfo;
+        descriptorWriteCombinedImageSampler.pImageInfo = &textureImageInfo;
         descriptorWriteCombinedImageSampler.pBufferInfo = nullptr; // Optional
         descriptorWriteCombinedImageSampler.pTexelBufferView = nullptr; // Optional
 
-        std::vector<VkWriteDescriptorSet> writeDescriptorSets{ descriptorWriteUniformBuffer, descriptorWriteCombinedImageSampler };
+        // Object Descriptor Set
+        VkDescriptorSetAllocateInfo objectDescriptorSetAllocateInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+        objectDescriptorSetAllocateInfo.descriptorPool = descriptorPool->getHandle();
+        objectDescriptorSetAllocateInfo.descriptorSetCount = 1;
+        objectDescriptorSetAllocateInfo.pSetLayouts = &objectDescriptorSetLayout->getHandle();
+        frameData.objectDescriptorSets[i] = std::make_unique<DescriptorSet>(*device, objectDescriptorSetAllocateInfo);
 
-        frameData.descriptorSets[i]->update(writeDescriptorSets);
+        VkDescriptorBufferInfo objectBufferInfo{};
+        objectBufferInfo.buffer = frameData.objectBuffers[i]->getHandle();
+        objectBufferInfo.offset = 0;
+        objectBufferInfo.range = sizeof(ObjectData) * MAX_OBJECT_COUNT; // can also use VK_WHOLE_SIZE in this case
+
+        VkWriteDescriptorSet objectWrite{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        objectWrite.dstSet = frameData.objectDescriptorSets[i]->getHandle();
+        objectWrite.dstBinding = 0;
+        objectWrite.dstArrayElement = 0;
+        objectWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        objectWrite.descriptorCount = 1;
+        objectWrite.pBufferInfo = &objectBufferInfo;
+        objectWrite.pImageInfo = nullptr; // Optional
+        objectWrite.pTexelBufferView = nullptr; // Optional
+
+        // Write descriptor sets
+        std::vector<VkWriteDescriptorSet> writeDescriptorSets{ descriptorWriteUniformBuffer, descriptorWriteCombinedImageSampler, objectWrite };
+
+        frameData.globalDescriptorSets[i]->update(writeDescriptorSets);
     }
 }
 
@@ -888,7 +949,7 @@ void MainApp::createSemaphoreAndFencePools()
 
 void MainApp::setupSynchronizationObjects()
 {
-    imagesInFlight.resize(swapchain->getImages().size(), VK_NULL_HANDLE); // TODO why is the size swapchain size
+    imagesInFlight.resize(swapchain->getImages().size(), VK_NULL_HANDLE);
 
     for (size_t i = 0; i < maxFramesInFlight; ++i) {
         frameData.imageAvailableSemaphores[i] = semaphorePool->requestSemaphore();
@@ -910,8 +971,6 @@ void MainApp::setupCamera()
     cameraController->getCamera()->setView(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
 }
 
-
-//create material and add it to the map
 std::shared_ptr<Material> MainApp::createMaterial(std::shared_ptr<GraphicsPipeline> pipeline, std::shared_ptr<PipelineState> pipelineState, const std::string &name)
 {
     std::shared_ptr<Material> material = std::make_shared<Material>();
@@ -921,7 +980,6 @@ std::shared_ptr<Material> MainApp::createMaterial(std::shared_ptr<GraphicsPipeli
     return material;
 }
 
-//returns nullptr if it can't be found
 std::shared_ptr<Material> MainApp::getMaterial(const std::string &name)
 {
     auto it = materials.find(name);
@@ -934,7 +992,6 @@ std::shared_ptr<Material> MainApp::getMaterial(const std::string &name)
 
 }
 
-//returns nullptr if it can't be found
 std::shared_ptr<Mesh> MainApp::getMesh(const std::string &name)
 {
     auto it = meshes.find(name);
@@ -948,6 +1005,26 @@ std::shared_ptr<Mesh> MainApp::getMesh(const std::string &name)
 
 void MainApp::drawObjects(uint32_t frameIndex)
 {
+    // Update camera buffer
+    CameraData cameraData{};
+    cameraData.view = cameraController->getCamera()->getView();
+    cameraData.proj = cameraController->getCamera()->getProjection();
+
+    void *mappedData = frameData.uniformBuffers[frameIndex]->map();
+    memcpy(mappedData, &cameraData, sizeof(cameraData));
+    frameData.uniformBuffers[frameIndex]->unmap();
+
+    // Update object buffer
+    mappedData = frameData.objectBuffers[frameIndex]->map();
+    ObjectData *objectSSBO = (ObjectData *)mappedData;
+    std::vector<ObjectData> objs;
+    for (int index = 0; index < renderables.size(); index++)
+    {
+        objectSSBO[index].model = renderables[index].transformMatrix;
+    }
+    frameData.objectBuffers[frameIndex]->unmap();
+
+    // Draw renderables
     std::shared_ptr<Mesh> lastMesh = nullptr;
     std::shared_ptr<Material> lastMaterial = nullptr;
     for (int index = 0; index < renderables.size(); index++)
@@ -960,27 +1037,13 @@ void MainApp::drawObjects(uint32_t frameIndex)
 
             vkCmdBindPipeline(frameData.commandBuffers[frameIndex]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, object.material->pipeline->getHandle());
             lastMaterial = object.material;
+
+            //camera data descriptor
+            vkCmdBindDescriptorSets(frameData.commandBuffers[frameIndex]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, object.material->pipelineState->getPipelineLayout().getHandle(), 0, 1, &frameData.globalDescriptorSets[frameIndex]->getHandle(), 0, nullptr);
+
+            //object data descriptor
+            vkCmdBindDescriptorSets(frameData.commandBuffers[frameIndex]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, object.material->pipelineState->getPipelineLayout().getHandle(), 1, 1, &frameData.objectDescriptorSets[frameIndex]->getHandle(), 0, nullptr);
         }
-
-
-        glm::mat4 model = object.transformMatrix;
-        //final render matrix, that we are calculating on the cpu
-        //glm::mat4 mesh_matrix = projection * view * model;
-
-        //MeshPushConstants constants;
-        //constants.render_matrix = mesh_matrix;
-
-        ////upload the mesh to the GPU via push constants
-        //vkCmdPushConstants(commandBuffers[swapchainImageIndex], object.material->pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(MeshPushConstants), &constants);
-
-        UniformBufferObject ubo{};
-        ubo.model = model;
-        ubo.view = cameraController->getCamera()->getView();
-        ubo.proj = cameraController->getCamera()->getProjection();
-
-        void *mappedData = frameData.uniformBuffers[frameIndex]->map();
-        memcpy(mappedData, &ubo, sizeof(ubo));
-        frameData.uniformBuffers[frameIndex]->unmap();
 
         //only bind the mesh if it's a different one from last bind
         if (object.mesh != lastMesh)
@@ -991,12 +1054,10 @@ void MainApp::drawObjects(uint32_t frameIndex)
             vkCmdBindVertexBuffers(frameData.commandBuffers[frameIndex]->getHandle(), 0, 1, vertexBuffers, offsets);
             vkCmdBindIndexBuffer(frameData.commandBuffers[frameIndex]->getHandle(), object.mesh->indexBuffer->getHandle(), 0, VK_INDEX_TYPE_UINT32);
 
-            vkCmdBindDescriptorSets(frameData.commandBuffers[frameIndex]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, object.material->pipelineState->getPipelineLayout().getHandle(), 0, 1, &(frameData.descriptorSets[frameIndex]->getHandle()), 0, nullptr); // TODO is it okay to just have one descriptor set?
-
             lastMesh = object.mesh;
         }
 
-        vkCmdDrawIndexed(frameData.commandBuffers[frameIndex]->getHandle(), to_u32(object.mesh->indices.size()), 1, 0, 0, 0);
+        vkCmdDrawIndexed(frameData.commandBuffers[frameIndex]->getHandle(), to_u32(object.mesh->indices.size()), 1, 0, 0, index);
     }
 }
 
@@ -1116,8 +1177,8 @@ void MainApp::loadMeshes()
     std::shared_ptr<Mesh> vikingMesh = std::make_shared<Mesh>();
     vikingMesh->loadFromObj("../../../assets/models/viking_room.obj");
 
-    createVertexBuffer(triMesh);
-    createIndexBuffer(triMesh);
+    //createVertexBuffer(triMesh);
+    //createIndexBuffer(triMesh);
     createVertexBuffer(monkeyMesh);
     createIndexBuffer(monkeyMesh);
     createVertexBuffer(vikingMesh);
@@ -1133,12 +1194,12 @@ void MainApp::initScene()
     RenderObject monkey;
     monkey.mesh = getMesh("monkey");
     monkey.material = getMaterial("defaultmesh");
-    monkey.transformMatrix = glm::mat4{ 1.0f };
+    monkey.transformMatrix = glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 0));
 
     RenderObject viking;
     viking.mesh = getMesh("viking");
     viking.material = getMaterial("defaultmesh");
-    viking.transformMatrix = glm::mat4{ 1.0f };// glm::translate(glm::mat4{ 1.0 }, glm::vec3(5, 5, 5));
+    viking.transformMatrix = glm::mat4{ 1.0f };
 
     renderables.push_back(monkey);
     renderables.push_back(viking);
