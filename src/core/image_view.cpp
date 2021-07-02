@@ -27,7 +27,7 @@
 namespace vulkr
 {
 
-ImageView::ImageView(Image &image, VkImageViewType viewType, VkImageCreateFlags aspectMask, VkFormat format) :
+ImageView::ImageView(const Image &image, VkImageViewType viewType, VkImageCreateFlags aspectMask, VkFormat format) :
 	device{ image.getDevice() },
 	image{ image }
 {

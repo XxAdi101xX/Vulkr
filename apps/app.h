@@ -105,13 +105,20 @@ struct Mesh
     std::unique_ptr<Buffer> vertexBuffer;
     std::unique_ptr<Buffer> indexBuffer;
 
-    bool loadFromObj(const char *fileName);
+    void loadFromObjFile(const char *fileName);
 };
 
 struct Material
 {
+    std::shared_ptr<DescriptorSet> textureDescriptorSet;
     std::shared_ptr<GraphicsPipeline> pipeline;
     std::shared_ptr<PipelineState> pipelineState;
+};
+
+struct Texture
+{
+    std::unique_ptr<Image> image;
+    std::unique_ptr<ImageView> imageview;
 };
 
 struct RenderObject
@@ -149,9 +156,16 @@ public:
 
     virtual void handleInputEvents(const InputEvent& inputEvent) override;
 private:
+    const std::string TEXTURE_PATH = "../../../assets/textures/lost_empire-RGBA.png";
+    const std::vector<const char *> deviceExtensions {
+        VK_KHR_SWAPCHAIN_EXTENSION_NAME
+    };
+
     std::unique_ptr<Instance> instance{ nullptr };
     VkSurfaceKHR surface{ VK_NULL_HANDLE };
     std::unique_ptr<Device> device{ nullptr };
+    VkQueue graphicsQueue{ VK_NULL_HANDLE };
+    VkQueue presentQueue{ VK_NULL_HANDLE };
 
     std::unique_ptr<Swapchain> swapchain{ nullptr };
     std::vector<std::unique_ptr<ImageView>> swapChainImageViews;
@@ -166,69 +180,21 @@ private:
     std::unique_ptr<RenderPass> renderPass{ nullptr };
     std::unique_ptr<DescriptorSetLayout> globalDescriptorSetLayout{ nullptr };
     std::unique_ptr<DescriptorSetLayout> objectDescriptorSetLayout{ nullptr };
-    std::vector<ShaderModule> shaderModules;
+    std::unique_ptr<DescriptorSetLayout> singleTextureDescriptorSetLayout{ nullptr };
+    std::unique_ptr<DescriptorPool> descriptorPool;
 
     std::vector<std::unique_ptr<Framebuffer>> swapchainFramebuffers;
 
     std::unique_ptr<Image> depthImage{ nullptr };
     std::unique_ptr<ImageView> depthImageView{ nullptr };
-    std::unique_ptr<Image> textureImage{ nullptr };
-    std::unique_ptr<ImageView> textureImageView{ nullptr };
     std::unique_ptr<Sampler> textureSampler{ nullptr };
-
-    std::unique_ptr<DescriptorPool> descriptorPool;
 
     std::unique_ptr<SemaphorePool> semaphorePool;
     std::unique_ptr<FencePool> fencePool;
     std::vector<VkFence> imagesInFlight;
 
     std::unique_ptr<CameraController> cameraController;
-
-    const std::string MODEL_PATH = "../../../assets/models/viking_room.obj";
-    const std::string TEXTURE_PATH = "../../../assets/textures/viking_room.png";
-
-    VkQueue graphicsQueue{ VK_NULL_HANDLE };
-    VkQueue presentQueue{ VK_NULL_HANDLE };
-
     std::unique_ptr<Timer> drawingTimer;
-
-    size_t currentFrame{ 0 };
-
-    const std::vector<const char *> deviceExtensions {
-        VK_KHR_SWAPCHAIN_EXTENSION_NAME
-    };
-
-    // Subroutines
-    void cleanupSwapchain();
-    void createInstance();
-    void createSurface();
-    void createDevice();
-    void createSwapchain();
-    void createSwapchainImageViews();
-    void createRenderPass();
-    void createDescriptorSetLayout();
-    void createGraphicsPipeline();
-    void createFramebuffers();
-    void createCommandPool();
-    void transitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout);
-    void copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height);
-    void createDepthResources();
-    void createTextureImage();
-    void createTextureImageView();
-    void createTextureSampler();
-    void loadModel(const std::string &modelPath); // TODO remove
-    void copyBuffer(Buffer &srcBuffer, Buffer &dstBuffer, VkDeviceSize size);
-    void createVertexBuffer(std::shared_ptr<Mesh> mesh);
-    void createIndexBuffer(std::shared_ptr<Mesh> mesh);
-    void createUniformBuffers();
-    void createSSBOs();
-    void createDescriptorPool();
-    void createDescriptorSets();
-    void createCommandBuffers();
-    void createSemaphoreAndFencePools();
-    void setupSynchronizationObjects();
-    void setupTimer();
-    void setupCamera();
 
     struct FrameData
     {
@@ -241,25 +207,54 @@ private:
 
         std::array<std::unique_ptr<DescriptorSet>, maxFramesInFlight> globalDescriptorSets;
         std::array<std::unique_ptr<DescriptorSet>, maxFramesInFlight> objectDescriptorSets;
-        std::array<std::unique_ptr<Buffer>, maxFramesInFlight> uniformBuffers; // TODO split into camera data and object specific data
-        std::array<std::unique_ptr<Buffer>, maxFramesInFlight> objectBuffers; // TODO split into camera data and object specific data
+        std::array<std::unique_ptr<Buffer>, maxFramesInFlight> globalBuffers;
+        std::array<std::unique_ptr<Buffer>, maxFramesInFlight> objectBuffers;
     } frameData;
+    size_t currentFrame{ 0 };
 
-    // TODO organize the ordering of these
     std::vector<RenderObject> renderables;
-
     std::unordered_map<std::string, std::shared_ptr<Material>> materials;
     std::unordered_map<std::string, std::shared_ptr<Mesh>> meshes;
+    std::unordered_map<std::string, std::shared_ptr<Texture>> textures;
 
+    // Subroutines
+    void drawObjects();
+    void cleanupSwapchain();
+    void createInstance();
+    void createSurface();
+    void createDevice();
+    void createSwapchain();
+    void createSwapchainImageViews();
+    void createRenderPass();
+    void createDescriptorSetLayouts();
     std::shared_ptr<Material> createMaterial(std::shared_ptr<GraphicsPipeline> pipeline, std::shared_ptr<PipelineState> pipelineState, const std::string &name);
+    void createGraphicsPipelines();
+    void createFramebuffers();
+    void createCommandPools();
+    void createCommandBuffers();
+    void transitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout);
+    void copyBufferToImage(const Buffer &srcBuffer, const Image &dstImage, uint32_t width, uint32_t height);
+    void createDepthResources();
+    std::unique_ptr<Image> createTextureImage(const char *filename);
+    std::unique_ptr<ImageView> createTextureImageView(const Image &image);
+    void loadTextures();
+    void createTextureSampler();
+    void copyBufferToBuffer(const Buffer &srcBuffer, const Buffer &dstBuffer, VkDeviceSize size);
+    void createVertexBuffer(std::shared_ptr<Mesh> mesh);
+    void createIndexBuffer(std::shared_ptr<Mesh> mesh);
+    void createUniformBuffers();
+    void createSSBOs();
+    void createDescriptorPool();
+    void createDescriptorSets();
+    void loadMeshes();
+    void createScene();
+    void createSemaphoreAndFencePools();
+    void setupSynchronizationObjects();
+    void setupTimer();
+    void setupCamera();
 
     std::shared_ptr<Material> getMaterial(const std::string &name);
     std::shared_ptr<Mesh> getMesh(const std::string &name);
-
-    void drawObjects(uint32_t frameIndex);
-
-    void loadMeshes();
-    void initScene();
 };
 
 } // namespace vulkr

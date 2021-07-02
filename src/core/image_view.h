@@ -33,7 +33,7 @@ class Image;
 class ImageView
 {
 public:
-	ImageView(Image &image, VkImageViewType viewType, VkImageCreateFlags aspectMask, VkFormat format = VK_FORMAT_UNDEFINED);
+	ImageView(const Image &image, VkImageViewType viewType, VkImageCreateFlags aspectMask, VkFormat format = VK_FORMAT_UNDEFINED);
 	~ImageView();
 
 	ImageView(ImageView &&other) = delete;
@@ -54,7 +54,7 @@ private:
 
 	Device &device;
 
-	Image &image;
+	const Image &image;
 
 	VkImageSubresourceRange subresourceRange{};
 };

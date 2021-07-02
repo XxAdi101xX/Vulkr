@@ -41,9 +41,4 @@ const VkDescriptorSet &DescriptorSet::getHandle() const
     return handle;
 }
 
-void DescriptorSet::update(std::vector<VkWriteDescriptorSet> &writeDescriptorSets) const
-{
-    vkUpdateDescriptorSets(device.getHandle(), to_u32(writeDescriptorSets.size()), writeDescriptorSets.data(), 0, nullptr);
-}
-
 } // namespace vulkr

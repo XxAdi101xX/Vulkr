@@ -39,12 +39,16 @@ MainApp::MainApp(Platform& platform, std::string name) : Application{ platform, 
 
      textureSampler.reset();
 
-     textureImageView.reset();
-
-     textureImage.reset();
+     for (auto &it : textures)
+     {
+         it.second->imageview.reset();
+         it.second->image.reset();
+     }
+     textures.clear();
 
      globalDescriptorSetLayout.reset();
      objectDescriptorSetLayout.reset();
+     singleTextureDescriptorSetLayout.reset();
 
      for (auto &it : meshes)
      {
@@ -85,8 +89,6 @@ MainApp::MainApp(Platform& platform, std::string name) : Application{ platform, 
      }
      swapchainFramebuffers.clear();
 
-     shaderModules.clear();
-
      for (auto &it : materials)
      {
          it.second->pipeline.reset();
@@ -115,7 +117,7 @@ MainApp::MainApp(Platform& platform, std::string name) : Application{ platform, 
      {
          frameData.globalDescriptorSets[i].reset();
          frameData.objectDescriptorSets[i].reset();
-         frameData.uniformBuffers[i].reset();
+         frameData.globalBuffers[i].reset();
          frameData.objectBuffers[i].reset();
      }
 
@@ -149,22 +151,20 @@ void MainApp::prepare()
     createSwapchainImageViews();
     setupCamera();
     createRenderPass();
-    createDescriptorSetLayout();
-    createGraphicsPipeline();
-    createCommandPool();
-    createCommandBuffers();
+    createDescriptorSetLayouts();
+    createGraphicsPipelines();
     createDepthResources();
     createFramebuffers();
-    createTextureImage();
-    createTextureImageView();
+    createCommandPools();
+    createCommandBuffers();
+    loadTextures();
     createTextureSampler();
-    //loadModel(MODEL_PATH);
-    loadMeshes();
-    initScene();
     createUniformBuffers();
     createSSBOs();
     createDescriptorPool();
     createDescriptorSets();
+    loadMeshes();
+    createScene();
     createSemaphoreAndFencePools();
     setupSynchronizationObjects();
 }
@@ -204,7 +204,7 @@ void MainApp::update()
 
     frameData.commandBuffers[currentFrame]->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
     frameData.commandBuffers[currentFrame]->beginRenderPass(*renderPass, *(swapchainFramebuffers[swapchainImageIndex]), swapchain->getProperties().imageExtent, clearValues, VK_SUBPASS_CONTENTS_INLINE);
-    drawObjects(currentFrame);
+    drawObjects();
     frameData.commandBuffers[currentFrame]->endRenderPass();
     frameData.commandBuffers[currentFrame]->end();
 
@@ -259,15 +259,15 @@ void MainApp::recreateSwapchain()
     createSwapchainImageViews();
     setupCamera();
     createRenderPass();
-    createGraphicsPipeline();
+    createGraphicsPipelines();
     createDepthResources();
     createFramebuffers();
-    initScene();
+    createCommandBuffers();
     createUniformBuffers();
     createSSBOs();
     createDescriptorPool();
     createDescriptorSets();
-    createCommandBuffers();
+    createScene();
 
     imagesInFlight.resize(swapChainImageViews.size(), VK_NULL_HANDLE);
 }
@@ -275,6 +275,77 @@ void MainApp::recreateSwapchain()
 void MainApp::handleInputEvents(const InputEvent &inputEvent)
 {
     cameraController->handleInputEvents(inputEvent);
+}
+
+/* Private methods start here */
+
+void MainApp::drawObjects()
+{
+    // Update camera buffer
+    CameraData cameraData{};
+    cameraData.view = cameraController->getCamera()->getView();
+    cameraData.proj = cameraController->getCamera()->getProjection();
+
+    void *mappedData = frameData.globalBuffers[currentFrame]->map();
+    memcpy(mappedData, &cameraData, sizeof(cameraData));
+    frameData.globalBuffers[currentFrame]->unmap();
+
+    // Update object buffer
+    mappedData = frameData.objectBuffers[currentFrame]->map();
+    ObjectData *objectSSBO = (ObjectData *)mappedData;
+    for (int index = 0; index < renderables.size(); index++)
+    {
+        objectSSBO[index].model = renderables[index].transformMatrix;
+    }
+    frameData.objectBuffers[currentFrame]->unmap();
+
+    // Draw renderables
+    std::shared_ptr<Mesh> lastMesh = nullptr;
+    std::shared_ptr<Material> lastMaterial = nullptr;
+    for (int index = 0; index < renderables.size(); index++)
+    {
+        RenderObject object = renderables[index];
+
+        // Bind the pipeline if it doesn't match with the already bound one
+        if (object.material != lastMaterial)
+        {
+
+            vkCmdBindPipeline(frameData.commandBuffers[currentFrame]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, object.material->pipeline->getHandle());
+            lastMaterial = object.material;
+
+            // Camera data descriptor
+            vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, object.material->pipelineState->getPipelineLayout().getHandle(), 0, 1, &frameData.globalDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
+
+            // Object data descriptor
+            vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, object.material->pipelineState->getPipelineLayout().getHandle(), 1, 1, &frameData.objectDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
+
+            if (object.material->textureDescriptorSet != VK_NULL_HANDLE)
+            {
+                // Texture descriptor
+                vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, object.material->pipelineState->getPipelineLayout().getHandle(), 2, 1, &object.material->textureDescriptorSet->getHandle(), 0, nullptr);
+
+            }
+        }
+
+        // Bind the mesh if it's a different one from last one
+        if (object.mesh != lastMesh)
+        {
+            VkBuffer vertexBuffers[] = { object.mesh->vertexBuffer->getHandle() };
+            VkDeviceSize offsets[] = { 0 };
+            vkCmdBindVertexBuffers(frameData.commandBuffers[currentFrame]->getHandle(), 0, 1, vertexBuffers, offsets);
+            vkCmdBindIndexBuffer(frameData.commandBuffers[currentFrame]->getHandle(), object.mesh->indexBuffer->getHandle(), 0, VK_INDEX_TYPE_UINT32);
+
+            lastMesh = object.mesh;
+        }
+
+        vkCmdDrawIndexed(frameData.commandBuffers[currentFrame]->getHandle(), to_u32(object.mesh->indices.size()), 1, 0, 0, index);
+    }
+}
+
+void MainApp::setupTimer()
+{
+    drawingTimer = std::make_unique<Timer>();
+    drawingTimer->start();
 }
 
 void MainApp::createInstance()
@@ -313,6 +384,14 @@ void MainApp::createSwapchainImageViews()
         swapChainImageViews.emplace_back(std::make_unique<ImageView>(*(swapchain->getImages()[i]), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, swapchain->getProperties().surfaceFormat.format));
     }
 }
+
+void MainApp::setupCamera()
+{
+    cameraController = std::make_unique<CameraController>(swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height);
+    cameraController->getCamera()->setPerspectiveProjection(45.0f, swapchain->getProperties().imageExtent.width / (float)swapchain->getProperties().imageExtent.height, 0.1f, 20.0f);
+    cameraController->getCamera()->setView(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+}
+
 void MainApp::createRenderPass()
 {
     std::vector<Attachment> attachments;
@@ -369,7 +448,7 @@ void MainApp::createRenderPass()
     renderPass = std::make_unique<RenderPass>(*device, attachments, subpasses, dependencies);
 }
 
-void MainApp::createDescriptorSetLayout()
+void MainApp::createDescriptorSetLayouts()
 {
     // Global descriptor set layout
     VkDescriptorSetLayoutBinding uboLayoutBinding{};
@@ -379,14 +458,7 @@ void MainApp::createDescriptorSetLayout()
     uboLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
     uboLayoutBinding.pImmutableSamplers = nullptr; // Optional
 
-    VkDescriptorSetLayoutBinding samplerLayoutBinding{};
-    samplerLayoutBinding.binding = 1;
-    samplerLayoutBinding.descriptorCount = 1;
-    samplerLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    samplerLayoutBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-    samplerLayoutBinding.pImmutableSamplers = nullptr;
-
-    std::vector<VkDescriptorSetLayoutBinding> globalDescriptorSetLayoutBindings{ uboLayoutBinding, samplerLayoutBinding };
+    std::vector<VkDescriptorSetLayoutBinding> globalDescriptorSetLayoutBindings{ uboLayoutBinding };
     globalDescriptorSetLayout = std::make_unique<DescriptorSetLayout>(*device, globalDescriptorSetLayoutBindings);
 
     // Object descriptor set layout
@@ -399,9 +471,29 @@ void MainApp::createDescriptorSetLayout()
 
     std::vector<VkDescriptorSetLayoutBinding> objectDescriptorSetLayoutBindings{ objectLayoutBinding };
     objectDescriptorSetLayout = std::make_unique<DescriptorSetLayout>(*device, objectDescriptorSetLayoutBindings);
+
+    // Texture descriptor set layout
+    VkDescriptorSetLayoutBinding samplerLayoutBinding{};
+    samplerLayoutBinding.binding = 0;
+    samplerLayoutBinding.descriptorCount = 1;
+    samplerLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    samplerLayoutBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    samplerLayoutBinding.pImmutableSamplers = nullptr;
+
+    std::vector<VkDescriptorSetLayoutBinding> textureDescriptorSetLayoutBindings{ samplerLayoutBinding };
+    singleTextureDescriptorSetLayout = std::make_unique<DescriptorSetLayout>(*device, textureDescriptorSetLayoutBindings);
 }
 
-void MainApp::createGraphicsPipeline()
+std::shared_ptr<Material> MainApp::createMaterial(std::shared_ptr<GraphicsPipeline> pipeline, std::shared_ptr<PipelineState> pipelineState, const std::string &name)
+{
+    std::shared_ptr<Material> material = std::make_shared<Material>();
+    material->pipeline = pipeline;
+    material->pipelineState = pipelineState;
+    materials[name] = material;
+    return material;
+}
+
+void MainApp::createGraphicsPipelines()
 {
     // Setup pipeline
     VertexInputState vertexInputState{};
@@ -486,13 +578,22 @@ void MainApp::createGraphicsPipeline()
     colorBlendState.blendConstants[2] = 0.0f;
     colorBlendState.blendConstants[3] = 0.0f;
 
-    shaderModules.emplace_back(*device, VK_SHADER_STAGE_VERTEX_BIT, std::make_unique<ShaderSource>("../../../src/shaders/vert.spv"));
-    shaderModules.emplace_back(*device, VK_SHADER_STAGE_FRAGMENT_BIT, std::make_unique<ShaderSource>("../../../src/shaders/frag.spv"));
+    std::shared_ptr<ShaderSource> vertexShader = std::make_shared<ShaderSource>("../../../src/shaders/main.vert.spv");
+    std::shared_ptr<ShaderSource> defaultFragmentShader = std::make_shared<ShaderSource>("../../../src/shaders/default.frag.spv");
+    std::shared_ptr<ShaderSource> texturedFragmentShader = std::make_shared<ShaderSource>("../../../src/shaders/textured.frag.spv");
 
-    std::vector<VkDescriptorSetLayout> descriptorSetLayoutHandles{ globalDescriptorSetLayout->getHandle(), objectDescriptorSetLayout->getHandle() };
+    std::vector<ShaderModule> shaderModules;
+    shaderModules.emplace_back(*device, VK_SHADER_STAGE_VERTEX_BIT, vertexShader);
+    shaderModules.emplace_back(*device, VK_SHADER_STAGE_FRAGMENT_BIT, defaultFragmentShader);
+
+    std::vector<VkDescriptorSetLayout> descriptorSetLayoutHandles {
+        globalDescriptorSetLayout->getHandle(),
+        objectDescriptorSetLayout->getHandle()
+    };
     std::vector<VkPushConstantRange> pushConstantRangeHandles;
 
-    std::shared_ptr<PipelineState> pipelineState = std::make_shared<PipelineState>(
+    // Create default mesh materials
+    std::shared_ptr<PipelineState> defaultMeshPipelineState = std::make_shared<PipelineState>(
         std::make_unique<PipelineLayout>(*device, shaderModules, descriptorSetLayoutHandles, pushConstantRangeHandles),
         *renderPass,
         vertexInputState,
@@ -504,9 +605,35 @@ void MainApp::createGraphicsPipeline()
         colorBlendState
     );
 
-    std::shared_ptr<GraphicsPipeline> pipeline = std::make_shared<GraphicsPipeline>(*device, *pipelineState, nullptr);
+    std::shared_ptr<GraphicsPipeline> defaultMeshPipeline = std::make_shared<GraphicsPipeline>(*device, *defaultMeshPipelineState, nullptr);
 
-    createMaterial(pipeline, pipelineState, "defaultmesh");
+    createMaterial(defaultMeshPipeline, defaultMeshPipelineState, "defaultmesh");
+
+    // Create textured mesh materials
+    shaderModules.clear();
+    shaderModules.emplace_back(*device, VK_SHADER_STAGE_VERTEX_BIT, vertexShader);
+    shaderModules.emplace_back(*device, VK_SHADER_STAGE_FRAGMENT_BIT, texturedFragmentShader);
+
+    descriptorSetLayoutHandles.clear();
+    descriptorSetLayoutHandles.push_back(globalDescriptorSetLayout->getHandle());
+    descriptorSetLayoutHandles.push_back(objectDescriptorSetLayout->getHandle());
+    descriptorSetLayoutHandles.push_back(singleTextureDescriptorSetLayout->getHandle());
+
+    std::shared_ptr<PipelineState> texturedMeshPipelineState = std::make_shared<PipelineState>(
+        std::make_unique<PipelineLayout>(*device, shaderModules, descriptorSetLayoutHandles, pushConstantRangeHandles),
+        *renderPass,
+        vertexInputState,
+        inputAssemblyState,
+        viewportState,
+        rasterizationState,
+        multisampleState,
+        depthStencilState,
+        colorBlendState
+        );
+
+    std::shared_ptr<GraphicsPipeline> texturedMeshPipeline = std::make_shared<GraphicsPipeline>(*device, *texturedMeshPipelineState, nullptr);
+
+    createMaterial(texturedMeshPipeline, texturedMeshPipelineState, "texturedmesh");
 }
 
 void MainApp::createFramebuffers()
@@ -520,7 +647,7 @@ void MainApp::createFramebuffers()
     }
 }
 
-void MainApp::createCommandPool()
+void MainApp::createCommandPools()
 {
     for (uint32_t i = 0; i < maxFramesInFlight; ++i)
     {
@@ -532,7 +659,7 @@ void MainApp::createCommandBuffers()
 {
     for (uint32_t i = 0; i < maxFramesInFlight; ++i)
     {
-        frameData.commandBuffers[i] = std::make_unique<CommandBuffer>(*frameData.commandPools[i], VK_COMMAND_BUFFER_LEVEL_PRIMARY);//frameData.commandPools[i]->requestCommandBuffer();
+        frameData.commandBuffers[i] = std::make_unique<CommandBuffer>(*frameData.commandPools[i], VK_COMMAND_BUFFER_LEVEL_PRIMARY);
     }
 }
 
@@ -600,7 +727,7 @@ void MainApp::transitionImageLayout(VkImage image, VkFormat format, VkImageLayou
 }
 
 // TODO create a new command pool and allocate the command buffer using requestCommandBuffer
-void MainApp::copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height)
+void MainApp::copyBufferToImage(const Buffer &srcBuffer, const Image &dstImage, uint32_t width, uint32_t height)
 {
     std::unique_ptr<CommandBuffer> commandBuffer = std::make_unique<CommandBuffer>(*frameData.commandPools[currentFrame], VK_COMMAND_BUFFER_LEVEL_PRIMARY);
 
@@ -617,7 +744,7 @@ void MainApp::copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, 
     region.imageOffset = { 0, 0, 0 };
     region.imageExtent = { width, height, 1 };
 
-    vkCmdCopyBufferToImage(commandBuffer->getHandle(), buffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+    vkCmdCopyBufferToImage(commandBuffer->getHandle(), srcBuffer.getHandle(), dstImage.getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
     commandBuffer->end();
 
@@ -640,17 +767,16 @@ void MainApp::createDepthResources()
     depthImageView = std::make_unique<ImageView>(*depthImage, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_DEPTH_BIT, depthFormat);
 }
 
-void MainApp::createTextureImage()
+std::unique_ptr<Image> MainApp::createTextureImage(const char *filename)
 {
-    // TODO: move this elsewhere?
     int texWidth, texHeight, texChannels;
-    stbi_uc *pixels = stbi_load(TEXTURE_PATH.c_str(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
-    VkDeviceSize imageSize{ static_cast<VkDeviceSize>(texWidth * texHeight * 4) };
 
+    stbi_uc *pixels = stbi_load(filename, &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
     if (!pixels) {
         LOGEANDABORT("failed to load texture image!");
     }
 
+    VkDeviceSize imageSize{ static_cast<VkDeviceSize>(texWidth * texHeight * 4) };
     VkBufferCreateInfo bufferInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
     bufferInfo.size = imageSize;
     bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
@@ -668,24 +794,35 @@ void MainApp::createTextureImage()
     stbi_image_free(pixels);
 
     VkExtent3D extent{ to_u32(texWidth), to_u32(texHeight), 1u };
-    textureImage = std::make_unique<Image>(*device, VK_FORMAT_R8G8B8A8_SRGB, extent, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VMA_MEMORY_USAGE_GPU_ONLY /* default values for remaining params */);
+    std::unique_ptr<Image> textureImage = std::make_unique<Image>(*device, VK_FORMAT_R8G8B8A8_SRGB, extent, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VMA_MEMORY_USAGE_GPU_ONLY /* default values for remaining params */);
 
     transitionImageLayout(textureImage->getHandle(), VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-    copyBufferToImage(stagingBuffer->getHandle(), textureImage->getHandle(), to_u32(texWidth), to_u32(texHeight));
+    copyBufferToImage(*stagingBuffer, *textureImage, to_u32(texWidth), to_u32(texHeight));
     transitionImageLayout(textureImage->getHandle(), VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+    return textureImage;
 }
 
-void MainApp::createTextureImageView()
+std::unique_ptr<ImageView> MainApp::createTextureImageView(const Image &textureImage)
 {
-    textureImageView = std::make_unique<ImageView>(*textureImage, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, VK_FORMAT_R8G8B8A8_SRGB);
+    return std::make_unique<ImageView>(textureImage, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, VK_FORMAT_R8G8B8A8_SRGB);
+}
+
+void MainApp::loadTextures()
+{
+    std::shared_ptr<Texture> empireTexture = std::make_shared<Texture>();
+    empireTexture->image = createTextureImage(TEXTURE_PATH.c_str());
+    empireTexture->imageview = createTextureImageView(*(empireTexture->image));
+
+    textures["empire_diffuse"] = empireTexture;
 }
 
 void MainApp::createTextureSampler()
 {
     VkSamplerCreateInfo samplerInfo{};
     samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    samplerInfo.magFilter = VK_FILTER_LINEAR;
-    samplerInfo.minFilter = VK_FILTER_LINEAR;
+    samplerInfo.magFilter = VK_FILTER_NEAREST;
+    samplerInfo.minFilter = VK_FILTER_NEAREST;
     samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
     samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
     samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
@@ -703,55 +840,7 @@ void MainApp::createTextureSampler()
     textureSampler = std::make_unique<Sampler>(*device, samplerInfo);
 }
 
-void MainApp::loadModel(const std::string &modelPath)
-{
-    //tinyobj::attrib_t attrib;
-    //std::vector<tinyobj::shape_t> shapes;
-    //std::vector<tinyobj::material_t> materials;
-    //std::string warn, err;
-
-    //if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, modelPath.c_str()))
-    //{
-    //    LOGEANDABORT(warn + err);
-    //}
-
-    //if (!warn.empty())
-    //{
-    //    LOGW(warn);
-    //}
-
-    //std::unordered_map<Vertex, uint32_t> uniqueVertices{};
-
-    //for (const auto &shape : shapes)
-    //{
-    //    for (const auto &index : shape.mesh.indices)
-    //    {
-    //        Vertex vertex{};
-
-    //        vertex.position = {
-    //            attrib.vertices[3 * index.vertex_index + 0],
-    //            attrib.vertices[3 * index.vertex_index + 1],
-    //            attrib.vertices[3 * index.vertex_index + 2]
-    //        };
-
-    //        vertex.textureCoordinate = {
-    //            attrib.texcoords[2 * index.texcoord_index + 0],
-    //            1.0 - attrib.texcoords[2 * index.texcoord_index + 1]
-    //        };
-
-    //        vertex.color = {1.0f, 1.0f, 1.0f};
-
-    //        if (uniqueVertices.count(vertex) == 0) {
-    //            uniqueVertices[vertex] = to_u32(vertices.size());
-    //            vertices.push_back(vertex);
-    //        }
-
-    //        indices.push_back(uniqueVertices[vertex]);
-    //    }
-    //}
-}
-
-void MainApp::copyBuffer(Buffer &srcBuffer, Buffer &dstBuffer, VkDeviceSize size)
+void MainApp::copyBufferToBuffer(const Buffer &srcBuffer, const Buffer &dstBuffer, VkDeviceSize size)
 {
     // TODO: move this elsewhere?
     std::unique_ptr<CommandBuffer> commandBuffer = std::make_unique<CommandBuffer>(*frameData.commandPools[currentFrame], VK_COMMAND_BUFFER_LEVEL_PRIMARY);
@@ -792,7 +881,7 @@ void MainApp::createVertexBuffer(std::shared_ptr<Mesh> mesh)
     void *mappedData = stagingBuffer->map();
     memcpy(mappedData, mesh->vertices.data(), static_cast<size_t>(bufferSize));
     stagingBuffer->unmap();
-    copyBuffer(*stagingBuffer, *(mesh->vertexBuffer), bufferSize);
+    copyBufferToBuffer(*stagingBuffer, *(mesh->vertexBuffer), bufferSize);
 }
 
 void MainApp::createIndexBuffer(std::shared_ptr<Mesh> mesh)
@@ -817,7 +906,7 @@ void MainApp::createIndexBuffer(std::shared_ptr<Mesh> mesh)
     void *mappedData = stagingBuffer->map();
     memcpy(mappedData, mesh->indices.data(), static_cast<size_t>(bufferSize));
     stagingBuffer->unmap();
-    copyBuffer(*stagingBuffer, *(mesh->indexBuffer), bufferSize);
+    copyBufferToBuffer(*stagingBuffer, *(mesh->indexBuffer), bufferSize);
 }
 
 // TODO use push constants to pass in mvp matrix information to the vertext shader
@@ -835,7 +924,7 @@ void MainApp::createUniformBuffers()
 
     for (uint32_t i = 0; i < maxFramesInFlight; ++i)
     {
-        frameData.uniformBuffers[i] = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
+        frameData.globalBuffers[i] = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
     }
 }
 
@@ -863,12 +952,12 @@ void MainApp::createDescriptorPool()
     poolSizes.resize(3);
     poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     poolSizes[0].descriptorCount = maxFramesInFlight;
-    poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    poolSizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     poolSizes[1].descriptorCount = maxFramesInFlight;
-    poolSizes[2].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    poolSizes[2].descriptorCount = maxFramesInFlight;
+    poolSizes[2].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    poolSizes[2].descriptorCount = 1;
 
-    descriptorPool = std::make_unique<DescriptorPool>(*device, poolSizes, 10u); // TODO should maxSets be something other than maxFramesInFlight
+    descriptorPool = std::make_unique<DescriptorPool>(*device, poolSizes, 10u);
 }
 
 void MainApp::createDescriptorSets()
@@ -883,7 +972,7 @@ void MainApp::createDescriptorSets()
         frameData.globalDescriptorSets[i] = std::make_unique<DescriptorSet>(*device, globalDescriptorSetAllocateInfo);
 
         VkDescriptorBufferInfo cameraBufferInfo{};
-        cameraBufferInfo.buffer = frameData.uniformBuffers[i]->getHandle();
+        cameraBufferInfo.buffer = frameData.globalBuffers[i]->getHandle();
         cameraBufferInfo.offset = 0;
         cameraBufferInfo.range = sizeof(CameraData); // can also use VK_WHOLE_SIZE in this case
 
@@ -896,21 +985,6 @@ void MainApp::createDescriptorSets()
         descriptorWriteUniformBuffer.pBufferInfo = &cameraBufferInfo;
         descriptorWriteUniformBuffer.pImageInfo = nullptr; // Optional
         descriptorWriteUniformBuffer.pTexelBufferView = nullptr; // Optional
-
-        VkDescriptorImageInfo textureImageInfo{};
-        textureImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        textureImageInfo.imageView = textureImageView->getHandle();
-        textureImageInfo.sampler = textureSampler->getHandle();
-
-        VkWriteDescriptorSet descriptorWriteCombinedImageSampler{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        descriptorWriteCombinedImageSampler.dstSet = frameData.globalDescriptorSets[i]->getHandle();
-        descriptorWriteCombinedImageSampler.dstBinding = 1;
-        descriptorWriteCombinedImageSampler.dstArrayElement = 0;
-        descriptorWriteCombinedImageSampler.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        descriptorWriteCombinedImageSampler.descriptorCount = 1;
-        descriptorWriteCombinedImageSampler.pImageInfo = &textureImageInfo;
-        descriptorWriteCombinedImageSampler.pBufferInfo = nullptr; // Optional
-        descriptorWriteCombinedImageSampler.pTexelBufferView = nullptr; // Optional
 
         // Object Descriptor Set
         VkDescriptorSetAllocateInfo objectDescriptorSetAllocateInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
@@ -935,10 +1009,37 @@ void MainApp::createDescriptorSets()
         objectWrite.pTexelBufferView = nullptr; // Optional
 
         // Write descriptor sets
-        std::vector<VkWriteDescriptorSet> writeDescriptorSets{ descriptorWriteUniformBuffer, descriptorWriteCombinedImageSampler, objectWrite };
-
-        frameData.globalDescriptorSets[i]->update(writeDescriptorSets);
+        std::array<VkWriteDescriptorSet, 2> writeDescriptorSets{ descriptorWriteUniformBuffer, objectWrite };
+        vkUpdateDescriptorSets(device->getHandle(), to_u32(writeDescriptorSets.size()), writeDescriptorSets.data(), 0, nullptr);
     }
+
+    // TODO refactor this hardcoded bit so that we can actually support more than one texture
+    // Texture Descriptor Set
+    std::shared_ptr<Material> texturedMeshMaterial = getMaterial("texturedmesh");
+
+    VkDescriptorSetAllocateInfo textureDescriptorSetAllocateInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+    textureDescriptorSetAllocateInfo.descriptorPool = descriptorPool->getHandle();
+    textureDescriptorSetAllocateInfo.descriptorSetCount = 1;
+    textureDescriptorSetAllocateInfo.pSetLayouts = &singleTextureDescriptorSetLayout->getHandle();
+    texturedMeshMaterial->textureDescriptorSet = std::make_unique<DescriptorSet>(*device, textureDescriptorSetAllocateInfo);
+
+    VkDescriptorImageInfo textureImageInfo{};
+    textureImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    textureImageInfo.imageView = textures["empire_diffuse"]->imageview->getHandle();
+    textureImageInfo.sampler = textureSampler->getHandle();
+
+    VkWriteDescriptorSet descriptorWriteCombinedImageSampler{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+    descriptorWriteCombinedImageSampler.dstSet = texturedMeshMaterial->textureDescriptorSet->getHandle();
+    descriptorWriteCombinedImageSampler.dstBinding = 0;
+    descriptorWriteCombinedImageSampler.dstArrayElement = 0;
+    descriptorWriteCombinedImageSampler.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    descriptorWriteCombinedImageSampler.descriptorCount = 1;
+    descriptorWriteCombinedImageSampler.pImageInfo = &textureImageInfo;
+    descriptorWriteCombinedImageSampler.pBufferInfo = nullptr; // Optional
+    descriptorWriteCombinedImageSampler.pTexelBufferView = nullptr; // Optional
+
+    std::array<VkWriteDescriptorSet, 1> writeDescriptorSets{ descriptorWriteCombinedImageSampler };
+    vkUpdateDescriptorSets(device->getHandle(), to_u32(writeDescriptorSets.size()), writeDescriptorSets.data(), 0, nullptr);
 }
 
 void MainApp::createSemaphoreAndFencePools()
@@ -958,251 +1059,37 @@ void MainApp::setupSynchronizationObjects()
     }
 }
 
-void MainApp::setupTimer()
-{
-    drawingTimer = std::make_unique<Timer>();
-    drawingTimer->start();
-}
-
-void MainApp::setupCamera()
-{
-    cameraController = std::make_unique<CameraController>(swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height);
-    cameraController->getCamera()->setPerspectiveProjection(45.0f, swapchain->getProperties().imageExtent.width / (float)swapchain->getProperties().imageExtent.height, 0.1f, 20.0f);
-    cameraController->getCamera()->setView(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-}
-
-std::shared_ptr<Material> MainApp::createMaterial(std::shared_ptr<GraphicsPipeline> pipeline, std::shared_ptr<PipelineState> pipelineState, const std::string &name)
-{
-    std::shared_ptr<Material> material = std::make_shared<Material>();
-    material->pipeline = pipeline;
-    material->pipelineState = pipelineState;
-    materials[name] = material;
-    return material;
-}
-
-std::shared_ptr<Material> MainApp::getMaterial(const std::string &name)
-{
-    auto it = materials.find(name);
-    if (it == materials.end())
-    {
-        return nullptr;
-    }
-
-    return (*it).second;
-
-}
-
-std::shared_ptr<Mesh> MainApp::getMesh(const std::string &name)
-{
-    auto it = meshes.find(name);
-    if (it == meshes.end())
-    {
-        return nullptr;
-    }
-
-    return (*it).second;
-}
-
-void MainApp::drawObjects(uint32_t frameIndex)
-{
-    // Update camera buffer
-    CameraData cameraData{};
-    cameraData.view = cameraController->getCamera()->getView();
-    cameraData.proj = cameraController->getCamera()->getProjection();
-
-    void *mappedData = frameData.uniformBuffers[frameIndex]->map();
-    memcpy(mappedData, &cameraData, sizeof(cameraData));
-    frameData.uniformBuffers[frameIndex]->unmap();
-
-    // Update object buffer
-    mappedData = frameData.objectBuffers[frameIndex]->map();
-    ObjectData *objectSSBO = (ObjectData *)mappedData;
-    std::vector<ObjectData> objs;
-    for (int index = 0; index < renderables.size(); index++)
-    {
-        objectSSBO[index].model = renderables[index].transformMatrix;
-    }
-    frameData.objectBuffers[frameIndex]->unmap();
-
-    // Draw renderables
-    std::shared_ptr<Mesh> lastMesh = nullptr;
-    std::shared_ptr<Material> lastMaterial = nullptr;
-    for (int index = 0; index < renderables.size(); index++)
-    {
-        RenderObject object = renderables[index];
-
-        //only bind the pipeline if it doesn't match with the already bound one
-        if (object.material != lastMaterial)
-        {
-
-            vkCmdBindPipeline(frameData.commandBuffers[frameIndex]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, object.material->pipeline->getHandle());
-            lastMaterial = object.material;
-
-            //camera data descriptor
-            vkCmdBindDescriptorSets(frameData.commandBuffers[frameIndex]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, object.material->pipelineState->getPipelineLayout().getHandle(), 0, 1, &frameData.globalDescriptorSets[frameIndex]->getHandle(), 0, nullptr);
-
-            //object data descriptor
-            vkCmdBindDescriptorSets(frameData.commandBuffers[frameIndex]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, object.material->pipelineState->getPipelineLayout().getHandle(), 1, 1, &frameData.objectDescriptorSets[frameIndex]->getHandle(), 0, nullptr);
-        }
-
-        //only bind the mesh if it's a different one from last bind
-        if (object.mesh != lastMesh)
-        {
-            //bind the mesh vertex buffer with offset 0
-            VkBuffer vertexBuffers[] = { object.mesh->vertexBuffer->getHandle() };
-            VkDeviceSize offsets[] = { 0 };
-            vkCmdBindVertexBuffers(frameData.commandBuffers[frameIndex]->getHandle(), 0, 1, vertexBuffers, offsets);
-            vkCmdBindIndexBuffer(frameData.commandBuffers[frameIndex]->getHandle(), object.mesh->indexBuffer->getHandle(), 0, VK_INDEX_TYPE_UINT32);
-
-            lastMesh = object.mesh;
-        }
-
-        vkCmdDrawIndexed(frameData.commandBuffers[frameIndex]->getHandle(), to_u32(object.mesh->indices.size()), 1, 0, 0, index);
-    }
-}
-
-bool Mesh::loadFromObj(const char *filename)
-{
-    //attrib will contain the vertex arrays of the file
-    tinyobj::attrib_t attrib;
-    //shapes contains the info for each separate object in the file
-    std::vector<tinyobj::shape_t> shapes;
-    //materials contains the information about the material of each shape, but we wont use it.
-    std::vector<tinyobj::material_t> materials;
-
-    //error and warning output from the load function
-    std::string warn;
-    std::string err;
-
-    //load the OBJ file
-    tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, filename,
-        nullptr);
-    //make sure to output the warnings to the console, in case there are issues with the file
-    if (!warn.empty())
-    {
-        std::cout << "WARN: " << warn << std::endl;
-    }
-    //if we have any error, print it to the console, and break the mesh loading. 
-    //This happens if the file cant be found or is malformed
-    if (!err.empty())
-    {
-        std::cerr << err << std::endl;
-        return false;
-    }
-
-    std::unordered_map<Vertex, uint32_t> uniqueVertices{};
-
-    // Loop over shapes
-    for (size_t s = 0; s < shapes.size(); s++)
-    {
-        // Loop over faces(polygon)
-        size_t index_offset = 0;
-        for (size_t f = 0; f < shapes[s].mesh.num_face_vertices.size(); f++)
-        {
-
-            //hardcode loading to triangles
-            int fv = 3;
-
-            // Loop over vertices in the face.
-            for (size_t v = 0; v < fv; v++)
-            {
-                // access to vertex
-                tinyobj::index_t idx = shapes[s].mesh.indices[index_offset + v];
-
-                //vertex position
-                tinyobj::real_t vx = attrib.vertices[3 * idx.vertex_index + 0];
-                tinyobj::real_t vy = attrib.vertices[3 * idx.vertex_index + 1];
-                tinyobj::real_t vz = attrib.vertices[3 * idx.vertex_index + 2];
-                //vertex normal
-                tinyobj::real_t nx = attrib.normals[3 * idx.normal_index + 0];
-                tinyobj::real_t ny = attrib.normals[3 * idx.normal_index + 1];
-                tinyobj::real_t nz = attrib.normals[3 * idx.normal_index + 2];
-
-                //copy it into our vertex
-                Vertex new_vert;
-                new_vert.position.x = vx;
-                new_vert.position.y = vy;
-                new_vert.position.z = vz;
-
-                //new_vert.normal.x = nx;
-                //new_vert.normal.y = ny;
-                //new_vert.normal.z = nz;
-
-                //we are setting the vertex color as the vertex normal. This is just for display purposes
-                new_vert.color = glm::vec3(nx, ny, nz);
-                new_vert.textureCoordinate = glm::vec2(0.0f, 0.0f);
-
-                if (uniqueVertices.count(new_vert) == 0)
-                {
-                    uniqueVertices[new_vert] = to_u32(vertices.size());
-                    vertices.push_back(new_vert);
-                }
-
-                indices.push_back(uniqueVertices[new_vert]);
-
-                //vertices.push_back(new_vert);
-            }
-            index_offset += fv;
-        }
-    }
-
-    return true;
-}
-
 void MainApp::loadMeshes()
 {
-    std::shared_ptr<Mesh> triMesh = std::make_shared<Mesh>();
-    //make the array 3 vertices long
-    triMesh->vertices.resize(3);
-
-    //vertex positions
-    triMesh->vertices[0].position = { 1.f,1.f, 0.0f };
-    triMesh->vertices[1].position = { -1.f,1.f, 0.0f };
-    triMesh->vertices[2].position = { 0.f,-1.f, 0.0f };
-    // TODO add indices to this triangle before rendering
-    triMesh->indices.push_back(0);
-    triMesh->indices.push_back(1);
-    triMesh->indices.push_back(2);
-
-    //vertex colors, all green
-    triMesh->vertices[0].color = { 0.f,1.f, 0.0f }; //pure green
-    triMesh->vertices[1].color = { 0.f,1.f, 0.0f }; //pure green
-    triMesh->vertices[2].color = { 0.f,1.f, 0.0f }; //pure green
-    //we dont care about the vertex normals
-
-    //load the monkey
+    // TODO resolve warning messages saying that mtl files are not found
     std::shared_ptr<Mesh> monkeyMesh = std::make_shared<Mesh>();
-    monkeyMesh->loadFromObj("../../../assets/models/monkey_smooth.obj");
+    monkeyMesh->loadFromObjFile("../../../assets/models/monkey_smooth.obj");
 
-    std::shared_ptr<Mesh> vikingMesh = std::make_shared<Mesh>();
-    vikingMesh->loadFromObj("../../../assets/models/viking_room.obj");
+    std::shared_ptr<Mesh> empireMesh = std::make_shared<Mesh>();
+    empireMesh->loadFromObjFile("../../../assets/models/lost_empire.obj");
 
-    //createVertexBuffer(triMesh);
-    //createIndexBuffer(triMesh);
     createVertexBuffer(monkeyMesh);
     createIndexBuffer(monkeyMesh);
-    createVertexBuffer(vikingMesh);
-    createIndexBuffer(vikingMesh);
+    createVertexBuffer(empireMesh);
+    createIndexBuffer(empireMesh);
 
     meshes["monkey"] = monkeyMesh;
-    meshes["viking"] = vikingMesh;
-    //meshes["triangle"] = triMesh;
+    meshes["empire"] = empireMesh;
 }
 
-void MainApp::initScene()
+void MainApp::createScene()
 {
     RenderObject monkey;
     monkey.mesh = getMesh("monkey");
     monkey.material = getMaterial("defaultmesh");
     monkey.transformMatrix = glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 0));
-
-    RenderObject viking;
-    viking.mesh = getMesh("viking");
-    viking.material = getMaterial("defaultmesh");
-    viking.transformMatrix = glm::mat4{ 1.0f };
-
     renderables.push_back(monkey);
-    renderables.push_back(viking);
+
+    RenderObject map;
+    map.mesh = getMesh("empire");
+    map.material = getMaterial("texturedmesh");
+    map.transformMatrix = glm::translate(glm::mat4{ 1.0 }, glm::vec3{ 5,-10,0 });
+    renderables.push_back(map);
     return; // TODO delete this
 
     for (int x = -20; x <= 20; x++)
@@ -1218,6 +1105,116 @@ void MainApp::initScene()
             tri.transformMatrix = translation * scale;
 
             renderables.push_back(tri);
+        }
+    }
+}
+
+std::shared_ptr<Material> MainApp::getMaterial(const std::string &name)
+{
+    auto it = materials.find(name);
+    if (it == materials.end())
+    {
+        return nullptr;
+    }
+
+    return it->second;
+
+}
+
+std::shared_ptr<Mesh> MainApp::getMesh(const std::string &name)
+{
+    auto it = meshes.find(name);
+    if (it == meshes.end())
+    {
+        return nullptr;
+    }
+
+    return it->second;
+}
+
+void Mesh::loadFromObjFile(const char *filename)
+{
+    // Attrib will contain the vertex arrays of the file
+    tinyobj::attrib_t attrib;
+    // Shapes contains the info for each separate object in the file
+    std::vector<tinyobj::shape_t> shapes;
+    // Materials contains the information about the material of each shape, but we wont use it.
+    std::vector<tinyobj::material_t> materials;
+
+    // Error and warning output from the load function
+    std::string warn;
+    std::string err;
+
+    // Load the OBJ file
+    tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, filename, nullptr);
+    if (!warn.empty())
+    {
+        LOGW(warn);
+    }
+
+    // This happens if the file cant be found or is malformed
+    if (!err.empty())
+    {
+        LOGEANDABORT(err);
+    }
+
+    std::unordered_map<Vertex, uint32_t> uniqueVertices{};
+
+    // Loop over shapes
+    for (size_t s = 0; s < shapes.size(); s++)
+    {
+        // Loop over faces(polygon)
+        size_t index_offset = 0;
+        for (size_t f = 0; f < shapes[s].mesh.num_face_vertices.size(); f++)
+        {
+            // Hardcode loading to triangles
+            int fv = 3;
+
+            // Loop over vertices in the face.
+            for (size_t v = 0; v < fv; v++)
+            {
+                // Access to vertex
+                tinyobj::index_t idx = shapes[s].mesh.indices[index_offset + v];
+
+                // Vertex position
+                tinyobj::real_t vx = attrib.vertices[3 * idx.vertex_index + 0];
+                tinyobj::real_t vy = attrib.vertices[3 * idx.vertex_index + 1];
+                tinyobj::real_t vz = attrib.vertices[3 * idx.vertex_index + 2];
+                // Vertex normal
+                tinyobj::real_t nx = attrib.normals[3 * idx.normal_index + 0];
+                tinyobj::real_t ny = attrib.normals[3 * idx.normal_index + 1];
+                tinyobj::real_t nz = attrib.normals[3 * idx.normal_index + 2];
+                // Texture coordinates
+                tinyobj::real_t ux = attrib.texcoords[2 * idx.texcoord_index + 0];
+                tinyobj::real_t uy = attrib.texcoords[2 * idx.texcoord_index + 1];
+
+                // Create a new vertex entry
+                Vertex newVertex;
+                newVertex.position.x = vx;
+                newVertex.position.y = vy;
+                newVertex.position.z = vz;
+
+                //newVertex.normal.x = nx;
+                //newVertex.normal.y = ny;
+                //newVertex.normal.z = nz;
+
+                newVertex.textureCoordinate = {
+                    ux,
+                    1 - uy
+                };
+
+                // Set the colour as the normal values for now
+                newVertex.color = glm::vec3(nx, ny, nz);
+
+                if (uniqueVertices.count(newVertex) == 0)
+                {
+                    uniqueVertices[newVertex] = to_u32(vertices.size());
+                    vertices.push_back(newVertex);
+                }
+
+                indices.push_back(uniqueVertices[newVertex]);
+            }
+            index_offset += fv;
         }
     }
 }

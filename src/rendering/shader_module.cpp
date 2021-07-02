@@ -69,10 +69,10 @@ std::vector<char> ShaderSource::readFile(const std::string &filename) const
 }
 
 // ShaderModule implementations
-ShaderModule::ShaderModule(Device &device, VkShaderStageFlagBits stage, std::unique_ptr<ShaderSource> &&shaderSource, const char *entryPoint) :
+ShaderModule::ShaderModule(Device &device, VkShaderStageFlagBits stage, std::shared_ptr<ShaderSource> shaderSource, const char *entryPoint) :
 	device{ device },
 	stage{ stage },
-	shaderSource{ std::move(shaderSource) },
+	shaderSource{ shaderSource },
 	entryPoint{ entryPoint }
 {
 	// Check if the SPIR-V that's passed in is empty
