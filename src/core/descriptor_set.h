@@ -44,8 +44,6 @@ public:
 	DescriptorSet &operator=(DescriptorSet &&) = delete;
 
 	const VkDescriptorSet &getHandle() const;
-
-	void update(std::vector<VkWriteDescriptorSet> &writeDescriptorSets) const;
 private:
 	Device &device;
 
