@@ -70,6 +70,10 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
 
+#include <imgui.h>
+#include <backends/imgui_impl_glfw.h>
+#include <backends/imgui_impl_vulkan.h>
+
 struct Vertex {
     glm::vec3 position;
     glm::vec3 color;
@@ -91,6 +95,10 @@ namespace std {
         }
     };
 } // namespace std
+
+// Required for imgui integration, might be able to remove this if there's an alternate integration with volk
+VkInstance g_instance;
+PFN_vkVoidFunction loadFunction(const char *function_name, void *user_data) { return vkGetInstanceProcAddr(g_instance, function_name); }
 
 namespace vulkr
 {
@@ -182,6 +190,7 @@ private:
     std::unique_ptr<DescriptorSetLayout> objectDescriptorSetLayout{ nullptr };
     std::unique_ptr<DescriptorSetLayout> singleTextureDescriptorSetLayout{ nullptr };
     std::unique_ptr<DescriptorPool> descriptorPool;
+    std::unique_ptr<DescriptorPool> imguiPool;
 
     std::vector<std::unique_ptr<Framebuffer>> swapchainFramebuffers;
 
@@ -218,6 +227,7 @@ private:
     std::unordered_map<std::string, std::shared_ptr<Texture>> textures;
 
     // Subroutines
+    void drawImGuiInterface();
     void drawObjects();
     void cleanupSwapchain();
     void createInstance();
@@ -252,6 +262,7 @@ private:
     void setupSynchronizationObjects();
     void setupTimer();
     void setupCamera();
+    void initializeImGui();
 
     std::shared_ptr<Material> getMaterial(const std::string &name);
     std::shared_ptr<Mesh> getMesh(const std::string &name);

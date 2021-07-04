@@ -80,6 +80,15 @@ const char *printVkResult(const VkResult result)
 	return s;
 }
 
+void checkVkResult(VkResult result)
+{
+	if (result == 0)
+		return;
+	fprintf(stderr, "[vulkan] Error: VkResult = %d\n", printVkResult(result));
+	if (result < 0)
+		abort();
+}
+
 // Note that we don't use 16 bit float for depth, only 24 or 32
 bool isDepthOnlyFormat(VkFormat format)
 {

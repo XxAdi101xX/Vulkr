@@ -104,4 +104,9 @@ const VkSurfaceKHR Platform::getSurface() const
 	return window->getSurfaceHandle();
 }
 
+const Window &Platform::getWindow() const
+{
+	return *window;
+}
+
 } // namespace vulkr

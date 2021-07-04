@@ -71,6 +71,8 @@ public:
 
 	/* Get the window surface */
 	const VkSurfaceKHR getSurface() const;
+
+	const Window &getWindow() const;
 private:
 	std::unique_ptr<Window> window{ nullptr };
 	std::unique_ptr<Application> application{ nullptr };

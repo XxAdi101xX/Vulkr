@@ -45,9 +45,9 @@ public:
 	void createSurface(VkInstance instance);
 
 	/* Getters */
-	const GLFWwindow *getHandle() const;
-	const VkSurfaceKHR getSurfaceHandle() const;
-	const Platform &getPlatform() const;
+	GLFWwindow *getHandle() const;
+	VkSurfaceKHR getSurfaceHandle() const;
+	Platform &getPlatform() const;
 	static VkExtent2D getWindowExtent();
 
 	/* Checks whether the window should close */

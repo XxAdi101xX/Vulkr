@@ -61,6 +61,11 @@ MainApp::MainApp(Platform& platform, std::string name) : Application{ platform, 
      {
          frameData.commandPools[i].reset();
      }
+     imguiPool.reset();
+
+     ImGui_ImplVulkan_Shutdown();
+     ImGui_ImplGlfw_Shutdown();
+     ImGui::DestroyContext();
 
      device.reset();
 
@@ -167,6 +172,7 @@ void MainApp::prepare()
     createScene();
     createSemaphoreAndFencePools();
     setupSynchronizationObjects();
+    initializeImGui();
 }
 
 void MainApp::update()
@@ -196,6 +202,7 @@ void MainApp::update()
     }
     imagesInFlight[swapchainImageIndex] = frameData.inFlightFences[currentFrame];
 
+    drawImGuiInterface();
 
     std::vector<VkClearValue> clearValues;
     clearValues.resize(2);
@@ -204,7 +211,11 @@ void MainApp::update()
 
     frameData.commandBuffers[currentFrame]->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
     frameData.commandBuffers[currentFrame]->beginRenderPass(*renderPass, *(swapchainFramebuffers[swapchainImageIndex]), swapchain->getProperties().imageExtent, clearValues, VK_SUBPASS_CONTENTS_INLINE);
+    // Render scene
     drawObjects();
+    // Render UI
+    ImGui::Render();
+    ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), frameData.commandBuffers[currentFrame]->getHandle());
     frameData.commandBuffers[currentFrame]->endRenderPass();
     frameData.commandBuffers[currentFrame]->end();
 
@@ -274,10 +285,71 @@ void MainApp::recreateSwapchain()
 
 void MainApp::handleInputEvents(const InputEvent &inputEvent)
 {
+    ImGuiIO &io = ImGui::GetIO();
+    if (io.WantCaptureMouse) return;
+
     cameraController->handleInputEvents(inputEvent);
 }
 
 /* Private methods start here */
+
+void MainApp::drawImGuiInterface()
+{
+    ImGui_ImplVulkan_NewFrame();
+    ImGui_ImplGlfw_NewFrame();
+    ImGui::NewFrame();
+
+    bool changed{ false };
+    glm::vec3 position = cameraController->getCamera()->getPosition();
+    glm::vec3 center = cameraController->getCamera()->getCenter();
+    float fovy = cameraController->getCamera()->getFovY();
+
+    // Creating UI
+    // TODO stop using default debug window and use begin/end to control the window; we would need to create a separate class altogether
+    // ImGui::Begin();
+    if (ImGui::BeginTabBar("Main Tab"))
+    {
+        if (ImGui::BeginTabItem("Camera"))
+        {
+            ImGui::Text("Position");
+            ImGui::SameLine();
+            ImGui::InputFloat3("##Position", &position.x);
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            if (changed)
+            {
+                cameraController->getCamera()->setPosition(position);
+                changed = false;
+            }
+            ImGui::Text("Center");
+            ImGui::SameLine();
+            ImGui::InputFloat3("##Center", &center.x);
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            if (changed)
+            {
+                cameraController->getCamera()->setCenter(center);
+                changed = false;
+            }
+            ImGui::EndTabItem();
+            ImGui::Text("FOV");
+            ImGui::SameLine();
+            changed |= ImGui::DragFloat("##FOV", &fovy, 1.0f, 1.0f, 179.0f, "%.3f", 0);
+            if (changed)
+            {
+                cameraController->getCamera()->setFovY(fovy);
+                changed = false;
+            }
+        }
+
+        if (ImGui::BeginTabItem("Extra"))
+        {
+            ImGui::EndTabItem();
+        }
+        ImGui::EndTabBar();
+    }
+    // ImGui::End();
+
+    // ImGui::ShowDemoWindow();
+}
 
 void MainApp::drawObjects()
 {
@@ -351,6 +423,7 @@ void MainApp::setupTimer()
 void MainApp::createInstance()
 {
     instance = std::make_unique<Instance>(getName());
+    g_instance = instance->getHandle();
 }
 
 void MainApp::createSurface()
@@ -957,7 +1030,7 @@ void MainApp::createDescriptorPool()
     poolSizes[2].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     poolSizes[2].descriptorCount = 1;
 
-    descriptorPool = std::make_unique<DescriptorPool>(*device, poolSizes, 10u);
+    descriptorPool = std::make_unique<DescriptorPool>(*device, poolSizes, 10u, 0);
 }
 
 void MainApp::createDescriptorSets()
@@ -1217,6 +1290,73 @@ void Mesh::loadFromObjFile(const char *filename)
             index_offset += fv;
         }
     }
+}
+
+void MainApp::initializeImGui()
+{
+    // Create descriptor pool for imgui
+    std::vector<VkDescriptorPoolSize> poolSizes =
+    {
+        { VK_DESCRIPTOR_TYPE_SAMPLER, 1000 },
+        { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000 },
+        { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000 },
+        { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000 },
+        { VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1000 },
+        { VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1000 },
+        { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000 },
+        { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000 },
+        { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000 },
+        { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1000 },
+        { VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000 }
+    };
+    imguiPool = std::make_unique<DescriptorPool>(*device, poolSizes, 1000 * 11, VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT);
+
+    // Setup Dear ImGui context
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO &io = ImGui::GetIO(); (void)io;
+    //io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
+    //io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
+    ImGui::StyleColorsClassic();
+
+    // Initialize imgui for glfw
+    ImGui_ImplGlfw_InitForVulkan(platform.getWindow().getHandle(), true);
+
+    // Initilialize imgui for Vulkan
+    ImGui_ImplVulkan_InitInfo initInfo = {};
+    initInfo.Instance = instance->getHandle();
+    initInfo.PhysicalDevice = device->getPhysicalDevice().getHandle();
+    initInfo.Device = device->getHandle();
+    initInfo.QueueFamily = device->getOptimalGraphicsQueue().getFamilyIndex();
+    initInfo.Queue = graphicsQueue;
+    initInfo.PipelineCache = VK_NULL_HANDLE;
+    initInfo.DescriptorPool = imguiPool->getHandle();
+    initInfo.Subpass = 0u;
+    initInfo.MinImageCount = swapchain->getProperties().imageCount;
+    initInfo.ImageCount = swapchain->getProperties().imageCount;
+    initInfo.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+    initInfo.Allocator = nullptr; // TODO pass VMA here
+    initInfo.CheckVkResultFn = checkVkResult;
+
+    ImGui_ImplVulkan_LoadFunctions(loadFunction); // TODO figure out how to integrate with volk
+    ImGui_ImplVulkan_Init(&initInfo, renderPass->getHandle());
+
+    std::unique_ptr<CommandBuffer> commandBuffer = std::make_unique<CommandBuffer>(*frameData.commandPools[currentFrame], VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+    commandBuffer->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
+
+    ImGui_ImplVulkan_CreateFontsTexture(commandBuffer->getHandle());
+
+    commandBuffer->end();
+
+    VkSubmitInfo submitInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &commandBuffer->getHandle();
+
+    vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
+    vkQueueWaitIdle(graphicsQueue);
+
+    // Clear font data on CPU
+    ImGui_ImplVulkan_DestroyFontUploadObjects();
 }
 
 } // namespace vulkr

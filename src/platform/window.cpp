@@ -199,17 +199,17 @@ void Window::createSurface(VkInstance instance)
 	VK_CHECK(glfwCreateWindowSurface(instance, handle, nullptr, &surface));
 }
 
-const GLFWwindow *Window::getHandle() const
+GLFWwindow *Window::getHandle() const
 {
 	return handle;
 }
 
-const VkSurfaceKHR Window::getSurfaceHandle() const
+VkSurfaceKHR Window::getSurfaceHandle() const
 {
 	return surface;
 }
 
-const Platform &Window::getPlatform() const
+Platform &Window::getPlatform() const
 {
 	return platform;
 }

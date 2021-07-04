@@ -32,7 +32,7 @@
 
 #define VULKR_DEBUG /* Enable the validation layers */
 
-/* @brief Assert whether an VkResult has returned an error */
+/* Assert whether an VkResult has returned an error */
 #define VK_CHECK(r)                                                  \
 	do                                                               \
 	{                                                                \
@@ -45,6 +45,9 @@
 
 /* Printing out the VkResult enum name */
 const char *printVkResult(const VkResult result);
+
+/* Check the VkResult and print out if it's in a error state similar function to VK_CHECK, used for imgui's CheckVkResultFn callback function */
+void checkVkResult(VkResult result);
 
 /* Determine whether a format ONLY has the depth component available */
 bool isDepthOnlyFormat(VkFormat format);
