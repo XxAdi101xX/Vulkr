@@ -19,3 +19,6 @@
 [submodule "third_party/tinyobjloader"]
 	path = third_party/tinyobjloader
 	url = git@github.com:tinyobjloader/tinyobjloader.git
+[submodule "third_party/imgui"]
+	path = third_party/imgui
+	url = git@github.com:ocornut/imgui.git

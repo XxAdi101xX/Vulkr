@@ -127,12 +127,21 @@ add_library(${PROJECT_NAME} STATIC ${PROJECT_FILES})
 target_include_directories(${PROJECT_NAME} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
 # Link third party libraries
-target_link_libraries(${PROJECT_NAME} PUBLIC
+target_link_libraries(${PROJECT_NAME}
     volk
     glm
-    glfw
     spdlog
+    imgui
     VulkanMemoryAllocator
     stb
     tinyobjloader
 )
+
+# Link platform specific libraries
+if(ANDROID)
+    target_link_libraries(${PROJECT_NAME} log android native_app_glue)
+else()
+    if (NOT DIRECT_TO_DISPLAY)
+        target_link_libraries(${PROJECT_NAME} glfw)
+    endif()
+endif()
