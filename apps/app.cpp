@@ -351,6 +351,9 @@ void MainApp::drawImGuiInterface()
     // ImGui::ShowDemoWindow();
 }
 
+// TODO: as opposed to doing slot based binding of descriptor sets which leads to multiple vkCmdBindDescriptorSets calls per drawcall, you can use
+// frequency based descriptor sets and use dynamicOffsetCount: see https://zeux.io/2020/02/27/writing-an-efficient-vulkan-renderer/, or just bindless
+// decriptors altogether
 void MainApp::drawObjects()
 {
     // Update camera buffer
@@ -579,23 +582,33 @@ void MainApp::createGraphicsPipelines()
     bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
     vertexInputState.bindingDescriptions.emplace_back(bindingDescription);
 
+    // Position at location 0
     VkVertexInputAttributeDescription positionAttributeDescription;
     positionAttributeDescription.binding = 0;
     positionAttributeDescription.location = 0;
     positionAttributeDescription.format = VK_FORMAT_R32G32B32_SFLOAT;
     positionAttributeDescription.offset = offsetof(Vertex, position);
+    // Normal at location 1
+    VkVertexInputAttributeDescription normalAttributeDescription;
+    normalAttributeDescription.binding = 0;
+    normalAttributeDescription.location = 1;
+    normalAttributeDescription.format = VK_FORMAT_R32G32B32_SFLOAT;
+    normalAttributeDescription.offset = offsetof(Vertex, normal);
+    // Color at location 2
     VkVertexInputAttributeDescription colorAttributeDescription;
     colorAttributeDescription.binding = 0;
-    colorAttributeDescription.location = 1;
+    colorAttributeDescription.location = 2;
     colorAttributeDescription.format = VK_FORMAT_R32G32B32_SFLOAT;
     colorAttributeDescription.offset = offsetof(Vertex, color);
+    // TexCoord at location 3
     VkVertexInputAttributeDescription textureCoordinateAttributeDescription;
     textureCoordinateAttributeDescription.binding = 0;
-    textureCoordinateAttributeDescription.location = 2;
+    textureCoordinateAttributeDescription.location = 3;
     textureCoordinateAttributeDescription.format = VK_FORMAT_R32G32_SFLOAT;
     textureCoordinateAttributeDescription.offset = offsetof(Vertex, textureCoordinate);
 
     vertexInputState.attributeDescriptions.emplace_back(positionAttributeDescription);
+    vertexInputState.attributeDescriptions.emplace_back(normalAttributeDescription);
     vertexInputState.attributeDescriptions.emplace_back(colorAttributeDescription);
     vertexInputState.attributeDescriptions.emplace_back(textureCoordinateAttributeDescription);
 
@@ -1263,21 +1276,10 @@ void Mesh::loadFromObjFile(const char *filename)
 
                 // Create a new vertex entry
                 Vertex newVertex;
-                newVertex.position.x = vx;
-                newVertex.position.y = vy;
-                newVertex.position.z = vz;
-
-                //newVertex.normal.x = nx;
-                //newVertex.normal.y = ny;
-                //newVertex.normal.z = nz;
-
-                newVertex.textureCoordinate = {
-                    ux,
-                    1 - uy
-                };
-
-                // Set the colour as the normal values for now
-                newVertex.color = glm::vec3(nx, ny, nz);
+                newVertex.position = { vx, vy, vz };
+                newVertex.normal = { nx, ny, nz };
+                newVertex.color = { nx, ny, nz }; // Set the colour as the normal values for now
+                newVertex.textureCoordinate = { ux, 1 - uy };
 
                 if (uniqueVertices.count(newVertex) == 0)
                 {
