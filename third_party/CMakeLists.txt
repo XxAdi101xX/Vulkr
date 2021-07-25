@@ -101,7 +101,7 @@ set_property(TARGET spdlog PROPERTY FOLDER "ThirdParty")
 
 # vma
 add_library(VulkanMemoryAllocator INTERFACE)
-set(VMA_DIR ${CMAKE_CURRENT_SOURCE_DIR}/VulkanMemoryAllocator/src)
+set(VMA_DIR ${CMAKE_CURRENT_SOURCE_DIR}/VulkanMemoryAllocator/include)
 target_sources(VulkanMemoryAllocator INTERFACE ${VMA_DIR}/vk_mem_alloc.h)
 target_include_directories(VulkanMemoryAllocator INTERFACE ${VMA_DIR})
 target_link_libraries(VulkanMemoryAllocator INTERFACE vulkan)
