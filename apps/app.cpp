@@ -1732,7 +1732,7 @@ void MainApp::buildTlas(
     VmaAllocationCreateInfo memoryInfo{};
     memoryInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
     std::unique_ptr<Buffer> stagingBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
-    bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+    bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
     memoryInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 
     m_instBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
