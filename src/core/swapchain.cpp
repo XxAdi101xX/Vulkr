@@ -171,7 +171,7 @@ VkSurfaceFormatKHR Swapchain::chooseSurfaceFormat(const std::vector<VkSurfaceFor
 {
     if (availableFormats.empty())
     {
-        throw std::runtime_error("No surface formats were found.");
+        LOGEANDABORT("No surface formats were found.");
     }
 
     for (const auto& prioritySurfaceFormat : surfaceFormatPriorityList)
@@ -184,7 +184,7 @@ VkSurfaceFormatKHR Swapchain::chooseSurfaceFormat(const std::vector<VkSurfaceFor
         }
     }
 
-    LOGW("A surface format from the priority list was not found hence the first available format was chosen");
+    LOGW("A surface format from the priority list was not found hence the first available format was chosen. This might be problematic if the format does not support storage images");
     return availableFormats[0];
 }
 
