@@ -23,6 +23,7 @@
 #pragma once
 
 #include "common/vulkan_common.h"
+#include "command_buffer.h"
 
 namespace vulkr
 {
@@ -44,7 +45,9 @@ public:
 		VkImageTiling tiling = VK_IMAGE_TILING_OPTIMAL,
 		VkSharingMode sharingMode = VK_SHARING_MODE_EXCLUSIVE,
 		VkImageLayout initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-		VkImageCreateFlags flags = 0
+		VkImageCreateFlags flags = 0,
+		uint32_t queueFamilyIndexCount = 0,
+		const uint32_t *pQueueFamilyIndices = nullptr
 	);
 
 	Image::Image(
@@ -66,6 +69,10 @@ public:
 
 	void unmap();
 
+	/* Transition the image from the old layout to the new layout; the commandBuffer must have been started and ready to record commands */
+	void transitionImageLayout(CommandBuffer &commandBuffer, VkImageLayout oldLayout, VkImageLayout newLayout, VkImageSubresourceRange subresourceRange);
+
+	/* Getters */
 	VkImage getHandle() const;
 
 	VmaAllocation getAllocation() const;
