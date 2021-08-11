@@ -88,12 +88,34 @@ Device::Device(std::unique_ptr<PhysicalDevice> &&selectedPhysicalDevice, VkSurfa
 	// Create the device
 	const VkPhysicalDeviceFeatures &requestedFeatures = this->physicalDevice->getRequestedFeatures();
 
+	// Enabling the host query reset features, acceleration structure features, ray tracing features and buffer device address features
+	VkPhysicalDeviceHostQueryResetFeatures hostQueryResetFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_HOST_QUERY_RESET_FEATURES };
+	hostQueryResetFeatures.hostQueryReset = getPhysicalDevice().getHostQueryResetFeatures().hostQueryReset;
+	VkPhysicalDeviceAccelerationStructureFeaturesKHR accelerationStructureFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR };
+	accelerationStructureFeatures.accelerationStructure = getPhysicalDevice().getAccelerationStructureFeatures().accelerationStructure;
+	// accelerationStructureFeatures.accelerationStructureHostCommands = getPhysicalDevice().getAccelerationStructureFeatures().accelerationStructureHostCommands;
+	// accelerationStructureFeatures.accelerationStructureIndirectBuild = getPhysicalDevice().getAccelerationStructureFeatures().accelerationStructureIndirectBuild;
+	accelerationStructureFeatures.descriptorBindingAccelerationStructureUpdateAfterBind = getPhysicalDevice().getAccelerationStructureFeatures().descriptorBindingAccelerationStructureUpdateAfterBind;
+	accelerationStructureFeatures.pNext = &hostQueryResetFeatures;
+	VkPhysicalDeviceRayTracingPipelineFeaturesKHR rayTracingPipelineFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR };
+	rayTracingPipelineFeatures.rayTracingPipeline = getPhysicalDevice().getRayTracingPipelineFeatures().rayTracingPipeline;
+	rayTracingPipelineFeatures.rayTracingPipelineTraceRaysIndirect = getPhysicalDevice().getRayTracingPipelineFeatures().rayTracingPipelineTraceRaysIndirect;
+	rayTracingPipelineFeatures.rayTraversalPrimitiveCulling = getPhysicalDevice().getRayTracingPipelineFeatures().rayTraversalPrimitiveCulling;
+	rayTracingPipelineFeatures.pNext = &accelerationStructureFeatures;
+	VkPhysicalDeviceBufferDeviceAddressFeatures bufferDeviceAddressFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES };
+	bufferDeviceAddressFeatures.bufferDeviceAddress = getPhysicalDevice().getBufferDeviceAddressFeatures().bufferDeviceAddress;
+	bufferDeviceAddressFeatures.pNext = &rayTracingPipelineFeatures;
+	VkPhysicalDeviceFeatures2 features2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
+	features2.features = requestedFeatures;
+	features2.pNext = &bufferDeviceAddressFeatures;
+
 	VkDeviceCreateInfo createInfo { VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
 	createInfo.queueCreateInfoCount = to_u32(queueCreateInfos.size());
 	createInfo.pQueueCreateInfos = queueCreateInfos.data();
 	createInfo.enabledExtensionCount = to_u32(enabledExtensions.size());
 	createInfo.ppEnabledExtensionNames = enabledExtensions.data();
-	createInfo.pEnabledFeatures = &requestedFeatures;
+	// createInfo.pEnabledFeatures = &requestedFeatures; // We are enabling the features through feature2 since VMA requires that
+	createInfo.pNext = &features2;
 
 	VK_CHECK(vkCreateDevice(this->physicalDevice->getHandle(), &createInfo, nullptr, &handle));
 
@@ -145,10 +167,8 @@ Device::Device(std::unique_ptr<PhysicalDevice> &&selectedPhysicalDevice, VkSurfa
 		vmaVulkanFunctions.vkGetImageMemoryRequirements2KHR = vkGetImageMemoryRequirements2KHR;
 	}
 
-	if (isExtensionSupported(VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME) && isExtensionEnabled(VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME))
-	{
-		allocatorInfo.flags |= VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
-	}
+	// VK_KHR_buffer_device_address has been core as of vulkan 1.2
+	allocatorInfo.flags |= VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
 
 	allocatorInfo.pVulkanFunctions = &vmaVulkanFunctions;
 
