@@ -30,9 +30,23 @@ PhysicalDevice::PhysicalDevice(Instance &instance, VkPhysicalDevice gpu) :
 	instance{ instance },
 	handle{ gpu }
 {
+	// Requesting physical device features, properties and memory properties
 	vkGetPhysicalDeviceFeatures(gpu, &features);
 	vkGetPhysicalDeviceProperties(gpu, &properties);
 	vkGetPhysicalDeviceMemoryProperties(gpu, &memoryProperties);
+	// Requesting ray tracing properties
+	VkPhysicalDeviceProperties2 properties2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2 };
+	properties2.pNext = &rayTracingPipelineProperties;
+	vkGetPhysicalDeviceProperties2(gpu, &properties2);
+	vkGetPhysicalDeviceProperties2(gpu, &properties2);
+
+	// Requesting host query reset features, buffer device address features, raytracing features and acceleration structure features
+	accelerationStructureFeatures.pNext = &hostQueryResetFeatures;
+	rayTracingPipelineFeatures.pNext = &accelerationStructureFeatures;
+	bufferDeviceAddressFeatures.pNext = &rayTracingPipelineFeatures;
+	VkPhysicalDeviceFeatures2 features2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
+	features2.pNext = &bufferDeviceAddressFeatures;
+	vkGetPhysicalDeviceFeatures2(gpu, &features2);
 
 	uint32_t queueFamilyPropertiesCount{ 0u };
 	vkGetPhysicalDeviceQueueFamilyProperties(gpu, &queueFamilyPropertiesCount, nullptr);
@@ -62,12 +76,37 @@ const VkPhysicalDeviceFeatures &PhysicalDevice::getRequestedFeatures() const
 	return requestedFeatures;
 }
 
-const VkPhysicalDeviceProperties PhysicalDevice::getProperties() const
+const VkPhysicalDeviceProperties &PhysicalDevice::getProperties() const
 {
 	return properties;
 }
 
-const VkPhysicalDeviceMemoryProperties PhysicalDevice::getMemoryProperties() const
+const VkPhysicalDeviceRayTracingPipelinePropertiesKHR &PhysicalDevice::getRayTracingPipelineProperties() const
+{
+	return rayTracingPipelineProperties;
+}
+
+const VkPhysicalDeviceRayTracingPipelineFeaturesKHR &PhysicalDevice::getRayTracingPipelineFeatures() const
+{
+	return rayTracingPipelineFeatures;
+}
+
+const VkPhysicalDeviceAccelerationStructureFeaturesKHR &PhysicalDevice::getAccelerationStructureFeatures() const
+{
+	return accelerationStructureFeatures;
+}
+
+const VkPhysicalDeviceHostQueryResetFeatures &PhysicalDevice::getHostQueryResetFeatures() const
+{
+	return hostQueryResetFeatures;
+}
+
+const VkPhysicalDeviceBufferDeviceAddressFeatures &PhysicalDevice::getBufferDeviceAddressFeatures() const
+{
+	return bufferDeviceAddressFeatures;
+}
+
+const VkPhysicalDeviceMemoryProperties &PhysicalDevice::getMemoryProperties() const
 {
 	return memoryProperties;
 }

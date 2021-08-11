@@ -55,10 +55,25 @@ public:
 	const VkPhysicalDeviceFeatures &getRequestedFeatures() const;
 
 	/* Get the properties for the physical device */
-	const VkPhysicalDeviceProperties getProperties() const;
+	const VkPhysicalDeviceProperties &getProperties() const;
+
+	/* Get the ray tracing pipeline properties for the physical device */
+	const VkPhysicalDeviceRayTracingPipelinePropertiesKHR &getRayTracingPipelineProperties() const;
+
+	/* Get the ray tracing pipeline features for the physical device */
+	const VkPhysicalDeviceRayTracingPipelineFeaturesKHR &getRayTracingPipelineFeatures() const;
+
+	/* Get the acceleration structure features for the physical device */
+	const VkPhysicalDeviceAccelerationStructureFeaturesKHR &getAccelerationStructureFeatures() const;
+
+	/* Get the host query reset features for the physical device */
+	const VkPhysicalDeviceHostQueryResetFeatures &getHostQueryResetFeatures() const;
+
+	/* Get the ray tracing pipeline properties for the physical device */
+	const VkPhysicalDeviceBufferDeviceAddressFeatures &getBufferDeviceAddressFeatures() const;
 
 	/* Get the memory properties for the physical device */
-	const VkPhysicalDeviceMemoryProperties getMemoryProperties() const;
+	const VkPhysicalDeviceMemoryProperties &getMemoryProperties() const;
 
 	/* Get an array of all the queue family properties for each queue family available */
 	const std::vector<VkQueueFamilyProperties> &getQueueFamilyProperties() const;
@@ -83,6 +98,21 @@ private:
 
 	/* The GPU properties */
 	VkPhysicalDeviceProperties properties;
+	
+	/* The GPU ray tracing pipeline properties */
+	VkPhysicalDeviceRayTracingPipelinePropertiesKHR  rayTracingPipelineProperties{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_PROPERTIES_KHR };
+
+	/* The GPU ray tracing pipeline features */
+	VkPhysicalDeviceRayTracingPipelineFeaturesKHR rayTracingPipelineFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR };
+
+	/* The GPU acceleration structure features */
+	VkPhysicalDeviceAccelerationStructureFeaturesKHR accelerationStructureFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR };
+
+	/* The GPU host query rest features */
+	VkPhysicalDeviceHostQueryResetFeatures hostQueryResetFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_HOST_QUERY_RESET_FEATURES };
+
+	/* The buffer device address features that the GPU supports */
+	VkPhysicalDeviceBufferDeviceAddressFeatures bufferDeviceAddressFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES };
 
 	/* The GPU memory properties */
 	VkPhysicalDeviceMemoryProperties memoryProperties;
