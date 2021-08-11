@@ -55,8 +55,6 @@ VkPipeline Pipeline::getHandle() const
 
 GraphicsPipeline::GraphicsPipeline(Device &device, PipelineState &pipelineState, VkPipelineCache pipelineCache) : Pipeline{ device, pipelineState }
 {
-	std::vector<VkShaderModule> shaderModuleHandles;
-
 	std::vector<VkPipelineShaderStageCreateInfo> shaderStageCreateInfos;
 
 	for (const ShaderModule &shaderModule : pipelineState.getPipelineLayout().getShaderModules())
@@ -74,7 +72,6 @@ GraphicsPipeline::GraphicsPipeline(Device &device, PipelineState &pipelineState,
 		shaderStageCreateInfo.pSpecializationInfo = nullptr; // Used for specifying shader constants
 
 		shaderStageCreateInfos.push_back(shaderStageCreateInfo);
-		shaderModuleHandles.push_back(shaderStageCreateInfo.module);
 	}
 
 	VkPipelineVertexInputStateCreateInfo vertexInputState{ VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
@@ -135,7 +132,6 @@ GraphicsPipeline::GraphicsPipeline(Device &device, PipelineState &pipelineState,
 	depthStencilState.minDepthBounds = pipelineState.getDepthStencilState().minDepthBounds;
 	depthStencilState.maxDepthBounds = pipelineState.getDepthStencilState().maxDepthBounds;
 
-
 	VkPipelineColorBlendStateCreateInfo color_blend_state{ VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO };
 	color_blend_state.logicOpEnable = pipelineState.getColorBlendState().logicOpEnable;
 	color_blend_state.logicOp = pipelineState.getColorBlendState().logicOp;
@@ -174,9 +170,9 @@ GraphicsPipeline::GraphicsPipeline(Device &device, PipelineState &pipelineState,
 
 	VK_CHECK(vkCreateGraphicsPipelines(device.getHandle(), pipelineCache, 1, &graphicsPipeline, nullptr, &handle));
 
-	for (auto shaderModule : shaderModuleHandles)
+	for (auto shaderStageCreateInfo : shaderStageCreateInfos)
 	{
-		vkDestroyShaderModule(device.getHandle(), shaderModule, nullptr);
+		vkDestroyShaderModule(device.getHandle(), shaderStageCreateInfo.module, nullptr);
 	}
 }
 
