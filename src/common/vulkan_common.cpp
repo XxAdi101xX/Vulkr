@@ -121,3 +121,9 @@ VkFormat getSupportedDepthFormat(VkPhysicalDevice physicalDeviceHandle, bool dep
 
 	throw std::runtime_error("Failed to find a supported format");
 }
+
+void setDebugUtilsObjectName(VkDevice device, const uint64_t object, const std::string &name, VkObjectType t)
+{
+	VkDebugUtilsObjectNameInfoEXT info{ VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT, nullptr, t, object, name.c_str() };
+	vkSetDebugUtilsObjectNameEXT(device, &info);
+}

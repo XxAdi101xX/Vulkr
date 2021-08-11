@@ -45,6 +45,9 @@ public:
 	const std::vector<char> &getData() const;
 
 private:
+	/* Path to the spv files */
+	const std::string spvFilePath = "../../../src/shaders/spv/";
+
 	/* The filename of the compiled spirv */
 	const std::string fileName;
 

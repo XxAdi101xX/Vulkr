@@ -43,6 +43,11 @@
 		}                                                            \
 	} while (0);
 
+// Individual naming
+#define NAME_VK(_device, _x) setDebugUtilsObjectName(d_device, _x, (std::string("classnamehere") + std::string("::") + std::string(#_x " (") + __FILE__).c_str())
+#define NAME_IDX_VK(_device, _x, _i) setDebugUtilsObjectName(_device, _x, \
+                            (std::string("classnamehere") + std::string("::") + std::string(#_x " (" #_i "=") + std::to_string(_i) + std::string(", ") + __FILE__).c_str())
+
 /* Printing out the VkResult enum name */
 const char *printVkResult(const VkResult result);
 
@@ -65,3 +70,5 @@ VkFormat getSupportedDepthFormat(
 		VK_FORMAT_D24_UNORM_S8_UINT
 	}
 );
+
+void setDebugUtilsObjectName(VkDevice device, const uint64_t object, const std::string & name, VkObjectType t);

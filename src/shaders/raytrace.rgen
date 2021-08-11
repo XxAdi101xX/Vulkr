@@ -1,0 +1,19 @@
+#version 460
+#extension GL_EXT_ray_tracing : require
+#extension GL_EXT_debug_printf : enable
+
+layout(binding = 0, set = 0) uniform accelerationStructureEXT topLevelAS;
+layout(binding = 1, set = 0, rgba8_snorm) uniform image2D image;
+
+void main() 
+{
+    vec4 imageData = imageLoad(image, ivec2(0, 0));
+    if (gl_LaunchIDEXT.x == 0 && gl_LaunchIDEXT.y == 0) {
+        debugPrintfEXT("BEFORE: Image value is %f, %f, %f, %f", imageData.x, imageData.y, imageData.z, imageData.w);
+    }
+    imageStore(image, ivec2(gl_LaunchIDEXT.xy), vec4(0.5, 0.5, 0.5, 1.0));
+    imageData = imageLoad(image, ivec2(0, 0));
+    if (gl_LaunchIDEXT.x == 0 && gl_LaunchIDEXT.y == 0) {
+        debugPrintfEXT("BEFORE: Image value is %f, %f, %f, %f", imageData.x, imageData.y, imageData.z, imageData.w);
+    }
+}

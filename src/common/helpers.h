@@ -48,4 +48,10 @@ constexpr int sgn(T val)
 	return (T(0) < val) - (val < T(0));
 }
 
+template <class integral>
+constexpr integral align_up(integral x, size_t a) noexcept
+{
+	return integral((x + (integral(a) - 1)) & ~integral(a - 1));
+}
+
 } // namespace vulkr

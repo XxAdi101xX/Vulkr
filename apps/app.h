@@ -150,6 +150,71 @@ struct ObjectData
     alignas(16) glm::mat4 model;
 };
 
+// Inputs used to build Bottom-level acceleration structure.
+// You manage the lifetime of the buffer(s) referenced by the
+// VkAccelerationStructureGeometryKHRs within. In particular, you must
+// make sure they are still valid and not being modified when the BLAS
+// is built or updated.
+struct BlasInput
+{
+    // Data used to build acceleration structure geometry
+    std::vector<VkAccelerationStructureGeometryKHR> asGeometry;
+    std::vector<VkAccelerationStructureBuildRangeInfoKHR> asBuildRangeInfo;
+};
+
+struct AccelKHR
+{
+    VkAccelerationStructureKHR accel = VK_NULL_HANDLE;
+    std::unique_ptr<Buffer> buffer;
+
+    Device &device;
+    AccelKHR(Device &device) : device(device)
+    {}
+    ~AccelKHR()
+    {
+        buffer.reset();
+        vkDestroyAccelerationStructureKHR(device.getHandle(), accel, nullptr);
+    }
+};
+
+// Bottom-level acceleration structure, along with the information needed to re-build it.
+struct BlasEntry
+{
+    // User-provided input.
+    BlasInput input;
+
+    // VkAccelerationStructureKHR plus extra info needed for our memory allocator.
+    std::unique_ptr<AccelKHR> as; // This struct should be initialized outside
+
+    // Additional parameters for acceleration structure builds
+    VkBuildAccelerationStructureFlagsKHR flags = 0;
+
+    BlasEntry() = default;
+    BlasEntry(BlasInput input_) : input(std::move(input_))
+    {}
+    ~BlasEntry()
+    {
+        as.reset();
+    }
+};
+
+// This is an instance of a BLAS
+struct BlasInstance
+{
+    uint32_t                   blasId{ 0 };            // Index of the BLAS in m_blas
+    uint32_t                   instanceCustomId{ 0 };  // Instance Index (gl_InstanceCustomIndexEXT)
+    uint32_t                   hitGroupId{ 0 };        // Hit group index in the SBT
+    uint32_t                   mask{ 0xFF };           // Visibility mask, will be AND-ed with ray mask
+    VkGeometryInstanceFlagsKHR flags{ VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR };
+    glm::mat4                  transform{ glm::mat4(1) };  // Identity
+};
+
+struct Tlas
+{
+    std::unique_ptr<AccelKHR> as;
+    VkBuildAccelerationStructureFlagsKHR flags = 0;
+};
+
 class MainApp : public Application
 {
 public:
@@ -166,8 +231,18 @@ public:
     virtual void handleInputEvents(const InputEvent& inputEvent) override;
 private:
     const std::string TEXTURE_PATH = "../../../assets/textures/lost_empire-RGBA.png";
+
+    /* 
+    IMPORTANT NOTICE: To enable/disable features, it is not adequate to add the extension name to the device extensions array below. You must also go into
+    instances.cpp to manually enable these features through VkPhysicalDeviceFeatures2 pNext chain
+    */
     const std::vector<const char *> deviceExtensions {
-        VK_KHR_SWAPCHAIN_EXTENSION_NAME
+        VK_KHR_SWAPCHAIN_EXTENSION_NAME, // Required to have access to the swapchain and render images to the screen
+        VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME, // Required by VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME
+        VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME, // To build acceleration structures
+        VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME, // Provides access to vkCmdTraceRaysKHR
+        VK_EXT_HOST_QUERY_RESET_EXTENSION_NAME, // Provides access to vkResetQueryPool
+        VK_KHR_SHADER_NON_SEMANTIC_INFO_EXTENSION_NAME, // Required to use debugPrintfEXT in shaders
     };
 
     std::unique_ptr<Instance> instance{ nullptr };
@@ -217,6 +292,7 @@ private:
 
         std::array<std::unique_ptr<DescriptorSet>, maxFramesInFlight> globalDescriptorSets;
         std::array<std::unique_ptr<DescriptorSet>, maxFramesInFlight> objectDescriptorSets;
+        std::array<std::unique_ptr<DescriptorSet>, maxFramesInFlight> rtDescriptorSets;
         std::array<std::unique_ptr<Buffer>, maxFramesInFlight> globalBuffers;
         std::array<std::unique_ptr<Buffer>, maxFramesInFlight> objectBuffers;
     } frameData;
@@ -243,7 +319,6 @@ private:
     void createFramebuffers();
     void createCommandPools();
     void createCommandBuffers();
-    void transitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout);
     void copyBufferToImage(const Buffer &srcBuffer, const Image &dstImage, uint32_t width, uint32_t height);
     void createDepthResources();
     std::unique_ptr<Image> createTextureImage(const char *filename);
@@ -267,6 +342,62 @@ private:
 
     std::shared_ptr<Material> getMaterial(const std::string &name);
     std::shared_ptr<Mesh> getMesh(const std::string &name);
+
+    // Raytracing TODO: cleanup this section
+    std::unique_ptr<Image> outputImage;
+    std::unique_ptr<ImageView> outputImageView;
+    void createOutputImageAndImageView();
+
+    BlasInput objectToVkGeometryKHR(size_t renderableIndex);
+    void createBottomLevelAS();
+    std::unique_ptr<AccelKHR> createAcceleration(VkAccelerationStructureCreateInfoKHR &accel);
+    void buildBlas(const std::vector<BlasInput> &input, VkBuildAccelerationStructureFlagsKHR flags);
+    // Vector containing all the BLASes built in buildBlas (and referenced by the TLAS)
+    std::vector<BlasEntry> m_blas;
+
+    void createTopLevelAS();
+    void buildTlas(
+        const std::vector<BlasInstance> &instances,
+        VkBuildAccelerationStructureFlagsKHR flags,
+        bool update = false
+    );
+    // Top-level acceleration structure
+    std::unique_ptr<Tlas> m_tlas;
+    VkAccelerationStructureInstanceKHR instanceToVkGeometryInstanceKHR(const BlasInstance &instance);
+    // Instance buffer containing the matrices and BLAS ids
+    std::unique_ptr<Buffer> m_instBuffer;
+
+    void createRtDescriptorPool();
+    void createRtDescriptorLayout();
+    void createRtDescriptorSets();
+
+    std::unique_ptr<DescriptorPool> m_rtDescPool;
+    std::unique_ptr<DescriptorSetLayout> m_rtDescSetLayout;
+
+    VkBufferUsageFlags flag = VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT; // TODO do we need this
+    VkBufferUsageFlags rayTracingFlags = // used also for building acceleration structures 
+        flag | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+
+    void updateRtDescriptorSet();
+
+    struct RtPushConstant
+    {
+        glm::vec4 clearColor{ 1.0f, 0.0f, 0.0f, 1.0f };
+        glm::vec3 lightPosition{ 10.0f, 15.0f, 8.0f };
+        float lightIntensity{ 100.0f };
+        int lightType{ 0 };
+    } m_rtPushConstants;
+    void                                              createRtPipeline();
+
+    std::vector<ShaderModule> raytracingShaderModules; // TODO: cleanup
+    std::vector<VkRayTracingShaderGroupCreateInfoKHR> m_rtShaderGroups;
+    VkPipelineLayout                                  m_rtPipelineLayout;
+    VkPipeline                                        m_rtPipeline;
+
+    void           createRtShaderBindingTable();
+    std::unique_ptr<Buffer> m_rtSBTBuffer;
+
+    void raytrace(const uint32_t &swapchainImageIndex);
 };
 
 } // namespace vulkr

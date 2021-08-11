@@ -35,7 +35,7 @@ namespace vulkr
 // ShaderSource implementations
 ShaderSource::ShaderSource(const std::string &fileName) :
 	fileName{ fileName },
-	data{ readFile(fileName) }
+	data{ readFile(spvFilePath + fileName) }
 {}
 
 const std::string &ShaderSource::getFileName() const
