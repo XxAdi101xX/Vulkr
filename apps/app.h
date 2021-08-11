@@ -305,6 +305,7 @@ private:
 
     // Subroutines
     void drawImGuiInterface();
+    void updateBuffersPerFrame();
     void drawObjects();
     void cleanupSwapchain();
     void createInstance();

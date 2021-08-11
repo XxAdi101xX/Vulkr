@@ -234,6 +234,8 @@ void MainApp::update()
     frameData.commandBuffers[currentFrame]->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
     //raytrace(swapchainImageIndex); // TODO enable this and disable drawObjects() to enable ray tracing
     frameData.commandBuffers[currentFrame]->beginRenderPass(*renderPass, *(swapchainFramebuffers[swapchainImageIndex]), swapchain->getProperties().imageExtent, clearValues, VK_SUBPASS_CONTENTS_INLINE);
+    // Update uniform buffers and ssbos
+    updateBuffersPerFrame();
     // Render scene
     drawObjects();
     // Render UI
@@ -376,12 +378,9 @@ void MainApp::drawImGuiInterface()
     // ImGui::ShowDemoWindow();
 }
 
-// TODO: as opposed to doing slot based binding of descriptor sets which leads to multiple vkCmdBindDescriptorSets calls per drawcall, you can use
-// frequency based descriptor sets and use dynamicOffsetCount: see https://zeux.io/2020/02/27/writing-an-efficient-vulkan-renderer/, or just bindless
-// decriptors altogether
-void MainApp::drawObjects()
+void MainApp::updateBuffersPerFrame()
 {
-    // Update camera buffer
+    // Update the camera buffer
     CameraData cameraData{};
     cameraData.view = cameraController->getCamera()->getView();
     cameraData.proj = cameraController->getCamera()->getProjection();
@@ -390,7 +389,7 @@ void MainApp::drawObjects()
     memcpy(mappedData, &cameraData, sizeof(cameraData));
     frameData.globalBuffers[currentFrame]->unmap();
 
-    // Update object buffer
+    // Update the object buffer
     mappedData = frameData.objectBuffers[currentFrame]->map();
     ObjectData *objectSSBO = (ObjectData *)mappedData;
     for (int index = 0; index < renderables.size(); index++)
@@ -398,7 +397,13 @@ void MainApp::drawObjects()
         objectSSBO[index].model = renderables[index].transformMatrix;
     }
     frameData.objectBuffers[currentFrame]->unmap();
+}
 
+// TODO: as opposed to doing slot based binding of descriptor sets which leads to multiple vkCmdBindDescriptorSets calls per drawcall, you can use
+// frequency based descriptor sets and use dynamicOffsetCount: see https://zeux.io/2020/02/27/writing-an-efficient-vulkan-renderer/, or just bindless
+// decriptors altogether
+void MainApp::drawObjects()
+{
     // Draw renderables
     std::shared_ptr<Mesh> lastMesh = nullptr;
     std::shared_ptr<Material> lastMaterial = nullptr;
