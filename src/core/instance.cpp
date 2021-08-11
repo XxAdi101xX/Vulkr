@@ -36,7 +36,7 @@ Instance::Instance(std::string applicationName)
 #ifdef VULKR_DEBUG
     if (!checkValidationLayerSupport())
     {
-        throw std::runtime_error("Validation layers are not available when requested!");
+        LOGEANDABORT("Validation layers are not available when requested!");
     }
 #endif // VULKR_DEBUG
 
@@ -45,31 +45,37 @@ Instance::Instance(std::string applicationName)
     appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
     appInfo.pEngineName = "Vulkr";
     appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
-    appInfo.apiVersion = VK_API_VERSION_1_0;
+    appInfo.apiVersion = VK_API_VERSION_1_2;
 
-    VkInstanceCreateInfo createInfo{ VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO };
-    createInfo.pApplicationInfo = &appInfo;
+    VkInstanceCreateInfo instanceCreateInfo{ VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO };
+    instanceCreateInfo.pApplicationInfo = &appInfo;
 
-    std::vector<const char*> extensions = getRequiredInstanceExtensions();
-    createInfo.enabledExtensionCount = to_u32(extensions.size());
-    createInfo.ppEnabledExtensionNames = extensions.data();
+    std::vector<const char *> extensions = getRequiredInstanceExtensions();
+    instanceCreateInfo.enabledExtensionCount = to_u32(extensions.size());
+    instanceCreateInfo.ppEnabledExtensionNames = extensions.data();
 
 #ifdef VULKR_DEBUG
-    createInfo.enabledLayerCount = to_u32(requiredValidationLayers.size());
-    createInfo.ppEnabledLayerNames = requiredValidationLayers.data();
+    instanceCreateInfo.enabledLayerCount = to_u32(requiredValidationLayers.size());
+    instanceCreateInfo.ppEnabledLayerNames = requiredValidationLayers.data();
+
+    VkValidationFeatureEnableEXT validationFeatureEnableEXT[] = { VK_VALIDATION_FEATURE_ENABLE_DEBUG_PRINTF_EXT };
+    VkValidationFeaturesEXT validationFeatures{ VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT };
+    validationFeatures.enabledValidationFeatureCount = 1;
+    validationFeatures.pEnabledValidationFeatures = validationFeatureEnableEXT;
 
     VkDebugUtilsMessengerCreateInfoEXT debugUtilsCreateInfo = { VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT };
-    debugUtilsCreateInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+    debugUtilsCreateInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
     debugUtilsCreateInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
     debugUtilsCreateInfo.pfnUserCallback = debugUtilsMessengerCallback;
+    debugUtilsCreateInfo.pNext = &validationFeatures;
 
-    createInfo.pNext = (VkDebugUtilsMessengerCreateInfoEXT*)&debugUtilsCreateInfo;
+    instanceCreateInfo.pNext = (VkDebugUtilsMessengerCreateInfoEXT*)&debugUtilsCreateInfo;
 #else
-    createInfo.enabledLayerCount = 0;
-    createInfo.pNext = nullptr;
+    instanceCreateInfo.enabledLayerCount = 0;
+    instanceCreateInfo.pNext = nullptr;
 #endif // VULKR_DEBUG
 
-    VK_CHECK(vkCreateInstance(&createInfo, nullptr, &instance));
+    VK_CHECK(vkCreateInstance(&instanceCreateInfo, nullptr, &instance));
 
     volkLoadInstance(instance);
 
@@ -177,7 +183,7 @@ std::unique_ptr<PhysicalDevice> Instance::getSuitablePhysicalDevice()
 
     if (physicalDeviceCount < 1)
     {
-        throw std::runtime_error("Instance::selectGPU: Couldn't find a physical device that supports Vulkan.");
+        LOGEANDABORT("Instance::selectGPU: Couldn't find a physical device that supports Vulkan.");
     }
 
     std::vector<VkPhysicalDevice> physicalDevices;
