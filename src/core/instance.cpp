@@ -164,7 +164,7 @@ VKAPI_ATTR VkBool32 VKAPI_CALL Instance::debugUtilsMessengerCallback(
     }
     else if (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
     {
-        LOGEANDABORT("{} - {}: {}", pCallbackData->messageIdNumber,messageIdName, pCallbackData->pMessage);
+        LOGE("{} - {}: {}", pCallbackData->messageIdNumber,messageIdName, pCallbackData->pMessage);
     }
     else if (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT)
     {
