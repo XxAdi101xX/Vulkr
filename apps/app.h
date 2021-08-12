@@ -381,12 +381,13 @@ private:
 
     void updateRtDescriptorSet();
 
+    // TODO: do ch 11.3
     struct RtPushConstant
     {
-        glm::vec4 clearColor{ 1.0f, 0.0f, 0.0f, 1.0f };
+        glm::vec4 clearColor{ 0.0f, 0.1f, 0.3f, 1.0f };
         glm::vec3 lightPosition{ 10.0f, 15.0f, 8.0f };
         float lightIntensity{ 100.0f };
-        int lightType{ 0 };
+        int lightType{ 0 }; // 0: point, 1: infinite
     } m_rtPushConstants;
     void                                              createRtPipeline();
 

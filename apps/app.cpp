@@ -1930,7 +1930,7 @@ void MainApp::createRtDescriptorSets()
 
         VkDescriptorImageInfo outputImageInfo{};
         outputImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-        outputImageInfo.imageView = outputImageView->getHandle(); // TODO CHANGE THIS BACK
+        outputImageInfo.imageView = outputImageView->getHandle();
         outputImageInfo.sampler = {};
 
         VkWriteDescriptorSet descriptorWriteStorageImage{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
