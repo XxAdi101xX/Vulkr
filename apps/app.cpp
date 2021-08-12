@@ -237,12 +237,12 @@ void MainApp::update()
     // Update uniform buffers and ssbos
     updateBuffersPerFrame();
     // Render scene
-    drawObjects();
+    //drawObjects();
     // Render UI
     ImGui::Render();
     ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), frameData.commandBuffers[currentFrame]->getHandle());
     frameData.commandBuffers[currentFrame]->endRenderPass();
-    //raytrace(swapchainImageIndex); // TODO remove this
+    raytrace(swapchainImageIndex); // TODO remove this
     frameData.commandBuffers[currentFrame]->end();
 
     // I have setup a subpass dependency to ensure that the render pass waits for the swapchain to finish reading from the image before accessing it
