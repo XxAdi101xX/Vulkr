@@ -107,6 +107,22 @@ namespace vulkr
 constexpr uint32_t maxFramesInFlight{ 2 }; // Explanation on this how we got this number: https://software.intel.com/content/www/us/en/develop/articles/practical-approach-to-vulkan-part-1.html
 constexpr uint32_t MAX_OBJECT_COUNT{ 10000 };
 
+/* Structs shared on both the GPU and CPU */
+struct CameraData
+{
+    alignas(16) glm::mat4 view;
+    alignas(16) glm::mat4 proj;
+};
+
+/* CPU only structs */
+struct ObjectData
+{
+    alignas(16) glm::mat4 model;
+    alignas(16) glm::mat4 modelIT;
+    alignas(8) VkDeviceAddress vertexBufferAddress;
+    alignas(8) VkDeviceAddress indexBufferAddress;
+};
+
 struct Mesh
 {
     std::vector<Vertex> vertices;
@@ -137,17 +153,6 @@ struct RenderObject
     std::shared_ptr<Material> material;
 
     glm::mat4 transformMatrix;
-};
-
-struct CameraData
-{
-    alignas(16) glm::mat4 view;
-    alignas(16) glm::mat4 proj;
-};
-
-struct ObjectData
-{
-    alignas(16) glm::mat4 model;
 };
 
 // Inputs used to build Bottom-level acceleration structure.
@@ -215,6 +220,7 @@ struct Tlas
     VkBuildAccelerationStructureFlagsKHR flags = 0;
 };
 
+/* MainApp class */
 class MainApp : public Application
 {
 public:
@@ -384,7 +390,7 @@ private:
     // TODO: do ch 11.3
     struct RtPushConstant
     {
-        glm::vec4 clearColor{ 0.0f, 0.1f, 0.3f, 1.0f };
+        glm::vec4 clearColor{ 1.0f, 1.0f, 1.0f, 1.0f };
         glm::vec3 lightPosition{ 10.0f, 15.0f, 8.0f };
         float lightIntensity{ 100.0f };
         int lightType{ 0 }; // 0: point, 1: infinite

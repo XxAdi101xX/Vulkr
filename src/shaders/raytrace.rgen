@@ -1,15 +1,15 @@
 #version 460
 #extension GL_EXT_ray_tracing : require
-#extension GL_EXT_debug_printf : enable
+//#extension GL_EXT_debug_printf : enable
 #extension GL_GOOGLE_include_directive : enable
 #include "raycommon.glsl"
 
-layout(binding = 0, set = 0) uniform accelerationStructureEXT topLevelAS;
-layout(binding = 1, set = 0, rgba8_snorm) uniform image2D image;
+layout(set = 0, binding = 0) uniform accelerationStructureEXT topLevelAS;
+layout(set = 0, binding = 1, rgba8_snorm) uniform image2D image;
 
 layout(location = 0) rayPayloadEXT hitPayload prd;
 
-layout(binding = 0, set = 1) uniform CameraBuffer
+layout(set = 1, binding = 0) uniform CameraBuffer
 {
     mat4 view;
     mat4 proj;

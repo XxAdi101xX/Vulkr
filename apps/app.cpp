@@ -392,9 +392,17 @@ void MainApp::updateBuffersPerFrame()
     // Update the object buffer
     mappedData = frameData.objectBuffers[currentFrame]->map();
     ObjectData *objectSSBO = (ObjectData *)mappedData;
+    VkBufferDeviceAddressInfo bufferDeviceAddressInfo = { VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO_KHR };
     for (int index = 0; index < renderables.size(); index++)
     {
         objectSSBO[index].model = renderables[index].transformMatrix;
+        objectSSBO[index].modelIT = glm::transpose(glm::inverse(renderables[index].transformMatrix));
+
+        // TODO this doesn't have to be set per frame, we can do this once in the beginning
+        bufferDeviceAddressInfo.buffer = renderables[index].mesh->vertexBuffer->getHandle();
+        objectSSBO[index].vertexBufferAddress = vkGetBufferDeviceAddress(device->getHandle(), &bufferDeviceAddressInfo);
+        bufferDeviceAddressInfo.buffer = renderables[index].mesh->indexBuffer->getHandle();
+        objectSSBO[index].indexBufferAddress = vkGetBufferDeviceAddress(device->getHandle(), &bufferDeviceAddressInfo);
     }
     frameData.objectBuffers[currentFrame]->unmap();
 }
@@ -469,6 +477,7 @@ void MainApp::createDevice()
 {
     VkPhysicalDeviceFeatures deviceFeatures{};
     deviceFeatures.samplerAnisotropy = VK_TRUE;
+    deviceFeatures.shaderInt64 = VK_TRUE;
 
     std::unique_ptr<PhysicalDevice> physicalDevice = instance->getSuitablePhysicalDevice();
     physicalDevice->setRequestedFeatures(deviceFeatures);

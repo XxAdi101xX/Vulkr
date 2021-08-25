@@ -1,13 +1,13 @@
 #version 460
 
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+#extension GL_GOOGLE_include_directive : enable
+#include "common.glsl"
+
 layout(set = 0, binding = 0) uniform CameraBuffer {
     mat4 view;
     mat4 proj;
 } camera;
-
-struct ObjectData {
-	mat4 model;
-};
 
 layout(std140, set = 1, binding = 0) readonly buffer ObjectBuffer {
 	ObjectData objects[];
