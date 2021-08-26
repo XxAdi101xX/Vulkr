@@ -1151,10 +1151,10 @@ void MainApp::loadMeshes()
 {
     // TODO resolve warning messages saying that mtl files are not found
     std::shared_ptr<Mesh> monkeyMesh = std::make_shared<Mesh>();
-    monkeyMesh->loadFromObjFile("../../../assets/models/monkey_smooth.obj");
+    monkeyMesh->loadFromObjFile("../../assets/models/monkey_smooth.obj");
 
     std::shared_ptr<Mesh> empireMesh = std::make_shared<Mesh>();
-    empireMesh->loadFromObjFile("../../../assets/models/lost_empire.obj");
+    empireMesh->loadFromObjFile("../../assets/models/lost_empire.obj");
 
     createVertexBuffer(monkeyMesh);
     createIndexBuffer(monkeyMesh);
@@ -1222,29 +1222,19 @@ std::shared_ptr<Mesh> MainApp::getMesh(const std::string &name)
 
 void Mesh::loadFromObjFile(const char *filename)
 {
-    // Attrib will contain the vertex arrays of the file
-    tinyobj::attrib_t attrib;
-    // Shapes contains the info for each separate object in the file
-    std::vector<tinyobj::shape_t> shapes;
-    // Materials contains the information about the material of each shape, but we wont use it.
-    std::vector<tinyobj::material_t> materials;
-
-    // Error and warning output from the load function
-    std::string warn;
-    std::string err;
-
-    // Load the OBJ file
-    tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, filename, nullptr);
-    if (!warn.empty())
+    tinyobj::ObjReader reader;
+    reader.ParseFromFile(filename);
+    if (!reader.Valid())
     {
-        LOGW(warn);
+        LOGEANDABORT(reader.Error().c_str());
     }
 
-    // This happens if the file cant be found or is malformed
-    if (!err.empty())
-    {
-        LOGEANDABORT(err);
-    }
+    // Attrib contains the vertex arrays of the file
+    const tinyobj::attrib_t &attrib = reader.GetAttrib();
+    // Shapes contain the info for each separate object in the file
+    const std::vector<tinyobj::shape_t> &shapes = reader.GetShapes();
+    // Materials contains the information about the material of each shape
+    const std::vector<tinyobj::material_t> &materials = reader.GetMaterials();
 
     std::unordered_map<Vertex, uint32_t> uniqueVertices{};
 

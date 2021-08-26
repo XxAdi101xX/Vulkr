@@ -236,7 +236,7 @@ public:
 
     virtual void handleInputEvents(const InputEvent& inputEvent) override;
 private:
-    const std::string TEXTURE_PATH = "../../../assets/textures/lost_empire-RGBA.png";
+    const std::string TEXTURE_PATH = "../../assets/textures/lost_empire-RGBA.png";
 
     /* 
     IMPORTANT NOTICE: To enable/disable features, it is not adequate to add the extension name to the device extensions array below. You must also go into

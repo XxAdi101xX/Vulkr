@@ -360,6 +360,4 @@ MigrationBackup/
 FodyWeavers.xsd
 
 # CMake Related Build Files
-out/
-
 build/
