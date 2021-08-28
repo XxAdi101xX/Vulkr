@@ -400,9 +400,13 @@ void MainApp::updateBuffersPerFrame()
 
         // TODO this doesn't have to be set per frame, we can do this once in the beginning
         bufferDeviceAddressInfo.buffer = renderables[index].mesh->vertexBuffer->getHandle();
-        objectSSBO[index].vertexBufferAddress = vkGetBufferDeviceAddress(device->getHandle(), &bufferDeviceAddressInfo);
+        objectSSBO[index].vertices = vkGetBufferDeviceAddress(device->getHandle(), &bufferDeviceAddressInfo);
         bufferDeviceAddressInfo.buffer = renderables[index].mesh->indexBuffer->getHandle();
-        objectSSBO[index].indexBufferAddress = vkGetBufferDeviceAddress(device->getHandle(), &bufferDeviceAddressInfo);
+        objectSSBO[index].indices = vkGetBufferDeviceAddress(device->getHandle(), &bufferDeviceAddressInfo);
+        bufferDeviceAddressInfo.buffer = renderables[index].mesh->materialsBuffer->getHandle();
+        objectSSBO[index].materials = vkGetBufferDeviceAddress(device->getHandle(), &bufferDeviceAddressInfo);
+        bufferDeviceAddressInfo.buffer = renderables[index].mesh->materialsIndexBuffer->getHandle();
+        objectSSBO[index].materialIndices = vkGetBufferDeviceAddress(device->getHandle(), &bufferDeviceAddressInfo);
     }
     frameData.objectBuffers[currentFrame]->unmap();
 }
@@ -451,7 +455,7 @@ void MainApp::drawObjects()
             lastMesh = object.mesh;
         }
 
-        vkCmdDrawIndexed(frameData.commandBuffers[currentFrame]->getHandle(), to_u32(object.mesh->indices.size()), 1, 0, 0, index);
+        vkCmdDrawIndexed(frameData.commandBuffers[currentFrame]->getHandle(), to_u32(object.mesh->indicesCount), 1, 0, 0, index);
     }
 }
 
@@ -617,7 +621,7 @@ void MainApp::createGraphicsPipelines()
 
     VkVertexInputBindingDescription bindingDescription{};
     bindingDescription.binding = 0;
-    bindingDescription.stride = sizeof(Vertex);
+    bindingDescription.stride = sizeof(VertexObj);
     bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
     vertexInputState.bindingDescriptions.emplace_back(bindingDescription);
 
@@ -626,25 +630,25 @@ void MainApp::createGraphicsPipelines()
     positionAttributeDescription.binding = 0;
     positionAttributeDescription.location = 0;
     positionAttributeDescription.format = VK_FORMAT_R32G32B32_SFLOAT;
-    positionAttributeDescription.offset = offsetof(Vertex, position);
+    positionAttributeDescription.offset = offsetof(VertexObj, position);
     // Normal at location 1
     VkVertexInputAttributeDescription normalAttributeDescription;
     normalAttributeDescription.binding = 0;
     normalAttributeDescription.location = 1;
     normalAttributeDescription.format = VK_FORMAT_R32G32B32_SFLOAT;
-    normalAttributeDescription.offset = offsetof(Vertex, normal);
+    normalAttributeDescription.offset = offsetof(VertexObj, normal);
     // Color at location 2
     VkVertexInputAttributeDescription colorAttributeDescription;
     colorAttributeDescription.binding = 0;
     colorAttributeDescription.location = 2;
     colorAttributeDescription.format = VK_FORMAT_R32G32B32_SFLOAT;
-    colorAttributeDescription.offset = offsetof(Vertex, color);
+    colorAttributeDescription.offset = offsetof(VertexObj, color);
     // TexCoord at location 3
     VkVertexInputAttributeDescription textureCoordinateAttributeDescription;
     textureCoordinateAttributeDescription.binding = 0;
     textureCoordinateAttributeDescription.location = 3;
     textureCoordinateAttributeDescription.format = VK_FORMAT_R32G32_SFLOAT;
-    textureCoordinateAttributeDescription.offset = offsetof(Vertex, textureCoordinate);
+    textureCoordinateAttributeDescription.offset = offsetof(VertexObj, textureCoordinate);
 
     vertexInputState.attributeDescriptions.emplace_back(positionAttributeDescription);
     vertexInputState.attributeDescriptions.emplace_back(normalAttributeDescription);
@@ -930,7 +934,6 @@ void MainApp::createTextureSampler()
 
 void MainApp::copyBufferToBuffer(const Buffer &srcBuffer, const Buffer &dstBuffer, VkDeviceSize size)
 {
-    // TODO: move this elsewhere?
     std::unique_ptr<CommandBuffer> commandBuffer = std::make_unique<CommandBuffer>(*frameData.commandPools[currentFrame], VK_COMMAND_BUFFER_LEVEL_PRIMARY);
 
     commandBuffer->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
@@ -949,9 +952,9 @@ void MainApp::copyBufferToBuffer(const Buffer &srcBuffer, const Buffer &dstBuffe
     vkQueueWaitIdle(graphicsQueue);
 }
 
-void MainApp::createVertexBuffer(std::shared_ptr<Mesh> mesh)
+void MainApp::createVertexBuffer(std::shared_ptr<Mesh> mesh, const ObjLoader &objLoader)
 {
-    VkDeviceSize bufferSize{ sizeof(mesh->vertices[0]) * mesh->vertices.size() };
+    VkDeviceSize bufferSize{ sizeof(objLoader.vertices[0]) * objLoader.vertices.size() };
 
     VkBufferCreateInfo bufferInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
     bufferInfo.size = bufferSize;
@@ -967,14 +970,14 @@ void MainApp::createVertexBuffer(std::shared_ptr<Mesh> mesh)
     mesh->vertexBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
 
     void *mappedData = stagingBuffer->map();
-    memcpy(mappedData, mesh->vertices.data(), static_cast<size_t>(bufferSize));
+    memcpy(mappedData, objLoader.vertices.data(), static_cast<size_t>(bufferSize));
     stagingBuffer->unmap();
     copyBufferToBuffer(*stagingBuffer, *(mesh->vertexBuffer), bufferSize);
 }
 
-void MainApp::createIndexBuffer(std::shared_ptr<Mesh> mesh)
+void MainApp::createIndexBuffer(std::shared_ptr<Mesh> mesh, const ObjLoader &objLoader)
 {
-    VkDeviceSize bufferSize{ sizeof(mesh->indices[0]) * mesh->indices.size() };
+    VkDeviceSize bufferSize{ sizeof(objLoader.indices[0]) * objLoader.indices.size() };
 
     VkBufferCreateInfo bufferInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
     bufferInfo.size = bufferSize;
@@ -992,12 +995,61 @@ void MainApp::createIndexBuffer(std::shared_ptr<Mesh> mesh)
     mesh->indexBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
 
     void *mappedData = stagingBuffer->map();
-    memcpy(mappedData, mesh->indices.data(), static_cast<size_t>(bufferSize));
+    memcpy(mappedData, objLoader.indices.data(), static_cast<size_t>(bufferSize));
     stagingBuffer->unmap();
     copyBufferToBuffer(*stagingBuffer, *(mesh->indexBuffer), bufferSize);
 }
 
-// TODO use push constants to pass in mvp matrix information to the vertext shader
+void MainApp::createMaterialBuffer(std::shared_ptr<Mesh> mesh, const ObjLoader &objLoader)
+{
+    VkDeviceSize bufferSize{ sizeof(objLoader.materials[0]) * objLoader.materials.size() };
+
+    VkBufferCreateInfo bufferInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+    bufferInfo.size = bufferSize;
+    bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+    VmaAllocationCreateInfo memoryInfo{};
+    memoryInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
+
+    std::unique_ptr<Buffer> stagingBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
+
+    bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | rayTracingFlags;
+    memoryInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+
+    mesh->materialsBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
+
+    void *mappedData = stagingBuffer->map();
+    memcpy(mappedData, objLoader.materials.data(), static_cast<size_t>(bufferSize));
+    stagingBuffer->unmap();
+    copyBufferToBuffer(*stagingBuffer, *(mesh->materialsBuffer), bufferSize);
+}
+
+void MainApp::createMaterialIndicesBuffer(std::shared_ptr<Mesh> mesh, const ObjLoader &objLoader)
+{
+    VkDeviceSize bufferSize{ sizeof(objLoader.materialIndices[0]) * objLoader.materialIndices.size() };
+
+    VkBufferCreateInfo bufferInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+    bufferInfo.size = bufferSize;
+    bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+    VmaAllocationCreateInfo memoryInfo{};
+    memoryInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
+
+    std::unique_ptr<Buffer> stagingBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
+
+    bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | rayTracingFlags;
+    memoryInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+
+    mesh->materialsIndexBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
+
+    void *mappedData = stagingBuffer->map();
+    memcpy(mappedData, objLoader.materialIndices.data(), static_cast<size_t>(bufferSize));
+    stagingBuffer->unmap();
+    copyBufferToBuffer(*stagingBuffer, *(mesh->materialsIndexBuffer), bufferSize);
+}
+
 void MainApp::createUniformBuffers()
 {
     VkDeviceSize bufferSize{ sizeof(CameraData) };
@@ -1149,18 +1201,28 @@ void MainApp::setupSynchronizationObjects()
 
 void MainApp::loadMeshes()
 {
-    // TODO resolve warning messages saying that mtl files are not found
     std::shared_ptr<Mesh> monkeyMesh = std::make_shared<Mesh>();
-    monkeyMesh->loadFromObjFile("../../assets/models/monkey_smooth.obj");
+    ObjLoader monkeyObj;
+    monkeyObj.loadModel("../../assets/models/monkey_smooth.obj");
+    monkeyMesh->verticesCount = to_u32(monkeyObj.vertices.size());
+    monkeyMesh->indicesCount = to_u32(monkeyObj.indices.size());
 
     std::shared_ptr<Mesh> empireMesh = std::make_shared<Mesh>();
-    empireMesh->loadFromObjFile("../../assets/models/lost_empire.obj");
+    ObjLoader empireObj;
+    empireObj.loadModel("../../assets/models/lost_empire.obj");
+    empireMesh->verticesCount = to_u32(empireObj.vertices.size());
+    empireMesh->indicesCount = to_u32(empireObj.indices.size());
 
-    createVertexBuffer(monkeyMesh);
-    createIndexBuffer(monkeyMesh);
-    createVertexBuffer(empireMesh);
-    createIndexBuffer(empireMesh);
+    createVertexBuffer(monkeyMesh, monkeyObj);
+    createIndexBuffer(monkeyMesh, monkeyObj);
+    createMaterialBuffer(monkeyMesh, monkeyObj);
+    createMaterialIndicesBuffer(monkeyMesh, monkeyObj);
 
+    createVertexBuffer(empireMesh, empireObj);
+    createIndexBuffer(empireMesh, empireObj);
+    createMaterialBuffer(empireMesh, empireObj);
+    createMaterialIndicesBuffer(empireMesh, empireObj);
+    
     meshes["monkey"] = monkeyMesh;
     meshes["empire"] = empireMesh;
 }
@@ -1218,72 +1280,6 @@ std::shared_ptr<Mesh> MainApp::getMesh(const std::string &name)
     }
 
     return it->second;
-}
-
-void Mesh::loadFromObjFile(const char *filename)
-{
-    tinyobj::ObjReader reader;
-    reader.ParseFromFile(filename);
-    if (!reader.Valid())
-    {
-        LOGEANDABORT(reader.Error().c_str());
-    }
-
-    // Attrib contains the vertex arrays of the file
-    const tinyobj::attrib_t &attrib = reader.GetAttrib();
-    // Shapes contain the info for each separate object in the file
-    const std::vector<tinyobj::shape_t> &shapes = reader.GetShapes();
-    // Materials contains the information about the material of each shape
-    const std::vector<tinyobj::material_t> &materials = reader.GetMaterials();
-
-    std::unordered_map<Vertex, uint32_t> uniqueVertices{};
-
-    // Loop over shapes
-    for (size_t s = 0; s < shapes.size(); s++)
-    {
-        // Loop over faces(polygon)
-        size_t index_offset = 0;
-        for (size_t f = 0; f < shapes[s].mesh.num_face_vertices.size(); f++)
-        {
-            // Hardcode loading to triangles
-            int fv = 3;
-
-            // Loop over vertices in the face.
-            for (size_t v = 0; v < fv; v++)
-            {
-                // Access to vertex
-                tinyobj::index_t idx = shapes[s].mesh.indices[index_offset + v];
-
-                // Vertex position
-                tinyobj::real_t vx = attrib.vertices[3 * idx.vertex_index + 0];
-                tinyobj::real_t vy = attrib.vertices[3 * idx.vertex_index + 1];
-                tinyobj::real_t vz = attrib.vertices[3 * idx.vertex_index + 2];
-                // Vertex normal
-                tinyobj::real_t nx = attrib.normals[3 * idx.normal_index + 0];
-                tinyobj::real_t ny = attrib.normals[3 * idx.normal_index + 1];
-                tinyobj::real_t nz = attrib.normals[3 * idx.normal_index + 2];
-                // Texture coordinates
-                tinyobj::real_t ux = attrib.texcoords[2 * idx.texcoord_index + 0];
-                tinyobj::real_t uy = attrib.texcoords[2 * idx.texcoord_index + 1];
-
-                // Create a new vertex entry
-                Vertex newVertex;
-                newVertex.position = { vx, vy, vz };
-                newVertex.normal = { nx, ny, nz };
-                newVertex.color = { nx, ny, nz }; // Set the colour as the normal values for now
-                newVertex.textureCoordinate = { ux, 1 - uy };
-
-                if (uniqueVertices.count(newVertex) == 0)
-                {
-                    uniqueVertices[newVertex] = to_u32(vertices.size());
-                    vertices.push_back(newVertex);
-                }
-
-                indices.push_back(uniqueVertices[newVertex]);
-            }
-            index_offset += fv;
-        }
-    }
 }
 
 void MainApp::initializeImGui()
@@ -1390,19 +1386,19 @@ BlasInput MainApp::objectToVkGeometryKHR(size_t renderableIndex)
     bufferDeviceAddressInfo.buffer = renderables[renderableIndex].mesh->indexBuffer->getHandle();
     VkDeviceAddress indexAddress = vkGetBufferDeviceAddress(device->getHandle(), &bufferDeviceAddressInfo);
 
-    uint32_t maxPrimitiveCount = renderables[renderableIndex].mesh->indices.size() / 3;
+    uint32_t maxPrimitiveCount = renderables[renderableIndex].mesh->indicesCount / 3;
 
     // Describe buffer as array of VertexObj.
     VkAccelerationStructureGeometryTrianglesDataKHR triangles{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR };
     triangles.vertexFormat = VK_FORMAT_R32G32B32A32_SFLOAT;  // vec3 vertex position data.
     triangles.vertexData.deviceAddress = vertexAddress;
-    triangles.vertexStride = sizeof(Vertex);
+    triangles.vertexStride = sizeof(VertexObj);
     // Describe index data (32-bit unsigned int)
     triangles.indexType = VK_INDEX_TYPE_UINT32;
     triangles.indexData.deviceAddress = indexAddress;
     // Indicate identity transform by setting transformData to null device pointer.
     //triangles.transformData = {};
-    triangles.maxVertex = renderables[renderableIndex].mesh->vertices.size();
+    triangles.maxVertex = renderables[renderableIndex].mesh->verticesCount;
 
     // Identify the above data as containing opaque triangles.
     VkAccelerationStructureGeometryKHR asGeometry{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR };

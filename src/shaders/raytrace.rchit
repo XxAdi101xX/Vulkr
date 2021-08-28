@@ -37,8 +37,8 @@ void main()
 {
     // Object data
     ObjectData objResource = objectBuffer.objects[gl_InstanceCustomIndexEXT];
-    Indices indices = Indices(objResource.indexBufferAddress);
-    Vertices vertices = Vertices(objResource.vertexBufferAddress);
+    Vertices vertices = Vertices(objResource.vertices);
+    Indices indices = Indices(objResource.indices);
   
     // Indices of the triangle
     ivec3 ind = indices.i[gl_PrimitiveID];

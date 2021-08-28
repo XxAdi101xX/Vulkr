@@ -50,20 +50,15 @@
 #include "common/fence_pool.h"
 #include "common/helpers.h"
 #include "common/timer.h"
+#include "common/obj_loader.h"
 
 #include "platform/application.h"
 #include "platform/input_event.h"
-
-#define TINYOBJLOADER_IMPLEMENTATION
-#include <tiny_obj_loader.h>
 
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE // don't use the OpenGL default depth range of -1.0 to 1.0 and use 0.0 to 1.0
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
-
-#define GLM_ENABLE_EXPERIMENTAL
-#include <glm/gtx/hash.hpp>
 
 #include <chrono>
 
@@ -73,29 +68,6 @@
 #include <imgui.h>
 #include <backends/imgui_impl_glfw.h>
 #include <backends/imgui_impl_vulkan.h>
-
-struct Vertex {
-    glm::vec3 position;
-    glm::vec3 normal;
-    glm::vec3 color;
-    glm::vec2 textureCoordinate;
-
-    bool operator==(const Vertex &other) const {
-    return position == other.position && color == other.color &&
-            textureCoordinate == other.textureCoordinate;
-    }
-};
-
-namespace std {
-    template <> struct hash<Vertex> {
-        size_t operator()(Vertex const &vertex) const {
-        return ((hash<glm::vec3>()(vertex.position) ^
-                    (hash<glm::vec3>()(vertex.color) << 1)) >>
-                1) ^
-                (hash<glm::vec2>()(vertex.textureCoordinate) << 1);
-        }
-    };
-} // namespace std
 
 // Required for imgui integration, might be able to remove this if there's an alternate integration with volk
 VkInstance g_instance;
@@ -119,18 +91,20 @@ struct ObjectData
 {
     alignas(16) glm::mat4 model;
     alignas(16) glm::mat4 modelIT;
-    alignas(8) VkDeviceAddress vertexBufferAddress;
-    alignas(8) VkDeviceAddress indexBufferAddress;
+    alignas(8) VkDeviceAddress vertices;
+    alignas(8) VkDeviceAddress indices;
+    alignas(8) VkDeviceAddress materials;
+    alignas(8) VkDeviceAddress materialIndices;
 };
 
 struct Mesh
 {
-    std::vector<Vertex> vertices;
-    std::vector<uint32_t> indices;
+    uint32_t verticesCount;
+    uint32_t indicesCount;
     std::unique_ptr<Buffer> vertexBuffer;
     std::unique_ptr<Buffer> indexBuffer;
-
-    void loadFromObjFile(const char *fileName);
+    std::unique_ptr<Buffer> materialsBuffer;
+    std::unique_ptr<Buffer> materialsIndexBuffer;
 };
 
 struct Material
@@ -333,8 +307,10 @@ private:
     void loadTextures();
     void createTextureSampler();
     void copyBufferToBuffer(const Buffer &srcBuffer, const Buffer &dstBuffer, VkDeviceSize size);
-    void createVertexBuffer(std::shared_ptr<Mesh> mesh);
-    void createIndexBuffer(std::shared_ptr<Mesh> mesh);
+    void createVertexBuffer(std::shared_ptr<Mesh> mesh, const ObjLoader &objLoader);
+    void createIndexBuffer(std::shared_ptr<Mesh> mesh, const ObjLoader &objLoader);
+    void createMaterialBuffer(std::shared_ptr<Mesh> mesh, const ObjLoader &objLoader);
+    void createMaterialIndicesBuffer(std::shared_ptr<Mesh> mesh, const ObjLoader &objLoader);
     void createUniformBuffers();
     void createSSBOs();
     void createDescriptorPool();

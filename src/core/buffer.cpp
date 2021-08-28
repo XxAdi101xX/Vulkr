@@ -22,6 +22,7 @@
 
 #include "buffer.h"
 #include "device.h"
+#include "command_buffer.h"
 
 namespace vulkr
 {

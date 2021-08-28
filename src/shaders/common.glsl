@@ -10,6 +10,8 @@ struct ObjectData
 {
 	mat4 model;
 	mat4 modelIT;
-    uint64_t vertexBufferAddress;
-    uint64_t indexBufferAddress;
+    uint64_t vertices;
+    uint64_t indices;
+    uint64_t materials;
+    uint64_t materialIndices;
 };

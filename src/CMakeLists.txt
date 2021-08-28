@@ -33,12 +33,14 @@ set(COMMON_FILES
     common/fence_pool.h
     common/semaphore_pool.h
     common/timer.h
+    common/obj_loader.h
     # Source Files
     common/vulkan_common.cpp
     common/strings.cpp
     common/fence_pool.cpp
     common/semaphore_pool.cpp
     common/timer.cpp
+    common/obj_loader.cpp
 )
 
 set(CORE_FILES
