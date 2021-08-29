@@ -180,7 +180,7 @@ void MainApp::prepare()
     createSSBOs();
     createDescriptorPool();
     createDescriptorSets();
-    loadMeshes();
+    loadModels();
     createScene();
 
     createOutputImageAndImageView();
@@ -1199,44 +1199,41 @@ void MainApp::setupSynchronizationObjects()
     }
 }
 
-void MainApp::loadMeshes()
+void MainApp::loadModel(const std::string objFileName)
 {
-    std::shared_ptr<Mesh> monkeyMesh = std::make_shared<Mesh>();
-    ObjLoader monkeyObj;
-    monkeyObj.loadModel("../../assets/models/monkey_smooth.obj");
-    monkeyMesh->verticesCount = to_u32(monkeyObj.vertices.size());
-    monkeyMesh->indicesCount = to_u32(monkeyObj.indices.size());
+    const std::string modelPath = "../../assets/models/";
+    const std::string filePath = modelPath + objFileName;
 
-    std::shared_ptr<Mesh> empireMesh = std::make_shared<Mesh>();
-    ObjLoader empireObj;
-    empireObj.loadModel("../../assets/models/lost_empire.obj");
-    empireMesh->verticesCount = to_u32(empireObj.vertices.size());
-    empireMesh->indicesCount = to_u32(empireObj.indices.size());
+    std::shared_ptr<Mesh> mesh = std::make_shared<Mesh>();
+    ObjLoader objLoader;
+    objLoader.loadModel(filePath.c_str());
+    mesh->verticesCount = to_u32(objLoader.vertices.size());
+    mesh->indicesCount = to_u32(objLoader.indices.size());
 
-    createVertexBuffer(monkeyMesh, monkeyObj);
-    createIndexBuffer(monkeyMesh, monkeyObj);
-    createMaterialBuffer(monkeyMesh, monkeyObj);
-    createMaterialIndicesBuffer(monkeyMesh, monkeyObj);
+    createVertexBuffer(mesh, objLoader);
+    createIndexBuffer(mesh, objLoader);
+    createMaterialBuffer(mesh, objLoader);
+    createMaterialIndicesBuffer(mesh, objLoader);
 
-    createVertexBuffer(empireMesh, empireObj);
-    createIndexBuffer(empireMesh, empireObj);
-    createMaterialBuffer(empireMesh, empireObj);
-    createMaterialIndicesBuffer(empireMesh, empireObj);
-    
-    meshes["monkey"] = monkeyMesh;
-    meshes["empire"] = empireMesh;
+    meshes[objFileName] = mesh;
+}
+
+void MainApp::loadModels()
+{
+    loadModel("monkey_smooth.obj");
+    loadModel("lost_empire.obj");
 }
 
 void MainApp::createScene()
 {
     RenderObject monkey;
-    monkey.mesh = getMesh("monkey");
+    monkey.mesh = getMesh("monkey_smooth.obj");
     monkey.material = getMaterial("defaultmesh");
     monkey.transformMatrix = glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 0));
     renderables.push_back(monkey);
 
     RenderObject map;
-    map.mesh = getMesh("empire");
+    map.mesh = getMesh("lost_empire.obj");
     map.material = getMaterial("texturedmesh");
     map.transformMatrix = glm::translate(glm::mat4{ 1.0 }, glm::vec3{ 5,-10,0 });
     renderables.push_back(map);

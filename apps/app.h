@@ -315,7 +315,8 @@ private:
     void createSSBOs();
     void createDescriptorPool();
     void createDescriptorSets();
-    void loadMeshes();
+    void loadModel(const std::string objFileName);
+    void loadModels();
     void createScene();
     void createSemaphoreAndFencePools();
     void setupSynchronizationObjects();
