@@ -127,3 +127,25 @@ void setDebugUtilsObjectName(VkDevice device, const uint64_t object, const std::
 	VkDebugUtilsObjectNameInfoEXT info{ VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT, nullptr, t, object, name.c_str() };
 	vkSetDebugUtilsObjectNameEXT(device, &info);
 }
+
+void setDebugUtilsObjectName(VkDevice device, VkBuffer object, const std::string &name) { setDebugUtilsObjectName(device, (uint64_t)object, name, VK_OBJECT_TYPE_BUFFER); }
+void setDebugUtilsObjectName(VkDevice device, VkBufferView object, const std::string &name) { setDebugUtilsObjectName(device, (uint64_t)object, name, VK_OBJECT_TYPE_BUFFER_VIEW); }
+void setDebugUtilsObjectName(VkDevice device, VkCommandBuffer object, const std::string &name) { setDebugUtilsObjectName(device, (uint64_t)object, name, VK_OBJECT_TYPE_COMMAND_BUFFER); }
+void setDebugUtilsObjectName(VkDevice device, VkCommandPool object, const std::string &name) { setDebugUtilsObjectName(device, (uint64_t)object, name, VK_OBJECT_TYPE_COMMAND_POOL); }
+void setDebugUtilsObjectName(VkDevice device, VkDescriptorPool object, const std::string &name) { setDebugUtilsObjectName(device, (uint64_t)object, name, VK_OBJECT_TYPE_DESCRIPTOR_POOL); }
+void setDebugUtilsObjectName(VkDevice device, VkDescriptorSet object, const std::string &name) { setDebugUtilsObjectName(device, (uint64_t)object, name, VK_OBJECT_TYPE_DESCRIPTOR_SET); }
+void setDebugUtilsObjectName(VkDevice device, VkDescriptorSetLayout object, const std::string &name) { setDebugUtilsObjectName(device, (uint64_t)object, name, VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT); }
+void setDebugUtilsObjectName(VkDevice device, VkDeviceMemory object, const std::string &name) { setDebugUtilsObjectName(device, (uint64_t)object, name, VK_OBJECT_TYPE_DEVICE_MEMORY); }
+void setDebugUtilsObjectName(VkDevice device, VkFramebuffer object, const std::string &name) { setDebugUtilsObjectName(device, (uint64_t)object, name, VK_OBJECT_TYPE_FRAMEBUFFER); }
+void setDebugUtilsObjectName(VkDevice device, VkImage object, const std::string &name) { setDebugUtilsObjectName(device, (uint64_t)object, name, VK_OBJECT_TYPE_IMAGE); }
+void setDebugUtilsObjectName(VkDevice device, VkImageView object, const std::string &name) { setDebugUtilsObjectName(device, (uint64_t)object, name, VK_OBJECT_TYPE_IMAGE_VIEW); }
+void setDebugUtilsObjectName(VkDevice device, VkPipeline object, const std::string &name) { setDebugUtilsObjectName(device, (uint64_t)object, name, VK_OBJECT_TYPE_PIPELINE); }
+void setDebugUtilsObjectName(VkDevice device, VkPipelineLayout object, const std::string &name) { setDebugUtilsObjectName(device, (uint64_t)object, name, VK_OBJECT_TYPE_PIPELINE_LAYOUT); }
+void setDebugUtilsObjectName(VkDevice device, VkQueryPool object, const std::string &name) { setDebugUtilsObjectName(device, (uint64_t)object, name, VK_OBJECT_TYPE_QUERY_POOL); }
+void setDebugUtilsObjectName(VkDevice device, VkQueue object, const std::string &name) { setDebugUtilsObjectName(device, (uint64_t)object, name, VK_OBJECT_TYPE_QUEUE); }
+void setDebugUtilsObjectName(VkDevice device, VkRenderPass object, const std::string &name) { setDebugUtilsObjectName(device, (uint64_t)object, name, VK_OBJECT_TYPE_RENDER_PASS); }
+void setDebugUtilsObjectName(VkDevice device, VkSampler object, const std::string &name) { setDebugUtilsObjectName(device, (uint64_t)object, name, VK_OBJECT_TYPE_SAMPLER); }
+void setDebugUtilsObjectName(VkDevice device, VkSemaphore object, const std::string &name) { setDebugUtilsObjectName(device, (uint64_t)object, name, VK_OBJECT_TYPE_SEMAPHORE); }
+void setDebugUtilsObjectName(VkDevice device, VkShaderModule object, const std::string &name) { setDebugUtilsObjectName(device, (uint64_t)object, name, VK_OBJECT_TYPE_SHADER_MODULE); }
+void setDebugUtilsObjectName(VkDevice device, VkSwapchainKHR object, const std::string &name) { setDebugUtilsObjectName(device, (uint64_t)object, name, VK_OBJECT_TYPE_SWAPCHAIN_KHR); }
+void setDebugUtilsObjectName(VkDevice device, VkAccelerationStructureKHR object, const std::string &name) { setDebugUtilsObjectName(device, (uint64_t)object, name, VK_OBJECT_TYPE_ACCELERATION_STRUCTURE_KHR); }

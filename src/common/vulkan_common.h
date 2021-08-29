@@ -43,11 +43,6 @@
 		}                                                            \
 	} while (0);
 
-// Individual naming
-#define NAME_VK(_device, _x) setDebugUtilsObjectName(d_device, _x, (std::string("classnamehere") + std::string("::") + std::string(#_x " (") + __FILE__).c_str())
-#define NAME_IDX_VK(_device, _x, _i) setDebugUtilsObjectName(_device, _x, \
-                            (std::string("classnamehere") + std::string("::") + std::string(#_x " (" #_i "=") + std::to_string(_i) + std::string(", ") + __FILE__).c_str())
-
 /* Printing out the VkResult enum name */
 const char *printVkResult(const VkResult result);
 
@@ -71,4 +66,28 @@ VkFormat getSupportedDepthFormat(
 	}
 );
 
-void setDebugUtilsObjectName(VkDevice device, const uint64_t object, const std::string & name, VkObjectType t);
+/* Set the object name for a specified object type; used for easier debugging */
+void setDebugUtilsObjectName(VkDevice device, const uint64_t object, const std::string &name, VkObjectType t);
+
+/* Overloading the setDebugUtilsObjectName to pass in the VkObjectType based on the object type passed in */
+void setDebugUtilsObjectName(VkDevice device, VkBuffer object, const std::string &name);
+void setDebugUtilsObjectName(VkDevice device, VkBufferView object, const std::string &name);
+void setDebugUtilsObjectName(VkDevice device, VkCommandBuffer object, const std::string &name);
+void setDebugUtilsObjectName(VkDevice device, VkCommandPool object, const std::string &name);
+void setDebugUtilsObjectName(VkDevice device, VkDescriptorPool object, const std::string &name);
+void setDebugUtilsObjectName(VkDevice device, VkDescriptorSet object, const std::string &name);
+void setDebugUtilsObjectName(VkDevice device, VkDescriptorSetLayout object, const std::string &name);
+void setDebugUtilsObjectName(VkDevice device, VkDeviceMemory object, const std::string &name);
+void setDebugUtilsObjectName(VkDevice device, VkFramebuffer object, const std::string &name);
+void setDebugUtilsObjectName(VkDevice device, VkImage object, const std::string &name);
+void setDebugUtilsObjectName(VkDevice device, VkImageView object, const std::string &name);
+void setDebugUtilsObjectName(VkDevice device, VkPipeline object, const std::string &name);
+void setDebugUtilsObjectName(VkDevice device, VkPipelineLayout object, const std::string &name);
+void setDebugUtilsObjectName(VkDevice device, VkQueryPool object, const std::string &name);
+void setDebugUtilsObjectName(VkDevice device, VkQueue object, const std::string &name);
+void setDebugUtilsObjectName(VkDevice device, VkRenderPass object, const std::string &name);
+void setDebugUtilsObjectName(VkDevice device, VkSampler object, const std::string &name);
+void setDebugUtilsObjectName(VkDevice device, VkSemaphore object, const std::string &name);
+void setDebugUtilsObjectName(VkDevice device, VkShaderModule object, const std::string &name);
+void setDebugUtilsObjectName(VkDevice device, VkSwapchainKHR object, const std::string &name);
+void setDebugUtilsObjectName(VkDevice device, VkAccelerationStructureKHR object, const std::string &name);

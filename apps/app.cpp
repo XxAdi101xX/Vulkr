@@ -1504,9 +1504,8 @@ void MainApp::buildBlas(const std::vector<BlasInput> &input, VkBuildAcceleration
         // vkCreateAccelerationStructureKHR call then consumes the buffer value.
         m_blas[idx].as = createAcceleration(createInfo);
 
-        // TODO FIX THIS
-        //NAME_IDX_VK(device->getHandle(), m_blas[idx].as->accel, idx);
-        //NAME_IDX_VK(device->getHandle(), m_blas[idx].as->buffer->getHandle(), idx);
+        setDebugUtilsObjectName(device->getHandle(), m_blas[idx].as->accel, "BLAS Acceleration Structure #" + idx);
+        setDebugUtilsObjectName(device->getHandle(), m_blas[idx].as->buffer->getHandle(), "BLAS Acceleration Structure Buffer #" + idx);
         buildInfos[idx].dstAccelerationStructure = m_blas[idx].as->accel;  // Setting the where the build lands
 
         // Keeping info
@@ -1642,9 +1641,8 @@ void MainApp::buildBlas(const std::vector<BlasInput> &input, VkBuildAcceleration
             m_blas[idx].as.reset();
             m_blas[idx].as = std::move(as);
 
-            // TODO fix this!!!
-            //NAME_IDX_VK(device->getHandle(), m_blas[idx].as.accel, idx);
-            //NAME_IDX_VK(device->getHandle(), m_blas[idx].as.buffer.buffer, idx);
+            setDebugUtilsObjectName(device->getHandle(), m_blas[idx].as->accel, "BLAS Acceleration Structure #" + idx);
+            setDebugUtilsObjectName(device->getHandle(), m_blas[idx].as->buffer->getHandle(), "BLAS Acceleration Structure Buffer #" + idx);
         }
 
         // submitandwaitidle
@@ -1738,7 +1736,7 @@ void MainApp::buildTlas(
     memcpy(mappedData, geometryInstances.data(), static_cast<size_t>(bufferSize));
     stagingBuffer->unmap();
     copyBufferToBuffer(*stagingBuffer, *m_instBuffer, bufferSize);
-    // NAME_VK(m_instBuffer.buffer);
+    setDebugUtilsObjectName(device->getHandle(), m_instBuffer->getHandle(), "Instance Buffer");
     VkBufferDeviceAddressInfo bufferDeviceAddressInfo{ VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO };
     bufferDeviceAddressInfo.buffer = m_instBuffer->getHandle();
     VkDeviceAddress instanceAddress = vkGetBufferDeviceAddress(device->getHandle(), &bufferDeviceAddressInfo);
@@ -1788,7 +1786,7 @@ void MainApp::buildTlas(
         accellerationStructureCreateInfo.size = sizeInfo.accelerationStructureSize;
 
         m_tlas->as = createAcceleration(accellerationStructureCreateInfo);
-        //NAME_VK(m_tlas.as.accel); // TODO
+        setDebugUtilsObjectName(device->getHandle(), m_tlas->as->accel, "TLAS");
     }
 
     // Allocate the scratch memory
@@ -2148,7 +2146,7 @@ void MainApp::createRtShaderBindingTable()
     }
     stagingBuffer->unmap();
     copyBufferToBuffer(*stagingBuffer, *m_rtSBTBuffer, sbtSize);
-    //m_debug.setObjectName(m_rtSBTBuffer->getHandle(), std::string("SBT").c_str()); // TODO
+    setDebugUtilsObjectName(device->getHandle(), m_rtSBTBuffer->getHandle(), "SBT Buffer");
     //m_alloc.finalizeAndReleaseStaging();
 }
 
