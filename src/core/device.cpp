@@ -280,6 +280,11 @@ VmaAllocator Device::getMemoryAllocator() const
 	return memoryAllocator;
 }
 
+const VkAllocationCallbacks *Device::getAllocationCallbacks() const
+{
+	return memoryAllocator->GetAllocationCallbacks();
+}
+
 uint32_t Device::getMemoryType(uint32_t memoryTypeBits, VkMemoryPropertyFlags propertyFlags)
 {
 	for (uint32_t i = 0; i < physicalDevice->getMemoryProperties().memoryTypeCount; ++i)

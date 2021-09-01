@@ -87,10 +87,12 @@ struct CameraData
 };
 
 /* CPU only structs */
-struct ObjectData
+struct ObjInstance
 {
-    alignas(16) glm::mat4 model;
-    alignas(16) glm::mat4 modelIT;
+    alignas(16) glm::mat4 transform;
+    alignas(16) glm::mat4 transformIT;
+    alignas(8) uint64_t objIndex;
+    alignas(8) uint64_t textureOffset;
     alignas(8) VkDeviceAddress vertices;
     alignas(8) VkDeviceAddress indices;
     alignas(8) VkDeviceAddress materials;
@@ -306,6 +308,11 @@ private:
     std::unique_ptr<ImageView> createTextureImageView(const Image &image);
     void loadTextures();
     void createTextureSampler();
+    void loadTextureImages(const std::vector<std::string> &textureFiles);
+    // TODO move these member variables
+    std::vector<std::unique_ptr<Image>> textureImages;
+    std::vector<std::unique_ptr<ImageView>> textureImageViews;
+    std::vector<ObjInstance> objInstances;
     void copyBufferToBuffer(const Buffer &srcBuffer, const Buffer &dstBuffer, VkDeviceSize size);
     void createVertexBuffer(std::shared_ptr<Mesh> mesh, const ObjLoader &objLoader);
     void createIndexBuffer(std::shared_ptr<Mesh> mesh, const ObjLoader &objLoader);
@@ -315,7 +322,7 @@ private:
     void createSSBOs();
     void createDescriptorPool();
     void createDescriptorSets();
-    void loadModel(const std::string objFileName);
+    void loadModel(const std::string objFileName, glm::mat4 transform);
     void loadModels();
     void createScene();
     void createSemaphoreAndFencePools();

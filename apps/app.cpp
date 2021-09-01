@@ -54,8 +54,19 @@ MainApp::MainApp(Platform &platform, std::string name) : Application{ platform, 
      {
          it.second->indexBuffer.reset();
          it.second->vertexBuffer.reset();
+         it.second->materialsBuffer.reset();
+         it.second->materialsIndexBuffer.reset();
      }
      meshes.clear();
+
+     for (auto &it : textureImageViews)
+     {
+         it.reset();
+     }
+     for (auto &it : textureImages)
+     {
+         it.reset();
+     }
 
      m_blas.clear();
      m_tlas.reset();
@@ -166,21 +177,24 @@ void MainApp::prepare()
 
     createSwapchain();
     createSwapchainImageViews();
-    setupCamera();
-    createRenderPass();
-    createDescriptorSetLayouts();
-    createGraphicsPipelines();
     createDepthResources();
+    createRenderPass();
     createFramebuffers();
     createCommandPools();
     createCommandBuffers();
+
+    initializeImGui();
+    loadModels();
+
+    createDescriptorSetLayouts();
+    createGraphicsPipelines();
     loadTextures();
     createTextureSampler();
     createUniformBuffers();
     createSSBOs();
     createDescriptorPool();
     createDescriptorSets();
-    loadModels();
+    setupCamera();
     createScene();
 
     createOutputImageAndImageView();
@@ -194,7 +208,6 @@ void MainApp::prepare()
 
     createSemaphoreAndFencePools();
     setupSynchronizationObjects();
-    initializeImGui();
 }
 
 void MainApp::update()
@@ -391,22 +404,20 @@ void MainApp::updateBuffersPerFrame()
 
     // Update the object buffer
     mappedData = frameData.objectBuffers[currentFrame]->map();
-    ObjectData *objectSSBO = (ObjectData *)mappedData;
+    ObjInstance *objectSSBO = (ObjInstance *)mappedData;
     VkBufferDeviceAddressInfo bufferDeviceAddressInfo = { VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO_KHR };
-    for (int index = 0; index < renderables.size(); index++)
+    for (int index = 0; index < objInstances.size(); index++)
     {
-        objectSSBO[index].model = renderables[index].transformMatrix;
-        objectSSBO[index].modelIT = glm::transpose(glm::inverse(renderables[index].transformMatrix));
+        objectSSBO[index].transform = objInstances[index].transform;
+        objectSSBO[index].transformIT = objInstances[index].transformIT;
 
         // TODO this doesn't have to be set per frame, we can do this once in the beginning
-        bufferDeviceAddressInfo.buffer = renderables[index].mesh->vertexBuffer->getHandle();
-        objectSSBO[index].vertices = vkGetBufferDeviceAddress(device->getHandle(), &bufferDeviceAddressInfo);
-        bufferDeviceAddressInfo.buffer = renderables[index].mesh->indexBuffer->getHandle();
-        objectSSBO[index].indices = vkGetBufferDeviceAddress(device->getHandle(), &bufferDeviceAddressInfo);
-        bufferDeviceAddressInfo.buffer = renderables[index].mesh->materialsBuffer->getHandle();
-        objectSSBO[index].materials = vkGetBufferDeviceAddress(device->getHandle(), &bufferDeviceAddressInfo);
-        bufferDeviceAddressInfo.buffer = renderables[index].mesh->materialsIndexBuffer->getHandle();
-        objectSSBO[index].materialIndices = vkGetBufferDeviceAddress(device->getHandle(), &bufferDeviceAddressInfo);
+        objectSSBO[index].objIndex = objInstances[index].objIndex;
+        objectSSBO[index].textureOffset = objInstances[index].textureOffset;
+        objectSSBO[index].vertices = objInstances[index].vertices;
+        objectSSBO[index].indices = objInstances[index].indices;
+        objectSSBO[index].materials = objInstances[index].materials;
+        objectSSBO[index].materialIndices = objInstances[index].materialIndices;
     }
     frameData.objectBuffers[currentFrame]->unmap();
 }
@@ -594,7 +605,7 @@ void MainApp::createDescriptorSetLayouts()
     // Texture descriptor set layout
     VkDescriptorSetLayoutBinding samplerLayoutBinding{};
     samplerLayoutBinding.binding = 0;
-    samplerLayoutBinding.descriptorCount = 1;
+    samplerLayoutBinding.descriptorCount = 1; // to_u32(textureImages.size());
     samplerLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     samplerLayoutBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
     samplerLayoutBinding.pImmutableSamplers = nullptr;
@@ -1070,7 +1081,7 @@ void MainApp::createUniformBuffers()
 
 void MainApp::createSSBOs()
 {
-    VkDeviceSize bufferSize{ sizeof(ObjectData) * MAX_OBJECT_COUNT };
+    VkDeviceSize bufferSize{ sizeof(ObjInstance) * MAX_OBJECT_COUNT };
 
     VkBufferCreateInfo bufferInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
     bufferInfo.size = bufferSize;
@@ -1136,7 +1147,7 @@ void MainApp::createDescriptorSets()
         VkDescriptorBufferInfo objectBufferInfo{};
         objectBufferInfo.buffer = frameData.objectBuffers[i]->getHandle();
         objectBufferInfo.offset = 0;
-        objectBufferInfo.range = sizeof(ObjectData) * MAX_OBJECT_COUNT; // can also use VK_WHOLE_SIZE in this case
+        objectBufferInfo.range = sizeof(ObjInstance) * MAX_OBJECT_COUNT;
 
         VkWriteDescriptorSet objectWrite{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
         objectWrite.dstSet = frameData.objectDescriptorSets[i]->getHandle();
@@ -1163,6 +1174,17 @@ void MainApp::createDescriptorSets()
     textureDescriptorSetAllocateInfo.pSetLayouts = &singleTextureDescriptorSetLayout->getHandle();
     texturedMeshMaterial->textureDescriptorSet = std::make_unique<DescriptorSet>(*device, textureDescriptorSetAllocateInfo);
 
+    std::vector<VkDescriptorImageInfo> textureImageInfos;
+    for (auto &textureImageView : textureImageViews)
+    {
+        VkDescriptorImageInfo textureImageInfo{};
+        textureImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        textureImageInfo.imageView = textureImageView->getHandle();
+        textureImageInfo.sampler = textureSampler->getHandle();
+        textureImageInfos.push_back(textureImageInfo);
+    }
+
+    // TODO remove this
     VkDescriptorImageInfo textureImageInfo{};
     textureImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     textureImageInfo.imageView = textures["empire_diffuse"]->imageview->getHandle();
@@ -1174,7 +1196,7 @@ void MainApp::createDescriptorSets()
     descriptorWriteCombinedImageSampler.dstArrayElement = 0;
     descriptorWriteCombinedImageSampler.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     descriptorWriteCombinedImageSampler.descriptorCount = 1;
-    descriptorWriteCombinedImageSampler.pImageInfo = &textureImageInfo;
+    descriptorWriteCombinedImageSampler.pImageInfo = &textureImageInfo; //textureImageInfos.data();
     descriptorWriteCombinedImageSampler.pBufferInfo = nullptr; // Optional
     descriptorWriteCombinedImageSampler.pTexelBufferView = nullptr; // Optional
 
@@ -1188,6 +1210,17 @@ void MainApp::createSemaphoreAndFencePools()
     fencePool = std::make_unique<FencePool>(*device);
 }
 
+void MainApp::loadTextureImages(const std::vector<std::string> &textureFiles)
+{
+    int x = 0;
+    for (const std::string &textureFile : textureFiles)
+    {
+        LOGI(std::to_string(x++) + ": processing " + textureFile);
+        textureImages.push_back(createTextureImage(TEXTURE_PATH.c_str()));
+        textureImageViews.push_back(createTextureImageView(*(textureImages.back())));
+    }
+}
+
 void MainApp::setupSynchronizationObjects()
 {
     imagesInFlight.resize(swapchain->getImages().size(), VK_NULL_HANDLE);
@@ -1199,7 +1232,7 @@ void MainApp::setupSynchronizationObjects()
     }
 }
 
-void MainApp::loadModel(const std::string objFileName)
+void MainApp::loadModel(const std::string objFileName, glm::mat4 transform)
 {
     const std::string modelPath = "../../assets/models/";
     const std::string filePath = modelPath + objFileName;
@@ -1207,6 +1240,17 @@ void MainApp::loadModel(const std::string objFileName)
     std::shared_ptr<Mesh> mesh = std::make_shared<Mesh>();
     ObjLoader objLoader;
     objLoader.loadModel(filePath.c_str());
+
+    // Converting the ambient, diffuse and specular values from srgb to linear
+    for (auto &m : objLoader.materials)
+    {
+        m.ambient = glm::pow(m.ambient, glm::vec3(2.2f));
+        m.diffuse = glm::pow(m.diffuse, glm::vec3(2.2f));
+        m.specular = glm::pow(m.specular, glm::vec3(2.2f));
+    }
+
+    loadTextureImages(objLoader.textures);
+
     mesh->verticesCount = to_u32(objLoader.vertices.size());
     mesh->indicesCount = to_u32(objLoader.indices.size());
 
@@ -1216,12 +1260,36 @@ void MainApp::loadModel(const std::string objFileName)
     createMaterialIndicesBuffer(mesh, objLoader);
 
     meshes[objFileName] = mesh;
+
+    ObjInstance instance;
+    instance.transform = transform;
+    instance.transformIT = glm::transpose(glm::inverse(transform));
+    instance.objIndex = static_cast<uint64_t>(meshes.size() - 1);
+    instance.textureOffset = static_cast<uint64_t>(textureImages.size());
+
+    VkBufferDeviceAddressInfo bufferDeviceAddressInfo = { VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO_KHR };
+    bufferDeviceAddressInfo.buffer = mesh->vertexBuffer->getHandle();
+    instance.vertices = vkGetBufferDeviceAddress(device->getHandle(), &bufferDeviceAddressInfo);
+    bufferDeviceAddressInfo.buffer = mesh->indexBuffer->getHandle();
+    instance.indices = vkGetBufferDeviceAddress(device->getHandle(), &bufferDeviceAddressInfo);
+    bufferDeviceAddressInfo.buffer = mesh->materialsBuffer->getHandle();
+    instance.materials = vkGetBufferDeviceAddress(device->getHandle(), &bufferDeviceAddressInfo);
+    bufferDeviceAddressInfo.buffer = mesh->materialsIndexBuffer->getHandle();
+    instance.materialIndices = vkGetBufferDeviceAddress(device->getHandle(), &bufferDeviceAddressInfo);
+
+    objInstances.push_back(instance);
+
+    std::string objNb = std::to_string(meshes.size());
+    setDebugUtilsObjectName(device->getHandle(), mesh->vertexBuffer->getHandle(), (std::string("vertex_" + objNb).c_str()));
+    setDebugUtilsObjectName(device->getHandle(), mesh->indexBuffer->getHandle(), (std::string("index_" + objNb).c_str()));
+    setDebugUtilsObjectName(device->getHandle(), mesh->materialsBuffer->getHandle(), (std::string("mat_" + objNb).c_str()));
+    setDebugUtilsObjectName(device->getHandle(), mesh->materialsIndexBuffer->getHandle(), (std::string("matIdx_" + objNb).c_str()));
 }
 
 void MainApp::loadModels()
 {
-    loadModel("monkey_smooth.obj");
-    loadModel("lost_empire.obj");
+    loadModel("monkey_smooth.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 0)));
+    loadModel("lost_empire.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ 5,-10,0 }));
 }
 
 void MainApp::createScene()
@@ -1322,7 +1390,7 @@ void MainApp::initializeImGui()
     initInfo.MinImageCount = swapchain->getProperties().imageCount;
     initInfo.ImageCount = swapchain->getProperties().imageCount;
     initInfo.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
-    initInfo.Allocator = nullptr; // TODO pass VMA here
+    initInfo.Allocator = device->getAllocationCallbacks(); // TODO pass VMA here
     initInfo.CheckVkResultFn = checkVkResult;
 
     ImGui_ImplVulkan_LoadFunctions(loadFunction); // TODO figure out how to integrate with volk
@@ -1504,8 +1572,8 @@ void MainApp::buildBlas(const std::vector<BlasInput> &input, VkBuildAcceleration
         // vkCreateAccelerationStructureKHR call then consumes the buffer value.
         m_blas[idx].as = createAcceleration(createInfo);
 
-        setDebugUtilsObjectName(device->getHandle(), m_blas[idx].as->accel, "BLAS Acceleration Structure #" + idx);
-        setDebugUtilsObjectName(device->getHandle(), m_blas[idx].as->buffer->getHandle(), "BLAS Acceleration Structure Buffer #" + idx);
+        setDebugUtilsObjectName(device->getHandle(), m_blas[idx].as->accel, std::string("BLAS Acceleration Structure #" + std::to_string(idx)));
+        setDebugUtilsObjectName(device->getHandle(), m_blas[idx].as->buffer->getHandle(), std::string("BLAS Acceleration Structure Buffer #" + std::to_string(idx)));
         buildInfos[idx].dstAccelerationStructure = m_blas[idx].as->accel;  // Setting the where the build lands
 
         // Keeping info
@@ -1641,8 +1709,8 @@ void MainApp::buildBlas(const std::vector<BlasInput> &input, VkBuildAcceleration
             m_blas[idx].as.reset();
             m_blas[idx].as = std::move(as);
 
-            setDebugUtilsObjectName(device->getHandle(), m_blas[idx].as->accel, "BLAS Acceleration Structure #" + idx);
-            setDebugUtilsObjectName(device->getHandle(), m_blas[idx].as->buffer->getHandle(), "BLAS Acceleration Structure Buffer #" + idx);
+            setDebugUtilsObjectName(device->getHandle(), m_blas[idx].as->accel, std::string("BLAS Acceleration Structure #" + std::to_string(idx)));
+            setDebugUtilsObjectName(device->getHandle(), m_blas[idx].as->buffer->getHandle(), std::string("BLAS Acceleration Structure Buffer #" + std::to_string(idx)));
         }
 
         // submitandwaitidle
