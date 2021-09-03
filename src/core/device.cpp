@@ -88,9 +88,13 @@ Device::Device(std::unique_ptr<PhysicalDevice> &&selectedPhysicalDevice, VkSurfa
 	// Create the device
 	const VkPhysicalDeviceFeatures &requestedFeatures = this->physicalDevice->getRequestedFeatures();
 
-	// Enabling the host query reset features, acceleration structure features, ray tracing features and buffer device address features
+	// Enabling the descriptor indexing features, host query reset features, acceleration structure features, ray tracing features and buffer device address features
+	VkPhysicalDeviceDescriptorIndexingFeatures descriptorIndexingFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES };
+	descriptorIndexingFeatures.shaderSampledImageArrayNonUniformIndexing = getPhysicalDevice().getDescriptorIndexingFeatures().shaderSampledImageArrayNonUniformIndexing;
+	descriptorIndexingFeatures.runtimeDescriptorArray = getPhysicalDevice().getDescriptorIndexingFeatures().runtimeDescriptorArray;
 	VkPhysicalDeviceHostQueryResetFeatures hostQueryResetFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_HOST_QUERY_RESET_FEATURES };
 	hostQueryResetFeatures.hostQueryReset = getPhysicalDevice().getHostQueryResetFeatures().hostQueryReset;
+	hostQueryResetFeatures.pNext = &descriptorIndexingFeatures;
 	VkPhysicalDeviceAccelerationStructureFeaturesKHR accelerationStructureFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR };
 	accelerationStructureFeatures.accelerationStructure = getPhysicalDevice().getAccelerationStructureFeatures().accelerationStructure;
 	// accelerationStructureFeatures.accelerationStructureHostCommands = getPhysicalDevice().getAccelerationStructureFeatures().accelerationStructureHostCommands;

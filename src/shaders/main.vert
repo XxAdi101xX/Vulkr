@@ -20,6 +20,7 @@ layout(location = 3) in vec2 inTexCoord;
 
 layout(location = 0) out vec3 fragColor;
 layout(location = 1) out vec2 fragTexCoord;
+layout(location = 2) out int baseInstance;
 
 void main() {
     mat4 modelMatrix = objectBuffer.objects[gl_BaseInstance].transform;
@@ -27,4 +28,5 @@ void main() {
 
     fragColor = inColor;
     fragTexCoord = inTexCoord;
+    baseInstance = gl_BaseInstance;
 }

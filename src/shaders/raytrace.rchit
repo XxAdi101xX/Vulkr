@@ -25,6 +25,7 @@ layout(set = 0, binding = 0) uniform accelerationStructureEXT topLevelAS;
 layout(std140, set = 2, binding = 0) readonly buffer ObjectBuffer {
 	ObjInstance objects[];
 } objectBuffer;
+layout(set = 3, binding = 0) uniform sampler2D[] textureSamplers;
 
 layout(push_constant) uniform Constants
 {
@@ -83,10 +84,7 @@ void main()
         L = normalize(pushC.lightPosition - vec3(0));
     }
 
-    float dotNL = max(dot(normal, L), 0.2);
 
-    prd.hitValue = vec3(dotNL);
-/*
     // Material of the object
     int materialIndex = matIndices.i[gl_PrimitiveID];
     WaveFrontMaterial mat = materials.m[materialIndex];
@@ -95,14 +93,12 @@ void main()
     vec3 diffuse = computeDiffuse(mat, L, normal);
     if(mat.textureId >= 0)
     {
-        uint txtId = mat.textureId + scnDesc.i[gl_InstanceCustomIndexEXT].txtOffset;
-        vec2 texCoord =
-            v0.texCoord * barycentrics.x + v1.texCoord * barycentrics.y + v2.texCoord * barycentrics.z;
+        uint txtId = uint(mat.textureId + objResource.textureOffset);
+        vec2 texCoord = v0.textureCoordinate * barycentrics.x + v1.textureCoordinate * barycentrics.y + v2.textureCoordinate * barycentrics.z;
         diffuse *= texture(textureSamplers[nonuniformEXT(txtId)], texCoord).xyz;
     }
 
     // Specular
     vec3 specular = computeSpecular(mat, gl_WorldRayDirectionEXT, L, normal);
     prd.hitValue = vec3(lightIntensity * (diffuse + specular));
-*/
 }

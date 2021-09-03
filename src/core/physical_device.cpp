@@ -38,9 +38,9 @@ PhysicalDevice::PhysicalDevice(Instance &instance, VkPhysicalDevice gpu) :
 	VkPhysicalDeviceProperties2 properties2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2 };
 	properties2.pNext = &rayTracingPipelineProperties;
 	vkGetPhysicalDeviceProperties2(gpu, &properties2);
-	vkGetPhysicalDeviceProperties2(gpu, &properties2);
 
 	// Requesting host query reset features, buffer device address features, raytracing features and acceleration structure features
+	hostQueryResetFeatures.pNext = &descriptorIndexingFeatures;
 	accelerationStructureFeatures.pNext = &hostQueryResetFeatures;
 	rayTracingPipelineFeatures.pNext = &accelerationStructureFeatures;
 	bufferDeviceAddressFeatures.pNext = &rayTracingPipelineFeatures;
@@ -104,6 +104,11 @@ const VkPhysicalDeviceHostQueryResetFeatures &PhysicalDevice::getHostQueryResetF
 const VkPhysicalDeviceBufferDeviceAddressFeatures &PhysicalDevice::getBufferDeviceAddressFeatures() const
 {
 	return bufferDeviceAddressFeatures;
+}
+
+const VkPhysicalDeviceDescriptorIndexingFeatures &PhysicalDevice::getDescriptorIndexingFeatures() const
+{
+	return descriptorIndexingFeatures;
 }
 
 const VkPhysicalDeviceMemoryProperties &PhysicalDevice::getMemoryProperties() const

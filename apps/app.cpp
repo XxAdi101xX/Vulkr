@@ -39,16 +39,9 @@ MainApp::MainApp(Platform &platform, std::string name) : Application{ platform, 
 
      textureSampler.reset();
 
-     for (auto &it : textures)
-     {
-         it.second->imageview.reset();
-         it.second->image.reset();
-     }
-     textures.clear();
-
      globalDescriptorSetLayout.reset();
      objectDescriptorSetLayout.reset();
-     singleTextureDescriptorSetLayout.reset();
+     textureDescriptorSetLayout.reset();
 
      for (auto &it : meshes)
      {
@@ -59,13 +52,10 @@ MainApp::MainApp(Platform &platform, std::string name) : Application{ platform, 
      }
      meshes.clear();
 
-     for (auto &it : textureImageViews)
+     for (auto &it : textures)
      {
-         it.reset();
-     }
-     for (auto &it : textureImages)
-     {
-         it.reset();
+         it.image.reset();
+         it.imageview.reset();
      }
 
      m_blas.clear();
@@ -188,7 +178,6 @@ void MainApp::prepare()
 
     createDescriptorSetLayouts();
     createGraphicsPipelines();
-    loadTextures();
     createTextureSampler();
     createUniformBuffers();
     createSSBOs();
@@ -298,6 +287,7 @@ void MainApp::update()
     currentFrame = (currentFrame + 1) % maxFramesInFlight;
 }
 
+// TODO: handle recreate for raytracing
 void MainApp::recreateSwapchain()
 {
     // TODO: update window width and high variables on window resize callback??
@@ -491,6 +481,7 @@ void MainApp::createSurface()
 void MainApp::createDevice()
 {
     VkPhysicalDeviceFeatures deviceFeatures{};
+    deviceFeatures.geometryShader = VK_TRUE;
     deviceFeatures.samplerAnisotropy = VK_TRUE;
     deviceFeatures.shaderInt64 = VK_TRUE;
 
@@ -596,7 +587,7 @@ void MainApp::createDescriptorSetLayouts()
     objectLayoutBinding.binding = 0;
     objectLayoutBinding.descriptorCount = 1;
     objectLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    objectLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
+    objectLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
     objectLayoutBinding.pImmutableSamplers = nullptr;
 
     std::vector<VkDescriptorSetLayoutBinding> objectDescriptorSetLayoutBindings{ objectLayoutBinding };
@@ -605,13 +596,13 @@ void MainApp::createDescriptorSetLayouts()
     // Texture descriptor set layout
     VkDescriptorSetLayoutBinding samplerLayoutBinding{};
     samplerLayoutBinding.binding = 0;
-    samplerLayoutBinding.descriptorCount = 1; // to_u32(textureImages.size());
+    samplerLayoutBinding.descriptorCount = to_u32(textures.size());
     samplerLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     samplerLayoutBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
     samplerLayoutBinding.pImmutableSamplers = nullptr;
 
     std::vector<VkDescriptorSetLayoutBinding> textureDescriptorSetLayoutBindings{ samplerLayoutBinding };
-    singleTextureDescriptorSetLayout = std::make_unique<DescriptorSetLayout>(*device, textureDescriptorSetLayoutBindings);
+    textureDescriptorSetLayout = std::make_unique<DescriptorSetLayout>(*device, textureDescriptorSetLayoutBindings);
 }
 
 std::shared_ptr<Material> MainApp::createMaterial(std::shared_ptr<GraphicsPipeline> pipeline, std::shared_ptr<PipelineState> pipelineState, const std::string &name)
@@ -757,7 +748,7 @@ void MainApp::createGraphicsPipelines()
     descriptorSetLayoutHandles.clear();
     descriptorSetLayoutHandles.push_back(globalDescriptorSetLayout->getHandle());
     descriptorSetLayoutHandles.push_back(objectDescriptorSetLayout->getHandle());
-    descriptorSetLayoutHandles.push_back(singleTextureDescriptorSetLayout->getHandle());
+    descriptorSetLayoutHandles.push_back(textureDescriptorSetLayout->getHandle());
 
     std::shared_ptr<PipelineState> texturedMeshPipelineState = std::make_shared<PipelineState>(
         std::make_unique<PipelineLayout>(*device, shaderModules, descriptorSetLayoutHandles, pushConstantRangeHandles),
@@ -911,19 +902,9 @@ std::unique_ptr<ImageView> MainApp::createTextureImageView(const Image &textureI
     return std::make_unique<ImageView>(textureImage, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, VK_FORMAT_R8G8B8A8_SRGB);
 }
 
-void MainApp::loadTextures()
-{
-    std::shared_ptr<Texture> empireTexture = std::make_shared<Texture>();
-    empireTexture->image = createTextureImage(TEXTURE_PATH.c_str());
-    empireTexture->imageview = createTextureImageView(*(empireTexture->image));
-
-    textures["empire_diffuse"] = empireTexture;
-}
-
 void MainApp::createTextureSampler()
 {
-    VkSamplerCreateInfo samplerInfo{};
-    samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    VkSamplerCreateInfo samplerInfo{ VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
     samplerInfo.magFilter = VK_FILTER_NEAREST;
     samplerInfo.minFilter = VK_FILTER_NEAREST;
     samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
@@ -1121,6 +1102,7 @@ void MainApp::createDescriptorSets()
         globalDescriptorSetAllocateInfo.descriptorSetCount = 1;
         globalDescriptorSetAllocateInfo.pSetLayouts = &globalDescriptorSetLayout->getHandle();
         frameData.globalDescriptorSets[i] = std::make_unique<DescriptorSet>(*device, globalDescriptorSetAllocateInfo);
+        setDebugUtilsObjectName(device->getHandle(), frameData.globalDescriptorSets[i]->getHandle(), "globalDescriptorSet for frame #" + std::to_string(i));
 
         VkDescriptorBufferInfo cameraBufferInfo{};
         cameraBufferInfo.buffer = frameData.globalBuffers[i]->getHandle();
@@ -1143,6 +1125,7 @@ void MainApp::createDescriptorSets()
         objectDescriptorSetAllocateInfo.descriptorSetCount = 1;
         objectDescriptorSetAllocateInfo.pSetLayouts = &objectDescriptorSetLayout->getHandle();
         frameData.objectDescriptorSets[i] = std::make_unique<DescriptorSet>(*device, objectDescriptorSetAllocateInfo);
+        setDebugUtilsObjectName(device->getHandle(), frameData.objectDescriptorSets[i]->getHandle(), "objectDescriptorSet for frame #" + std::to_string(i));
 
         VkDescriptorBufferInfo objectBufferInfo{};
         objectBufferInfo.buffer = frameData.objectBuffers[i]->getHandle();
@@ -1164,39 +1147,32 @@ void MainApp::createDescriptorSets()
         vkUpdateDescriptorSets(device->getHandle(), to_u32(writeDescriptorSets.size()), writeDescriptorSets.data(), 0, nullptr);
     }
 
-    // TODO refactor this hardcoded bit so that we can actually support more than one texture
     // Texture Descriptor Set
     std::shared_ptr<Material> texturedMeshMaterial = getMaterial("texturedmesh");
 
     VkDescriptorSetAllocateInfo textureDescriptorSetAllocateInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
     textureDescriptorSetAllocateInfo.descriptorPool = descriptorPool->getHandle();
     textureDescriptorSetAllocateInfo.descriptorSetCount = 1;
-    textureDescriptorSetAllocateInfo.pSetLayouts = &singleTextureDescriptorSetLayout->getHandle();
+    textureDescriptorSetAllocateInfo.pSetLayouts = &textureDescriptorSetLayout->getHandle();
     texturedMeshMaterial->textureDescriptorSet = std::make_unique<DescriptorSet>(*device, textureDescriptorSetAllocateInfo);
 
     std::vector<VkDescriptorImageInfo> textureImageInfos;
-    for (auto &textureImageView : textureImageViews)
+    for (auto &texture : textures)
     {
         VkDescriptorImageInfo textureImageInfo{};
-        textureImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        textureImageInfo.imageView = textureImageView->getHandle();
         textureImageInfo.sampler = textureSampler->getHandle();
+        textureImageInfo.imageView = texture.imageview->getHandle();
+        textureImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         textureImageInfos.push_back(textureImageInfo);
     }
-
-    // TODO remove this
-    VkDescriptorImageInfo textureImageInfo{};
-    textureImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    textureImageInfo.imageView = textures["empire_diffuse"]->imageview->getHandle();
-    textureImageInfo.sampler = textureSampler->getHandle();
 
     VkWriteDescriptorSet descriptorWriteCombinedImageSampler{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
     descriptorWriteCombinedImageSampler.dstSet = texturedMeshMaterial->textureDescriptorSet->getHandle();
     descriptorWriteCombinedImageSampler.dstBinding = 0;
     descriptorWriteCombinedImageSampler.dstArrayElement = 0;
     descriptorWriteCombinedImageSampler.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    descriptorWriteCombinedImageSampler.descriptorCount = 1;
-    descriptorWriteCombinedImageSampler.pImageInfo = &textureImageInfo; //textureImageInfos.data();
+    descriptorWriteCombinedImageSampler.descriptorCount = textureImageInfos.size();
+    descriptorWriteCombinedImageSampler.pImageInfo = textureImageInfos.data();
     descriptorWriteCombinedImageSampler.pBufferInfo = nullptr; // Optional
     descriptorWriteCombinedImageSampler.pTexelBufferView = nullptr; // Optional
 
@@ -1216,8 +1192,10 @@ void MainApp::loadTextureImages(const std::vector<std::string> &textureFiles)
     for (const std::string &textureFile : textureFiles)
     {
         LOGI(std::to_string(x++) + ": processing " + textureFile);
-        textureImages.push_back(createTextureImage(TEXTURE_PATH.c_str()));
-        textureImageViews.push_back(createTextureImageView(*(textureImages.back())));
+        Texture texture;
+        texture.image = createTextureImage(std::string("../../assets/textures/" + textureFile).c_str());
+        texture.imageview = createTextureImageView(*(texture.image));
+        textures.emplace_back(std::move(texture));
     }
 }
 
@@ -1241,15 +1219,14 @@ void MainApp::loadModel(const std::string objFileName, glm::mat4 transform)
     ObjLoader objLoader;
     objLoader.loadModel(filePath.c_str());
 
+    // TODO: figure out if this is required
     // Converting the ambient, diffuse and specular values from srgb to linear
-    for (auto &m : objLoader.materials)
-    {
-        m.ambient = glm::pow(m.ambient, glm::vec3(2.2f));
-        m.diffuse = glm::pow(m.diffuse, glm::vec3(2.2f));
-        m.specular = glm::pow(m.specular, glm::vec3(2.2f));
-    }
-
-    loadTextureImages(objLoader.textures);
+    //for (auto &m : objLoader.materials)
+    //{
+    //    m.ambient = glm::pow(m.ambient, glm::vec3(2.2f));
+    //    m.diffuse = glm::pow(m.diffuse, glm::vec3(2.2f));
+    //    m.specular = glm::pow(m.specular, glm::vec3(2.2f));
+    //}
 
     mesh->verticesCount = to_u32(objLoader.vertices.size());
     mesh->indicesCount = to_u32(objLoader.indices.size());
@@ -1259,13 +1236,14 @@ void MainApp::loadModel(const std::string objFileName, glm::mat4 transform)
     createMaterialBuffer(mesh, objLoader);
     createMaterialIndicesBuffer(mesh, objLoader);
 
-    meshes[objFileName] = mesh;
+    uint64_t txtOffset = static_cast<uint64_t>(textures.size());
+    loadTextureImages(objLoader.textures);
 
     ObjInstance instance;
     instance.transform = transform;
     instance.transformIT = glm::transpose(glm::inverse(transform));
-    instance.objIndex = static_cast<uint64_t>(meshes.size() - 1);
-    instance.textureOffset = static_cast<uint64_t>(textureImages.size());
+    instance.objIndex = static_cast<uint64_t>(meshes.size());
+    instance.textureOffset = txtOffset;
 
     VkBufferDeviceAddressInfo bufferDeviceAddressInfo = { VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO_KHR };
     bufferDeviceAddressInfo.buffer = mesh->vertexBuffer->getHandle();
@@ -1278,6 +1256,7 @@ void MainApp::loadModel(const std::string objFileName, glm::mat4 transform)
     instance.materialIndices = vkGetBufferDeviceAddress(device->getHandle(), &bufferDeviceAddressInfo);
 
     objInstances.push_back(instance);
+    meshes[objFileName] = mesh;
 
     std::string objNb = std::to_string(meshes.size());
     setDebugUtilsObjectName(device->getHandle(), mesh->vertexBuffer->getHandle(), (std::string("vertex_" + objNb).c_str()));
@@ -1305,23 +1284,6 @@ void MainApp::createScene()
     map.material = getMaterial("texturedmesh");
     map.transformMatrix = glm::translate(glm::mat4{ 1.0 }, glm::vec3{ 5,-10,0 });
     renderables.push_back(map);
-    return; // TODO delete this
-
-    for (int x = -20; x <= 20; x++)
-    {
-        for (int y = -20; y <= 20; y++)
-        {
-
-            RenderObject tri;
-            tri.mesh = getMesh("triangle");
-            tri.material = getMaterial("defaultmesh");
-            glm::mat4 translation = glm::translate(glm::mat4{ 1.0 }, glm::vec3(x, 0, y));
-            glm::mat4 scale = glm::scale(glm::mat4{ 1.0 }, glm::vec3(0.2, 0.2, 0.2));
-            tri.transformMatrix = translation * scale;
-
-            renderables.push_back(tri);
-        }
-    }
 }
 
 std::shared_ptr<Material> MainApp::getMaterial(const std::string &name)
@@ -1727,7 +1689,6 @@ void MainApp::buildBlas(const std::vector<BlasInput> &input, VkBuildAcceleration
     }
 
     vkDestroyQueryPool(device->getHandle(), queryPool, nullptr);
-    //m_alloc->finalizeAndReleaseStaging(); TODO what is this
 }
 
 void MainApp::createTopLevelAS()
@@ -1890,8 +1851,6 @@ void MainApp::buildTlas(
     submitInfo.commandBufferCount = 1u;
     VK_CHECK(vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE));
     vkQueueWaitIdle(graphicsQueue);
-
-   // m_alloc->finalizeAndReleaseStaging(); // TODO: do we need this
 }
 
 VkAccelerationStructureInstanceKHR MainApp::instanceToVkGeometryInstanceKHR(const BlasInstance &instance)
@@ -1968,6 +1927,7 @@ void MainApp::createRtDescriptorSets()
         allocateInfo.pSetLayouts = &m_rtDescSetLayout->getHandle();
 
         frameData.rtDescriptorSets[i] = std::make_unique<DescriptorSet>(*device, allocateInfo);
+        setDebugUtilsObjectName(device->getHandle(), frameData.rtDescriptorSets[i]->getHandle(), "rtDescriptorSet for frame #" + std::to_string(i));
 
         VkAccelerationStructureKHR tlas = m_tlas->as->accel;
         VkWriteDescriptorSetAccelerationStructureKHR descASInfo{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR };
@@ -2127,12 +2087,12 @@ void MainApp::createRtPipeline()
     pipelineLayoutCreateInfo.pushConstantRangeCount = 1;
     pipelineLayoutCreateInfo.pPushConstantRanges = &pushConstant;
 
-    // Descriptor sets: one specific to ray tracing, and one shared with the rasterization pipeline
-    // TODO: IMPORTANT , THE CODE EXPECTS JUST TWO DESCRIPTOR SETS SO THE SHADERS EXPECT THAT, READ THE TUTORIAL TO FIGURE HOW IT WOULD WORK WITH 4 STAGES
+    // Descriptor sets: one specific to ray tracing and three shared with the rasterization pipeline
     std::vector<VkDescriptorSetLayout> rtDescSetLayouts = { 
         m_rtDescSetLayout->getHandle(),
         globalDescriptorSetLayout->getHandle(),
-        objectDescriptorSetLayout->getHandle()
+        objectDescriptorSetLayout->getHandle(),
+        textureDescriptorSetLayout->getHandle()
     };
     pipelineLayoutCreateInfo.setLayoutCount = to_u32(rtDescSetLayouts.size());
     pipelineLayoutCreateInfo.pSetLayouts = rtDescSetLayouts.data();
@@ -2204,6 +2164,7 @@ void MainApp::createRtShaderBindingTable()
     memoryInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 
     m_rtSBTBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
+    setDebugUtilsObjectName(device->getHandle(), m_rtSBTBuffer->getHandle(), "SBT Buffer");
 
     void *mappedData = stagingBuffer->map();
     uint8_t *pData = reinterpret_cast<uint8_t *>(mappedData);
@@ -2214,8 +2175,6 @@ void MainApp::createRtShaderBindingTable()
     }
     stagingBuffer->unmap();
     copyBufferToBuffer(*stagingBuffer, *m_rtSBTBuffer, sbtSize);
-    setDebugUtilsObjectName(device->getHandle(), m_rtSBTBuffer->getHandle(), "SBT Buffer");
-    //m_alloc.finalizeAndReleaseStaging();
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -2230,10 +2189,16 @@ void MainApp::raytrace(const uint32_t &swapchainImageIndex)
     //m_rtPushConstants.lightIntensity = m_pushConstant.lightIntensity;
     //m_rtPushConstants.lightType = m_pushConstant.lightType;
 
-    std::vector<VkDescriptorSet> descSets{ frameData.rtDescriptorSets[currentFrame]->getHandle(),  frameData.globalDescriptorSets[currentFrame]->getHandle() , frameData.objectDescriptorSets[currentFrame]->getHandle() };
+    setDebugUtilsObjectName(device->getHandle(), getMaterial("texturedmesh")->textureDescriptorSet->getHandle(), "texturedMeshDescriptorSet");
+    std::vector<VkDescriptorSet> descSets{
+        frameData.rtDescriptorSets[currentFrame]->getHandle(), 
+        frameData.globalDescriptorSets[currentFrame]->getHandle(),
+        frameData.objectDescriptorSets[currentFrame]->getHandle(),
+        getMaterial("texturedmesh")->textureDescriptorSet->getHandle()
+    };
     vkCmdBindPipeline(frameData.commandBuffers[currentFrame]->getHandle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_rtPipeline);
     vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame]->getHandle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_rtPipelineLayout, 0,
-        (uint32_t)descSets.size(), descSets.data(), 0, nullptr);
+        to_u32(descSets.size()), descSets.data(), 0, nullptr);
     vkCmdPushConstants(frameData.commandBuffers[currentFrame]->getHandle(), m_rtPipelineLayout,
         VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR,
         0, sizeof(RtPushConstant), &m_rtPushConstants);

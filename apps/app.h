@@ -122,6 +122,7 @@ struct Texture
     std::unique_ptr<ImageView> imageview;
 };
 
+// TODO: refactor this to represent just the objModel, remove transforMatrix, material
 struct RenderObject
 {
     std::shared_ptr<Mesh> mesh;
@@ -212,8 +213,6 @@ public:
 
     virtual void handleInputEvents(const InputEvent& inputEvent) override;
 private:
-    const std::string TEXTURE_PATH = "../../assets/textures/lost_empire-RGBA.png";
-
     /* 
     IMPORTANT NOTICE: To enable/disable features, it is not adequate to add the extension name to the device extensions array below. You must also go into
     instances.cpp to manually enable these features through VkPhysicalDeviceFeatures2 pNext chain
@@ -246,7 +245,7 @@ private:
     std::unique_ptr<RenderPass> renderPass{ nullptr };
     std::unique_ptr<DescriptorSetLayout> globalDescriptorSetLayout{ nullptr };
     std::unique_ptr<DescriptorSetLayout> objectDescriptorSetLayout{ nullptr };
-    std::unique_ptr<DescriptorSetLayout> singleTextureDescriptorSetLayout{ nullptr };
+    std::unique_ptr<DescriptorSetLayout> textureDescriptorSetLayout{ nullptr };
     std::unique_ptr<DescriptorPool> descriptorPool;
     std::unique_ptr<DescriptorPool> imguiPool;
 
@@ -283,7 +282,8 @@ private:
     std::vector<RenderObject> renderables;
     std::unordered_map<std::string, std::shared_ptr<Material>> materials;
     std::unordered_map<std::string, std::shared_ptr<Mesh>> meshes;
-    std::unordered_map<std::string, std::shared_ptr<Texture>> textures;
+    std::vector<Texture> textures;
+    std::vector<ObjInstance> objInstances;
 
     // Subroutines
     void drawImGuiInterface();
@@ -306,13 +306,8 @@ private:
     void createDepthResources();
     std::unique_ptr<Image> createTextureImage(const char *filename);
     std::unique_ptr<ImageView> createTextureImageView(const Image &image);
-    void loadTextures();
     void createTextureSampler();
     void loadTextureImages(const std::vector<std::string> &textureFiles);
-    // TODO move these member variables
-    std::vector<std::unique_ptr<Image>> textureImages;
-    std::vector<std::unique_ptr<ImageView>> textureImageViews;
-    std::vector<ObjInstance> objInstances;
     void copyBufferToBuffer(const Buffer &srcBuffer, const Buffer &dstBuffer, VkDeviceSize size);
     void createVertexBuffer(std::shared_ptr<Mesh> mesh, const ObjLoader &objLoader);
     void createIndexBuffer(std::shared_ptr<Mesh> mesh, const ObjLoader &objLoader);

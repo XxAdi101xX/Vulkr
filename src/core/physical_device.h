@@ -72,6 +72,9 @@ public:
 	/* Get the ray tracing pipeline properties for the physical device */
 	const VkPhysicalDeviceBufferDeviceAddressFeatures &getBufferDeviceAddressFeatures() const;
 
+	/* Get the descriptor indexing features for the physical device */
+	const VkPhysicalDeviceDescriptorIndexingFeatures &getDescriptorIndexingFeatures() const;
+
 	/* Get the memory properties for the physical device */
 	const VkPhysicalDeviceMemoryProperties &getMemoryProperties() const;
 
@@ -113,6 +116,9 @@ private:
 
 	/* The buffer device address features that the GPU supports */
 	VkPhysicalDeviceBufferDeviceAddressFeatures bufferDeviceAddressFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES };
+
+	/* The descriptor indexing features that the GPU supports */
+	VkPhysicalDeviceDescriptorIndexingFeatures descriptorIndexingFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES };
 
 	/* The GPU memory properties */
 	VkPhysicalDeviceMemoryProperties memoryProperties;
