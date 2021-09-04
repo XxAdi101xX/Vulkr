@@ -441,10 +441,11 @@ void MainApp::drawObjects()
             // Object data descriptor
             vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, object.material->pipelineState->getPipelineLayout().getHandle(), 1, 1, &frameData.objectDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
 
-            if (object.material->textureDescriptorSet != VK_NULL_HANDLE)
+            if (object.material == getMaterial("texturedmesh"))
             {
+                // TODO we only need to bind this once so we should move it out of this method
                 // Texture descriptor
-                vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, object.material->pipelineState->getPipelineLayout().getHandle(), 2, 1, &object.material->textureDescriptorSet->getHandle(), 0, nullptr);
+                vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, object.material->pipelineState->getPipelineLayout().getHandle(), 2, 1, &textureDescriptorSet->getHandle(), 0, nullptr);
 
             }
         }
@@ -1152,13 +1153,12 @@ void MainApp::createDescriptorSets()
     }
 
     // Texture Descriptor Set
-    std::shared_ptr<Material> texturedMeshMaterial = getMaterial("texturedmesh");
-
     VkDescriptorSetAllocateInfo textureDescriptorSetAllocateInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
     textureDescriptorSetAllocateInfo.descriptorPool = descriptorPool->getHandle();
     textureDescriptorSetAllocateInfo.descriptorSetCount = 1;
     textureDescriptorSetAllocateInfo.pSetLayouts = &textureDescriptorSetLayout->getHandle();
-    texturedMeshMaterial->textureDescriptorSet = std::make_unique<DescriptorSet>(*device, textureDescriptorSetAllocateInfo);
+    textureDescriptorSet = std::make_unique<DescriptorSet>(*device, textureDescriptorSetAllocateInfo);
+    setDebugUtilsObjectName(device->getHandle(), textureDescriptorSet->getHandle(), "textureDescriptorSet");
 
     std::vector<VkDescriptorImageInfo> textureImageInfos;
     for (auto &texture : textures)
@@ -1171,7 +1171,7 @@ void MainApp::createDescriptorSets()
     }
 
     VkWriteDescriptorSet descriptorWriteCombinedImageSampler{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-    descriptorWriteCombinedImageSampler.dstSet = texturedMeshMaterial->textureDescriptorSet->getHandle();
+    descriptorWriteCombinedImageSampler.dstSet = textureDescriptorSet->getHandle();
     descriptorWriteCombinedImageSampler.dstBinding = 0;
     descriptorWriteCombinedImageSampler.dstArrayElement = 0;
     descriptorWriteCombinedImageSampler.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -2191,12 +2191,11 @@ void MainApp::raytrace(const uint32_t &swapchainImageIndex)
     //m_rtPushConstants.lightIntensity = m_pushConstant.lightIntensity;
     //m_rtPushConstants.lightType = m_pushConstant.lightType;
 
-    setDebugUtilsObjectName(device->getHandle(), getMaterial("texturedmesh")->textureDescriptorSet->getHandle(), "texturedMeshDescriptorSet");
     std::vector<VkDescriptorSet> descSets{
         frameData.rtDescriptorSets[currentFrame]->getHandle(), 
         frameData.globalDescriptorSets[currentFrame]->getHandle(),
         frameData.objectDescriptorSets[currentFrame]->getHandle(),
-        getMaterial("texturedmesh")->textureDescriptorSet->getHandle()
+        textureDescriptorSet->getHandle()
     };
     vkCmdBindPipeline(frameData.commandBuffers[currentFrame]->getHandle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_rtPipeline);
     vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame]->getHandle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_rtPipelineLayout, 0,

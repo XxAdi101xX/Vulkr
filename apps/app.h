@@ -112,7 +112,6 @@ struct ObjModel
 
 struct Material
 {
-    std::shared_ptr<DescriptorSet> textureDescriptorSet;
     std::shared_ptr<GraphicsPipeline> pipeline;
     std::shared_ptr<PipelineState> pipelineState;
 };
@@ -275,6 +274,9 @@ private:
         std::array<std::unique_ptr<Buffer>, maxFramesInFlight> globalBuffers;
         std::array<std::unique_ptr<Buffer>, maxFramesInFlight> objectBuffers;
     } frameData;
+
+    // Since the texture will be readonly, we don't require a descriptor set per frame
+    std::unique_ptr<DescriptorSet> textureDescriptorSet;
     size_t currentFrame{ 0 };
 
     std::vector<RenderObject> renderables;
