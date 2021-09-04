@@ -1280,13 +1280,11 @@ void MainApp::createScene()
     RenderObject monkey;
     monkey.objModel = getObjModel("monkey_smooth.obj");
     monkey.material = getMaterial("defaultmesh");
-    monkey.transformMatrix = glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 0));
     renderables.push_back(monkey);
 
     RenderObject map;
     map.objModel = getObjModel("lost_empire.obj");
     map.material = getMaterial("texturedmesh");
-    map.transformMatrix = glm::translate(glm::mat4{ 1.0 }, glm::vec3{ 5,-10,0 });
     renderables.push_back(map);
 }
 
@@ -1698,11 +1696,11 @@ void MainApp::buildBlas(const std::vector<BlasInput> &input, VkBuildAcceleration
 void MainApp::createTopLevelAS()
 {
     std::vector<BlasInstance> tlas;
-    tlas.reserve(renderables.size());
-    for (uint32_t i = 0; i < to_u32(renderables.size()); i++)
+    tlas.reserve(objInstances.size());
+    for (uint32_t i = 0; i < to_u32(objInstances.size()); i++)
     {
         BlasInstance rayInst;
-        rayInst.transform = renderables[i].transformMatrix;  // Position of the instance
+        rayInst.transform = objInstances[i].transform;  // Position of the instance
         rayInst.instanceCustomId = i;                           // gl_InstanceCustomIndexEXT
         rayInst.blasId = i; // TODO: is this correct
         rayInst.hitGroupId = 0;  // We will use the same hit group for all objects

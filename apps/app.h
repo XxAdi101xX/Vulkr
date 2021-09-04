@@ -128,10 +128,7 @@ struct RenderObject
 {
     std::shared_ptr<ObjModel> objModel;
 
-    std::shared_ptr<Material> material;
-
-    glm::mat4 transformMatrix;
-};
+    std::shared_ptr<Material> material;};
 
 // Inputs used to build Bottom-level acceleration structure.
 // You manage the lifetime of the buffer(s) referenced by the
