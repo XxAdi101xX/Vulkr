@@ -73,7 +73,7 @@
 VkInstance g_instance;
 PFN_vkVoidFunction loadFunction(const char *function_name, void *user_data) { return vkGetInstanceProcAddr(g_instance, function_name); }
 
-#define RASTERIZE
+//#define RASTERIZE
 namespace vulkr
 {
 
@@ -87,7 +87,6 @@ struct CameraData
     alignas(16) glm::mat4 proj;
 };
 
-/* CPU only structs */
 struct ObjInstance
 {
     alignas(16) glm::mat4 transform;
@@ -100,6 +99,7 @@ struct ObjInstance
     alignas(8) VkDeviceAddress materialIndices;
 };
 
+/* CPU only structs */
 struct ObjModel
 {
     uint32_t verticesCount;
@@ -122,7 +122,6 @@ struct Texture
     std::unique_ptr<ImageView> imageview;
 };
 
-// TODO: refactor this to represent just the objModel, remove transforMatrix, material
 struct RenderObject
 {
     std::shared_ptr<ObjModel> objModel;
@@ -367,7 +366,6 @@ private:
 
     void updateRtDescriptorSet();
 
-    // TODO: do ch 11.3
     struct RtPushConstant
     {
         glm::vec4 clearColor{ 1.0f, 1.0f, 1.0f, 1.0f };

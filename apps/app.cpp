@@ -2003,7 +2003,7 @@ void MainApp::createRtPipeline()
     {
         eRaygen,
         eMiss,
-        eMiss2,
+        eMissShadow,
         eClosestHit,
         eShaderGroupCount
     };
@@ -2043,7 +2043,7 @@ void MainApp::createRtPipeline()
     VK_CHECK(vkCreateShaderModule(device->getHandle(), &shaderModuleCreateInfo, nullptr, &shaderStageCreateInfo.module));
     shaderStageCreateInfo.pName = raytracingShaderModules[2].getEntryPoint().c_str();
     shaderStageCreateInfo.stage = raytracingShaderModules[2].getStage();
-    stages[eMiss2] = shaderStageCreateInfo;
+    stages[eMissShadow] = shaderStageCreateInfo;
     // Hit Group - Closest Hit
     shaderModuleCreateInfo.codeSize = raytracingShaderModules[3].getShaderSource().getData().size();
     shaderModuleCreateInfo.pCode = reinterpret_cast<const uint32_t *>(raytracingShaderModules[3].getShaderSource().getData().data());
@@ -2071,7 +2071,7 @@ void MainApp::createRtPipeline()
 
     // Shadow Miss
     group.type = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR;
-    group.generalShader = eMiss2;
+    group.generalShader = eMissShadow;
     m_rtShaderGroups.push_back(group);
 
     // Closest Hit
