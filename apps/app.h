@@ -261,6 +261,9 @@ private:
 
     struct FrameData
     {
+        std::array<std::unique_ptr<Image>, maxFramesInFlight> outputImages;
+        std::array<std::unique_ptr<ImageView>, maxFramesInFlight> outputImageViews;
+
         std::array<VkSemaphore, maxFramesInFlight> imageAvailableSemaphores;
         std::array<VkSemaphore, maxFramesInFlight> renderingFinishedSemaphores;
         std::array<VkFence, maxFramesInFlight> inFlightFences;
@@ -295,6 +298,7 @@ private:
     void createDevice();
     void createSwapchain();
     void createSwapchainImageViews();
+    void createOutputImageAndImageView();
     void createRenderPass();
     void createDescriptorSetLayouts();
     std::shared_ptr<PipelineData> createPipelineData(std::shared_ptr<GraphicsPipeline> pipeline, std::shared_ptr<PipelineState> pipelineState, const std::string &name);
@@ -330,10 +334,6 @@ private:
     std::shared_ptr<ObjModel> getObjModel(const std::string &name);
 
     // Raytracing TODO: cleanup this section
-    std::unique_ptr<Image> outputImage;
-    std::unique_ptr<ImageView> outputImageView;
-    void createOutputImageAndImageView();
-
     BlasInput objectToVkGeometryKHR(size_t renderableIndex);
     void createBottomLevelAS();
     std::unique_ptr<AccelKHR> createAcceleration(VkAccelerationStructureCreateInfoKHR &accel);

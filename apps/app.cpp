@@ -28,121 +28,121 @@ namespace vulkr
 
 MainApp::MainApp(Platform &platform, std::string name) : Application{ platform, name } {}
 
- MainApp::~MainApp()
- {
-     device->waitIdle();
+MainApp::~MainApp()
+{
+    device->waitIdle();
 
-     semaphorePool.reset();
-     fencePool.reset();
+    semaphorePool.reset();
+    fencePool.reset();
 
-     cleanupSwapchain();
+    cleanupSwapchain();
 
-     textureSampler.reset();
+    textureSampler.reset();
 
-     globalDescriptorSetLayout.reset();
-     objectDescriptorSetLayout.reset();
-     textureDescriptorSetLayout.reset();
+    globalDescriptorSetLayout.reset();
+    objectDescriptorSetLayout.reset();
+    textureDescriptorSetLayout.reset();
 
-     for (auto &it : objModels)
-     {
-         it.second->indexBuffer.reset();
-         it.second->vertexBuffer.reset();
-         it.second->materialsBuffer.reset();
-         it.second->materialsIndexBuffer.reset();
-     }
-     objModels.clear();
+    for (auto &it : objModels)
+    {
+        it.second->indexBuffer.reset();
+        it.second->vertexBuffer.reset();
+        it.second->materialsBuffer.reset();
+        it.second->materialsIndexBuffer.reset();
+    }
+    objModels.clear();
 
-     for (auto &it : textures)
-     {
-         it.image.reset();
-         it.imageview.reset();
-     }
+    for (auto &it : textures)
+    {
+        it.image.reset();
+        it.imageview.reset();
+    }
 
-     m_blas.clear();
-     m_tlas.reset();
-     m_instBuffer.reset();
-     outputImageView.reset();
-     outputImage.reset();
-     m_rtSBTBuffer.reset();
+    m_blas.clear();
+    m_tlas.reset();
+    m_instBuffer.reset();
+    m_rtSBTBuffer.reset();
 
-     for (uint32_t i = 0; i < maxFramesInFlight; ++i)
-     {
-         frameData.commandPools[i].reset();
-     }
-     imguiPool.reset();
+    for (uint32_t i = 0; i < maxFramesInFlight; ++i)
+    {
+        frameData.outputImageViews[i].reset();
+        frameData.outputImages[i].reset();
+        frameData.commandPools[i].reset();
+    }
+    imguiPool.reset();
 
-     ImGui_ImplVulkan_Shutdown();
-     ImGui_ImplGlfw_Shutdown();
-     ImGui::DestroyContext();
+    ImGui_ImplVulkan_Shutdown();
+    ImGui_ImplGlfw_Shutdown();
+    ImGui::DestroyContext();
 
-     device.reset();
+    device.reset();
 
-	 if (surface != VK_NULL_HANDLE)
-	 {
-		 vkDestroySurfaceKHR(instance->getHandle(), surface, nullptr);
-	 }
+	if (surface != VK_NULL_HANDLE)
+	{
+		vkDestroySurfaceKHR(instance->getHandle(), surface, nullptr);
+	}
 
-	 instance.reset();
- }
+	instance.reset();
+}
 
- void MainApp::cleanupSwapchain()
- {
-     for (uint32_t i = 0; i < maxFramesInFlight; ++i)
-     {
-         frameData.commandBuffers[i].reset();
-     }
+void MainApp::cleanupSwapchain()
+{
+    for (uint32_t i = 0; i < maxFramesInFlight; ++i)
+    {
+        frameData.commandBuffers[i].reset();
+    }
 
-     depthImage.reset();
+    depthImage.reset();
 
-     depthImageView.reset();
+    depthImageView.reset();
 
-     for (uint32_t i = 0; i < swapchainFramebuffers.size(); ++i)
-     {
-         swapchainFramebuffers[i].reset();
-     }
-     swapchainFramebuffers.clear();
+    for (uint32_t i = 0; i < swapchainFramebuffers.size(); ++i)
+    {
+        swapchainFramebuffers[i].reset();
+    }
+    swapchainFramebuffers.clear();
 
-     for (auto &it : pipelineDataMap)
-     {
-         it.second->pipeline.reset();
-         it.second->pipelineState.reset();
-     }
-     pipelineDataMap.clear();
-     renderables.clear();
+    for (auto &it : pipelineDataMap)
+    {
+        it.second->pipeline.reset();
+        it.second->pipelineState.reset();
+    }
+    pipelineDataMap.clear();
+    renderables.clear();
 
-     renderPass.reset();
-     subpasses.clear();
+    renderPass.reset();
+    subpasses.clear();
 
-     for (uint32_t i = 0; i < swapChainImageViews.size(); ++i)
-     {
-         swapChainImageViews[i].reset();
-     }
-     swapChainImageViews.clear();
-     inputAttachments.clear();
-     colorAttachments.clear();
-     resolveAttachments.clear();
-     depthStencilAttachments.clear();
-     preserveAttachments.clear();
+    for (uint32_t i = 0; i < swapChainImageViews.size(); ++i)
+    {
+        swapChainImageViews[i].reset();
+    }
+    swapChainImageViews.clear();
+    inputAttachments.clear();
+    colorAttachments.clear();
+    resolveAttachments.clear();
+    depthStencilAttachments.clear();
+    preserveAttachments.clear();
 
-     swapchain.reset();
+    swapchain.reset();
 
-     for (uint32_t i = 0; i < maxFramesInFlight; ++i)
-     {
-         frameData.globalDescriptorSets[i].reset();
-         frameData.objectDescriptorSets[i].reset();
-         frameData.globalBuffers[i].reset();
-         frameData.objectBuffers[i].reset();
-     }
+    for (uint32_t i = 0; i < maxFramesInFlight; ++i)
+    {
+        frameData.globalDescriptorSets[i].reset();
+        frameData.objectDescriptorSets[i].reset();
+        frameData.globalBuffers[i].reset();
+        frameData.objectBuffers[i].reset();
+    }
 
-     descriptorPool.reset();
+    descriptorPool.reset();
 
-     vkDestroyPipelineLayout(device->getHandle(), m_rtPipelineLayout, nullptr);  // TODO Put this into pipeline layout class
-     vkDestroyPipeline(device->getHandle(), m_rtPipeline, nullptr); // TODO Put this into pipeline class
-     m_rtDescSetLayout.reset();
-     m_rtDescPool.reset();
+    vkDestroyPipelineLayout(device->getHandle(), m_rtPipelineLayout, nullptr);  // TODO Put this into pipeline layout class
+    vkDestroyPipeline(device->getHandle(), m_rtPipeline, nullptr); // TODO Put this into pipeline class
+    m_rtDescSetLayout.reset();
+    m_rtDescPool.reset();
 
-     cameraController.reset();
- }
+    cameraController.reset();
+}
 
 void MainApp::prepare()
 {
@@ -169,9 +169,10 @@ void MainApp::prepare()
     createSwapchainImageViews();
     createDepthResources();
     createRenderPass();
-    createFramebuffers();
     createCommandPools();
     createCommandBuffers();
+    createOutputImageAndImageView();
+    createFramebuffers();
 
     initializeImGui();
     loadModels();
@@ -186,7 +187,6 @@ void MainApp::prepare()
     setupCamera();
     createScene();
 
-    createOutputImageAndImageView();
     createBottomLevelAS();
     createTopLevelAS();
     createRtDescriptorPool();
@@ -1381,9 +1381,6 @@ void MainApp::initializeImGui()
 void MainApp::createOutputImageAndImageView()
 {
     VkExtent3D extent{ swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, 1 };
-    outputImage = std::make_unique<Image>(*device, swapchain->getProperties().surfaceFormat.format, extent, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
-    outputImageView = std::make_unique<ImageView>(*outputImage, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, outputImage->getFormat());
-
     VkImageSubresourceRange subresourceRange = {};
     subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     subresourceRange.baseMipLevel = 0;
@@ -1391,16 +1388,22 @@ void MainApp::createOutputImageAndImageView()
     subresourceRange.baseArrayLayer = 0;
     subresourceRange.layerCount = 1;
 
-    std::unique_ptr<CommandBuffer> commandBuffer = std::make_unique<CommandBuffer>(*frameData.commandPools[currentFrame], VK_COMMAND_BUFFER_LEVEL_PRIMARY);
-    commandBuffer->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
-    outputImage->transitionImageLayout(*commandBuffer, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresourceRange);
-    commandBuffer->end();
+    for (uint32_t i = 0; i < maxFramesInFlight; ++i)
+    {
+        frameData.outputImages[i] = std::make_unique<Image>(*device, swapchain->getProperties().surfaceFormat.format, extent, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+        frameData.outputImageViews[i] = std::make_unique<ImageView>(*(frameData.outputImages[i]), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, frameData.outputImages[i]->getFormat());
+        
+        std::unique_ptr<CommandBuffer> commandBuffer = std::make_unique<CommandBuffer>(*frameData.commandPools[currentFrame], VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+        commandBuffer->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
+        frameData.outputImages[i]->transitionImageLayout(*commandBuffer, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresourceRange);
+        commandBuffer->end();
 
-    VkSubmitInfo submitInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
-    submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &commandBuffer->getHandle();
-    vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
-    vkQueueWaitIdle(graphicsQueue);
+        VkSubmitInfo submitInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
+        submitInfo.commandBufferCount = 1;
+        submitInfo.pCommandBuffers = &commandBuffer->getHandle();
+        vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
+        vkQueueWaitIdle(graphicsQueue);
+    }
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -1950,7 +1953,7 @@ void MainApp::createRtDescriptorSets()
 
         VkDescriptorImageInfo outputImageInfo{};
         outputImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-        outputImageInfo.imageView = outputImageView->getHandle();
+        outputImageInfo.imageView = frameData.outputImageViews[i]->getHandle();
         outputImageInfo.sampler = {};
 
         VkWriteDescriptorSet descriptorWriteStorageImage{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
@@ -1976,22 +1979,25 @@ void MainApp::createRtDescriptorSets()
 //
 void MainApp::updateRtDescriptorSet()
 {
-    // (1) Output buffer
-    VkDescriptorImageInfo outputImageInfo{};
-    outputImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-    outputImageInfo.imageView = outputImageView->getHandle();
-    outputImageInfo.sampler = {};
-    VkWriteDescriptorSet descriptorWriteCombinedImageSampler{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-    descriptorWriteCombinedImageSampler.dstSet = frameData.rtDescriptorSets[currentFrame]->getHandle();
-    descriptorWriteCombinedImageSampler.dstBinding = 1;
-    descriptorWriteCombinedImageSampler.dstArrayElement = 0;
-    descriptorWriteCombinedImageSampler.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    descriptorWriteCombinedImageSampler.descriptorCount = 1;
-    descriptorWriteCombinedImageSampler.pImageInfo = &outputImageInfo;
-    descriptorWriteCombinedImageSampler.pBufferInfo = nullptr;
-    descriptorWriteCombinedImageSampler.pTexelBufferView = nullptr; // Optional
+    for (uint32_t i = 0; i < maxFramesInFlight; ++i)
+    {
+        // (1) Output buffer
+        VkDescriptorImageInfo outputImageInfo{};
+        outputImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+        outputImageInfo.imageView = frameData.outputImageViews[i]->getHandle();
+        outputImageInfo.sampler = {};
+        VkWriteDescriptorSet descriptorWriteCombinedImageSampler{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        descriptorWriteCombinedImageSampler.dstSet = frameData.rtDescriptorSets[currentFrame]->getHandle();
+        descriptorWriteCombinedImageSampler.dstBinding = 1;
+        descriptorWriteCombinedImageSampler.dstArrayElement = 0;
+        descriptorWriteCombinedImageSampler.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        descriptorWriteCombinedImageSampler.descriptorCount = 1;
+        descriptorWriteCombinedImageSampler.pImageInfo = &outputImageInfo;
+        descriptorWriteCombinedImageSampler.pBufferInfo = nullptr;
+        descriptorWriteCombinedImageSampler.pTexelBufferView = nullptr; // Optional
 
-    vkUpdateDescriptorSets(device->getHandle(), 1, &descriptorWriteCombinedImageSampler, 0, nullptr);
+        vkUpdateDescriptorSets(device->getHandle(), 1, &descriptorWriteCombinedImageSampler, 0, nullptr);
+    }
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -2233,7 +2239,7 @@ void MainApp::raytrace(const uint32_t &swapchainImageIndex)
     // Prepare the current swapchain image as a transfer destination
     swapchain->getImages()[swapchainImageIndex]->transitionImageLayout(*frameData.commandBuffers[currentFrame], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, subresourceRange);
     // Prepare ray tracing output image as transfer source
-    outputImage->transitionImageLayout(*frameData.commandBuffers[currentFrame], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, subresourceRange);
+    frameData.outputImages[currentFrame]->transitionImageLayout(*frameData.commandBuffers[currentFrame], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, subresourceRange);
 
 
     VkImageCopy copyRegion{};
@@ -2242,12 +2248,12 @@ void MainApp::raytrace(const uint32_t &swapchainImageIndex)
     copyRegion.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
     copyRegion.dstOffset = { 0, 0, 0 };
     copyRegion.extent = { swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, 1 };
-    vkCmdCopyImage(frameData.commandBuffers[currentFrame]->getHandle(), outputImage->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swapchain->getImages()[swapchainImageIndex]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
+    vkCmdCopyImage(frameData.commandBuffers[currentFrame]->getHandle(), frameData.outputImages[currentFrame]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swapchain->getImages()[swapchainImageIndex]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
 
     // Transition the current swapchain image back for presentation
     swapchain->getImages()[swapchainImageIndex]->transitionImageLayout(*frameData.commandBuffers[currentFrame], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, subresourceRange);
     // Transition the output image back to the general layout
-    outputImage->transitionImageLayout(*frameData.commandBuffers[currentFrame], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL, subresourceRange);
+    frameData.outputImages[currentFrame]->transitionImageLayout(*frameData.commandBuffers[currentFrame], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL, subresourceRange);
 
     //m_debug.endLabel(cmdBuf);
 }
