@@ -110,7 +110,7 @@ struct ObjModel
     std::unique_ptr<Buffer> materialsIndexBuffer;
 };
 
-struct Material
+struct PipelineData
 {
     std::shared_ptr<GraphicsPipeline> pipeline;
     std::shared_ptr<PipelineState> pipelineState;
@@ -127,7 +127,8 @@ struct RenderObject
 {
     std::shared_ptr<ObjModel> objModel;
 
-    std::shared_ptr<Material> material;};
+    std::shared_ptr<PipelineData> pipelineData;
+};
 
 // Inputs used to build Bottom-level acceleration structure.
 // You manage the lifetime of the buffer(s) referenced by the
@@ -280,7 +281,7 @@ private:
     size_t currentFrame{ 0 };
 
     std::vector<RenderObject> renderables;
-    std::unordered_map<std::string, std::shared_ptr<Material>> materials;
+    std::unordered_map<std::string, std::shared_ptr<PipelineData>> pipelineDataMap;
     std::unordered_map<std::string, std::shared_ptr<ObjModel>> objModels;
     std::vector<Texture> textures;
     std::vector<ObjInstance> objInstances;
@@ -297,7 +298,7 @@ private:
     void createSwapchainImageViews();
     void createRenderPass();
     void createDescriptorSetLayouts();
-    std::shared_ptr<Material> createMaterial(std::shared_ptr<GraphicsPipeline> pipeline, std::shared_ptr<PipelineState> pipelineState, const std::string &name);
+    std::shared_ptr<PipelineData> createPipelineData(std::shared_ptr<GraphicsPipeline> pipeline, std::shared_ptr<PipelineState> pipelineState, const std::string &name);
     void createGraphicsPipelines();
     void createFramebuffers();
     void createCommandPools();
@@ -326,7 +327,7 @@ private:
     void setupCamera();
     void initializeImGui();
 
-    std::shared_ptr<Material> getMaterial(const std::string &name);
+    std::shared_ptr<PipelineData> getPipelineData(const std::string &name);
     std::shared_ptr<ObjModel> getObjModel(const std::string &name);
 
     // Raytracing TODO: cleanup this section

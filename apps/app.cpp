@@ -102,12 +102,12 @@ MainApp::MainApp(Platform &platform, std::string name) : Application{ platform, 
      }
      swapchainFramebuffers.clear();
 
-     for (auto &it : materials)
+     for (auto &it : pipelineDataMap)
      {
          it.second->pipeline.reset();
          it.second->pipelineState.reset();
      }
-     materials.clear();
+     pipelineDataMap.clear();
      renderables.clear();
 
      renderPass.reset();
@@ -423,34 +423,34 @@ void MainApp::drawObjects()
 {
     // Draw renderables
     std::shared_ptr<ObjModel> lastObjModel = nullptr;
-    std::shared_ptr<Material> lastMaterial = nullptr;
+    std::shared_ptr<PipelineData> lastPipeline = nullptr;
     for (int index = 0; index < renderables.size(); index++)
     {
         RenderObject object = renderables[index];
 
         // Bind the pipeline if it doesn't match with the already bound one
-        if (object.material != lastMaterial)
+        if (object.pipelineData != lastPipeline)
         {
 
-            vkCmdBindPipeline(frameData.commandBuffers[currentFrame]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, object.material->pipeline->getHandle());
-            lastMaterial = object.material;
+            vkCmdBindPipeline(frameData.commandBuffers[currentFrame]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, object.pipelineData->pipeline->getHandle());
+            lastPipeline = object.pipelineData;
 
             // Camera data descriptor
-            vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, object.material->pipelineState->getPipelineLayout().getHandle(), 0, 1, &frameData.globalDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
+            vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, object.pipelineData->pipelineState->getPipelineLayout().getHandle(), 0, 1, &frameData.globalDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
 
             // Object data descriptor
-            vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, object.material->pipelineState->getPipelineLayout().getHandle(), 1, 1, &frameData.objectDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
+            vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, object.pipelineData->pipelineState->getPipelineLayout().getHandle(), 1, 1, &frameData.objectDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
 
-            if (object.material == getMaterial("texturedmesh"))
+            if (object.pipelineData == getPipelineData("texturedmesh"))
             {
                 // TODO we only need to bind this once so we should move it out of this method
                 // Texture descriptor
-                vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, object.material->pipelineState->getPipelineLayout().getHandle(), 2, 1, &textureDescriptorSet->getHandle(), 0, nullptr);
+                vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, object.pipelineData->pipelineState->getPipelineLayout().getHandle(), 2, 1, &textureDescriptorSet->getHandle(), 0, nullptr);
 
             }
         }
 
-        // Bind the mesh if it's a different one from last one
+        // Bind the objModel if it's a different one from last one
         if (object.objModel != lastObjModel)
         {
             VkBuffer vertexBuffers[] = { object.objModel->vertexBuffer->getHandle() };
@@ -610,13 +610,13 @@ void MainApp::createDescriptorSetLayouts()
     textureDescriptorSetLayout = std::make_unique<DescriptorSetLayout>(*device, textureDescriptorSetLayoutBindings);
 }
 
-std::shared_ptr<Material> MainApp::createMaterial(std::shared_ptr<GraphicsPipeline> pipeline, std::shared_ptr<PipelineState> pipelineState, const std::string &name)
+std::shared_ptr<PipelineData> MainApp::createPipelineData(std::shared_ptr<GraphicsPipeline> pipeline, std::shared_ptr<PipelineState> pipelineState, const std::string &name)
 {
-    std::shared_ptr<Material> material = std::make_shared<Material>();
-    material->pipeline = pipeline;
-    material->pipelineState = pipelineState;
-    materials[name] = material;
-    return material;
+    std::shared_ptr<PipelineData> pipelineData = std::make_shared<PipelineData>();
+    pipelineData->pipeline = pipeline;
+    pipelineData->pipelineState = pipelineState;
+    pipelineDataMap[name] = pipelineData;
+    return pipelineData;
 }
 
 void MainApp::createGraphicsPipelines()
@@ -728,7 +728,7 @@ void MainApp::createGraphicsPipelines()
     };
     std::vector<VkPushConstantRange> pushConstantRangeHandles;
 
-    // Create default mesh materials
+    // Create default mesh pipeline
     std::shared_ptr<PipelineState> defaultMeshPipelineState = std::make_shared<PipelineState>(
         std::make_unique<PipelineLayout>(*device, shaderModules, descriptorSetLayoutHandles, pushConstantRangeHandles),
         *renderPass,
@@ -743,9 +743,9 @@ void MainApp::createGraphicsPipelines()
 
     std::shared_ptr<GraphicsPipeline> defaultMeshPipeline = std::make_shared<GraphicsPipeline>(*device, *defaultMeshPipelineState, nullptr);
 
-    createMaterial(defaultMeshPipeline, defaultMeshPipelineState, "defaultmesh");
+    createPipelineData(defaultMeshPipeline, defaultMeshPipelineState, "defaultmesh");
 
-    // Create textured mesh materials
+    // Create textured mesh pipeline
     shaderModules.clear();
     shaderModules.emplace_back(*device, VK_SHADER_STAGE_VERTEX_BIT, vertexShader);
     shaderModules.emplace_back(*device, VK_SHADER_STAGE_FRAGMENT_BIT, texturedFragmentShader);
@@ -769,7 +769,7 @@ void MainApp::createGraphicsPipelines()
 
     std::shared_ptr<GraphicsPipeline> texturedMeshPipeline = std::make_shared<GraphicsPipeline>(*device, *texturedMeshPipelineState, nullptr);
 
-    createMaterial(texturedMeshPipeline, texturedMeshPipelineState, "texturedmesh");
+    createPipelineData(texturedMeshPipeline, texturedMeshPipelineState, "texturedmesh");
 }
 
 void MainApp::createFramebuffers()
@@ -1279,19 +1279,19 @@ void MainApp::createScene()
 {
     RenderObject monkey;
     monkey.objModel = getObjModel("monkey_smooth.obj");
-    monkey.material = getMaterial("defaultmesh");
+    monkey.pipelineData = getPipelineData("defaultmesh");
     renderables.push_back(monkey);
 
     RenderObject map;
     map.objModel = getObjModel("lost_empire.obj");
-    map.material = getMaterial("texturedmesh");
+    map.pipelineData = getPipelineData("texturedmesh");
     renderables.push_back(map);
 }
 
-std::shared_ptr<Material> MainApp::getMaterial(const std::string &name)
+std::shared_ptr<PipelineData> MainApp::getPipelineData(const std::string &name)
 {
-    auto it = materials.find(name);
-    if (it == materials.end())
+    auto it = pipelineDataMap.find(name);
+    if (it == pipelineDataMap.end())
     {
         return nullptr;
     }
