@@ -43,14 +43,14 @@ MainApp::MainApp(Platform &platform, std::string name) : Application{ platform, 
      objectDescriptorSetLayout.reset();
      textureDescriptorSetLayout.reset();
 
-     for (auto &it : meshes)
+     for (auto &it : objModels)
      {
          it.second->indexBuffer.reset();
          it.second->vertexBuffer.reset();
          it.second->materialsBuffer.reset();
          it.second->materialsIndexBuffer.reset();
      }
-     meshes.clear();
+     objModels.clear();
 
      for (auto &it : textures)
      {
@@ -239,12 +239,16 @@ void MainApp::update()
     // Update uniform buffers and ssbos
     updateBuffersPerFrame();
     // Render scene
-    //drawObjects();
+#ifdef RASTERIZE
+    drawObjects();
+#endif
     // Render UI
     ImGui::Render();
     ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), frameData.commandBuffers[currentFrame]->getHandle());
     frameData.commandBuffers[currentFrame]->endRenderPass();
+#ifndef RASTERIZE
     raytrace(swapchainImageIndex); // TODO remove this
+#endif
     frameData.commandBuffers[currentFrame]->end();
 
     // I have setup a subpass dependency to ensure that the render pass waits for the swapchain to finish reading from the image before accessing it
@@ -418,7 +422,7 @@ void MainApp::updateBuffersPerFrame()
 void MainApp::drawObjects()
 {
     // Draw renderables
-    std::shared_ptr<Mesh> lastMesh = nullptr;
+    std::shared_ptr<ObjModel> lastObjModel = nullptr;
     std::shared_ptr<Material> lastMaterial = nullptr;
     for (int index = 0; index < renderables.size(); index++)
     {
@@ -446,17 +450,17 @@ void MainApp::drawObjects()
         }
 
         // Bind the mesh if it's a different one from last one
-        if (object.mesh != lastMesh)
+        if (object.objModel != lastObjModel)
         {
-            VkBuffer vertexBuffers[] = { object.mesh->vertexBuffer->getHandle() };
+            VkBuffer vertexBuffers[] = { object.objModel->vertexBuffer->getHandle() };
             VkDeviceSize offsets[] = { 0 };
             vkCmdBindVertexBuffers(frameData.commandBuffers[currentFrame]->getHandle(), 0, 1, vertexBuffers, offsets);
-            vkCmdBindIndexBuffer(frameData.commandBuffers[currentFrame]->getHandle(), object.mesh->indexBuffer->getHandle(), 0, VK_INDEX_TYPE_UINT32);
+            vkCmdBindIndexBuffer(frameData.commandBuffers[currentFrame]->getHandle(), object.objModel->indexBuffer->getHandle(), 0, VK_INDEX_TYPE_UINT32);
 
-            lastMesh = object.mesh;
+            lastObjModel = object.objModel;
         }
 
-        vkCmdDrawIndexed(frameData.commandBuffers[currentFrame]->getHandle(), to_u32(object.mesh->indicesCount), 1, 0, 0, index);
+        vkCmdDrawIndexed(frameData.commandBuffers[currentFrame]->getHandle(), to_u32(object.objModel->indicesCount), 1, 0, 0, index);
     }
 }
 
@@ -944,7 +948,7 @@ void MainApp::copyBufferToBuffer(const Buffer &srcBuffer, const Buffer &dstBuffe
     vkQueueWaitIdle(graphicsQueue);
 }
 
-void MainApp::createVertexBuffer(std::shared_ptr<Mesh> mesh, const ObjLoader &objLoader)
+void MainApp::createVertexBuffer(std::shared_ptr<ObjModel> objModel, const ObjLoader &objLoader)
 {
     VkDeviceSize bufferSize{ sizeof(objLoader.vertices[0]) * objLoader.vertices.size() };
 
@@ -959,15 +963,15 @@ void MainApp::createVertexBuffer(std::shared_ptr<Mesh> mesh, const ObjLoader &ob
     bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | rayTracingFlags;
     memoryInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 
-    mesh->vertexBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
+    objModel->vertexBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
 
     void *mappedData = stagingBuffer->map();
     memcpy(mappedData, objLoader.vertices.data(), static_cast<size_t>(bufferSize));
     stagingBuffer->unmap();
-    copyBufferToBuffer(*stagingBuffer, *(mesh->vertexBuffer), bufferSize);
+    copyBufferToBuffer(*stagingBuffer, *(objModel->vertexBuffer), bufferSize);
 }
 
-void MainApp::createIndexBuffer(std::shared_ptr<Mesh> mesh, const ObjLoader &objLoader)
+void MainApp::createIndexBuffer(std::shared_ptr<ObjModel> objModel, const ObjLoader &objLoader)
 {
     VkDeviceSize bufferSize{ sizeof(objLoader.indices[0]) * objLoader.indices.size() };
 
@@ -984,15 +988,15 @@ void MainApp::createIndexBuffer(std::shared_ptr<Mesh> mesh, const ObjLoader &obj
     bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT | rayTracingFlags;
     memoryInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 
-    mesh->indexBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
+    objModel->indexBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
 
     void *mappedData = stagingBuffer->map();
     memcpy(mappedData, objLoader.indices.data(), static_cast<size_t>(bufferSize));
     stagingBuffer->unmap();
-    copyBufferToBuffer(*stagingBuffer, *(mesh->indexBuffer), bufferSize);
+    copyBufferToBuffer(*stagingBuffer, *(objModel->indexBuffer), bufferSize);
 }
 
-void MainApp::createMaterialBuffer(std::shared_ptr<Mesh> mesh, const ObjLoader &objLoader)
+void MainApp::createMaterialBuffer(std::shared_ptr<ObjModel> objModel, const ObjLoader &objLoader)
 {
     VkDeviceSize bufferSize{ sizeof(objLoader.materials[0]) * objLoader.materials.size() };
 
@@ -1009,15 +1013,15 @@ void MainApp::createMaterialBuffer(std::shared_ptr<Mesh> mesh, const ObjLoader &
     bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | rayTracingFlags;
     memoryInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 
-    mesh->materialsBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
+    objModel->materialsBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
 
     void *mappedData = stagingBuffer->map();
     memcpy(mappedData, objLoader.materials.data(), static_cast<size_t>(bufferSize));
     stagingBuffer->unmap();
-    copyBufferToBuffer(*stagingBuffer, *(mesh->materialsBuffer), bufferSize);
+    copyBufferToBuffer(*stagingBuffer, *(objModel->materialsBuffer), bufferSize);
 }
 
-void MainApp::createMaterialIndicesBuffer(std::shared_ptr<Mesh> mesh, const ObjLoader &objLoader)
+void MainApp::createMaterialIndicesBuffer(std::shared_ptr<ObjModel> objModel, const ObjLoader &objLoader)
 {
     VkDeviceSize bufferSize{ sizeof(objLoader.materialIndices[0]) * objLoader.materialIndices.size() };
 
@@ -1034,12 +1038,12 @@ void MainApp::createMaterialIndicesBuffer(std::shared_ptr<Mesh> mesh, const ObjL
     bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | rayTracingFlags;
     memoryInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 
-    mesh->materialsIndexBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
+    objModel->materialsIndexBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
 
     void *mappedData = stagingBuffer->map();
     memcpy(mappedData, objLoader.materialIndices.data(), static_cast<size_t>(bufferSize));
     stagingBuffer->unmap();
-    copyBufferToBuffer(*stagingBuffer, *(mesh->materialsIndexBuffer), bufferSize);
+    copyBufferToBuffer(*stagingBuffer, *(objModel->materialsIndexBuffer), bufferSize);
 }
 
 void MainApp::createUniformBuffers()
@@ -1215,7 +1219,7 @@ void MainApp::loadModel(const std::string objFileName, glm::mat4 transform)
     const std::string modelPath = "../../assets/models/";
     const std::string filePath = modelPath + objFileName;
 
-    std::shared_ptr<Mesh> mesh = std::make_shared<Mesh>();
+    std::shared_ptr<ObjModel> objModel = std::make_shared<ObjModel>();
     ObjLoader objLoader;
     objLoader.loadModel(filePath.c_str());
 
@@ -1228,13 +1232,19 @@ void MainApp::loadModel(const std::string objFileName, glm::mat4 transform)
     //    m.specular = glm::pow(m.specular, glm::vec3(2.2f));
     //}
 
-    mesh->verticesCount = to_u32(objLoader.vertices.size());
-    mesh->indicesCount = to_u32(objLoader.indices.size());
+    objModel->verticesCount = to_u32(objLoader.vertices.size());
+    objModel->indicesCount = to_u32(objLoader.indices.size());
 
-    createVertexBuffer(mesh, objLoader);
-    createIndexBuffer(mesh, objLoader);
-    createMaterialBuffer(mesh, objLoader);
-    createMaterialIndicesBuffer(mesh, objLoader);
+    createVertexBuffer(objModel, objLoader);
+    createIndexBuffer(objModel, objLoader);
+    createMaterialBuffer(objModel, objLoader);
+    createMaterialIndicesBuffer(objModel, objLoader);
+
+    std::string objNb = std::to_string(objModels.size());
+    setDebugUtilsObjectName(device->getHandle(), objModel->vertexBuffer->getHandle(), (std::string("vertex_" + objNb).c_str()));
+    setDebugUtilsObjectName(device->getHandle(), objModel->indexBuffer->getHandle(), (std::string("index_" + objNb).c_str()));
+    setDebugUtilsObjectName(device->getHandle(), objModel->materialsBuffer->getHandle(), (std::string("mat_" + objNb).c_str()));
+    setDebugUtilsObjectName(device->getHandle(), objModel->materialsIndexBuffer->getHandle(), (std::string("matIdx_" + objNb).c_str()));
 
     uint64_t txtOffset = static_cast<uint64_t>(textures.size());
     loadTextureImages(objLoader.textures);
@@ -1242,27 +1252,21 @@ void MainApp::loadModel(const std::string objFileName, glm::mat4 transform)
     ObjInstance instance;
     instance.transform = transform;
     instance.transformIT = glm::transpose(glm::inverse(transform));
-    instance.objIndex = static_cast<uint64_t>(meshes.size());
+    instance.objIndex = static_cast<uint64_t>(objModels.size());
     instance.textureOffset = txtOffset;
 
     VkBufferDeviceAddressInfo bufferDeviceAddressInfo = { VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO_KHR };
-    bufferDeviceAddressInfo.buffer = mesh->vertexBuffer->getHandle();
+    bufferDeviceAddressInfo.buffer = objModel->vertexBuffer->getHandle();
     instance.vertices = vkGetBufferDeviceAddress(device->getHandle(), &bufferDeviceAddressInfo);
-    bufferDeviceAddressInfo.buffer = mesh->indexBuffer->getHandle();
+    bufferDeviceAddressInfo.buffer = objModel->indexBuffer->getHandle();
     instance.indices = vkGetBufferDeviceAddress(device->getHandle(), &bufferDeviceAddressInfo);
-    bufferDeviceAddressInfo.buffer = mesh->materialsBuffer->getHandle();
+    bufferDeviceAddressInfo.buffer = objModel->materialsBuffer->getHandle();
     instance.materials = vkGetBufferDeviceAddress(device->getHandle(), &bufferDeviceAddressInfo);
-    bufferDeviceAddressInfo.buffer = mesh->materialsIndexBuffer->getHandle();
+    bufferDeviceAddressInfo.buffer = objModel->materialsIndexBuffer->getHandle();
     instance.materialIndices = vkGetBufferDeviceAddress(device->getHandle(), &bufferDeviceAddressInfo);
 
     objInstances.push_back(instance);
-    meshes[objFileName] = mesh;
-
-    std::string objNb = std::to_string(meshes.size());
-    setDebugUtilsObjectName(device->getHandle(), mesh->vertexBuffer->getHandle(), (std::string("vertex_" + objNb).c_str()));
-    setDebugUtilsObjectName(device->getHandle(), mesh->indexBuffer->getHandle(), (std::string("index_" + objNb).c_str()));
-    setDebugUtilsObjectName(device->getHandle(), mesh->materialsBuffer->getHandle(), (std::string("mat_" + objNb).c_str()));
-    setDebugUtilsObjectName(device->getHandle(), mesh->materialsIndexBuffer->getHandle(), (std::string("matIdx_" + objNb).c_str()));
+    objModels[objFileName] = objModel;
 }
 
 void MainApp::loadModels()
@@ -1274,13 +1278,13 @@ void MainApp::loadModels()
 void MainApp::createScene()
 {
     RenderObject monkey;
-    monkey.mesh = getMesh("monkey_smooth.obj");
+    monkey.objModel = getObjModel("monkey_smooth.obj");
     monkey.material = getMaterial("defaultmesh");
     monkey.transformMatrix = glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 0));
     renderables.push_back(monkey);
 
     RenderObject map;
-    map.mesh = getMesh("lost_empire.obj");
+    map.objModel = getObjModel("lost_empire.obj");
     map.material = getMaterial("texturedmesh");
     map.transformMatrix = glm::translate(glm::mat4{ 1.0 }, glm::vec3{ 5,-10,0 });
     renderables.push_back(map);
@@ -1298,10 +1302,10 @@ std::shared_ptr<Material> MainApp::getMaterial(const std::string &name)
 
 }
 
-std::shared_ptr<Mesh> MainApp::getMesh(const std::string &name)
+std::shared_ptr<ObjModel> MainApp::getObjModel(const std::string &name)
 {
-    auto it = meshes.find(name);
-    if (it == meshes.end())
+    auto it = objModels.find(name);
+    if (it == objModels.end())
     {
         return nullptr;
     }
@@ -1407,13 +1411,13 @@ void MainApp::createOutputImageAndImageView()
 BlasInput MainApp::objectToVkGeometryKHR(size_t renderableIndex)
 {
     VkBufferDeviceAddressInfo bufferDeviceAddressInfo = { VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO };
-    bufferDeviceAddressInfo.buffer = renderables[renderableIndex].mesh->vertexBuffer->getHandle();
+    bufferDeviceAddressInfo.buffer = renderables[renderableIndex].objModel->vertexBuffer->getHandle();
     // We can take advantage of the fact that position is the first member of Vertex
     VkDeviceAddress vertexAddress = vkGetBufferDeviceAddress(device->getHandle(), &bufferDeviceAddressInfo);
-    bufferDeviceAddressInfo.buffer = renderables[renderableIndex].mesh->indexBuffer->getHandle();
+    bufferDeviceAddressInfo.buffer = renderables[renderableIndex].objModel->indexBuffer->getHandle();
     VkDeviceAddress indexAddress = vkGetBufferDeviceAddress(device->getHandle(), &bufferDeviceAddressInfo);
 
-    uint32_t maxPrimitiveCount = renderables[renderableIndex].mesh->indicesCount / 3;
+    uint32_t maxPrimitiveCount = renderables[renderableIndex].objModel->indicesCount / 3;
 
     // Describe buffer as array of VertexObj.
     VkAccelerationStructureGeometryTrianglesDataKHR triangles{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR };
@@ -1425,7 +1429,7 @@ BlasInput MainApp::objectToVkGeometryKHR(size_t renderableIndex)
     triangles.indexData.deviceAddress = indexAddress;
     // Indicate identity transform by setting transformData to null device pointer.
     //triangles.transformData = {};
-    triangles.maxVertex = renderables[renderableIndex].mesh->verticesCount;
+    triangles.maxVertex = renderables[renderableIndex].objModel->verticesCount;
 
     // Identify the above data as containing opaque triangles.
     VkAccelerationStructureGeometryKHR asGeometry{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR };

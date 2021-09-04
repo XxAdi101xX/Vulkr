@@ -73,6 +73,7 @@
 VkInstance g_instance;
 PFN_vkVoidFunction loadFunction(const char *function_name, void *user_data) { return vkGetInstanceProcAddr(g_instance, function_name); }
 
+#define RASTERIZE
 namespace vulkr
 {
 
@@ -99,7 +100,7 @@ struct ObjInstance
     alignas(8) VkDeviceAddress materialIndices;
 };
 
-struct Mesh
+struct ObjModel
 {
     uint32_t verticesCount;
     uint32_t indicesCount;
@@ -125,7 +126,7 @@ struct Texture
 // TODO: refactor this to represent just the objModel, remove transforMatrix, material
 struct RenderObject
 {
-    std::shared_ptr<Mesh> mesh;
+    std::shared_ptr<ObjModel> objModel;
 
     std::shared_ptr<Material> material;
 
@@ -281,7 +282,7 @@ private:
 
     std::vector<RenderObject> renderables;
     std::unordered_map<std::string, std::shared_ptr<Material>> materials;
-    std::unordered_map<std::string, std::shared_ptr<Mesh>> meshes;
+    std::unordered_map<std::string, std::shared_ptr<ObjModel>> objModels;
     std::vector<Texture> textures;
     std::vector<ObjInstance> objInstances;
 
@@ -309,10 +310,10 @@ private:
     void createTextureSampler();
     void loadTextureImages(const std::vector<std::string> &textureFiles);
     void copyBufferToBuffer(const Buffer &srcBuffer, const Buffer &dstBuffer, VkDeviceSize size);
-    void createVertexBuffer(std::shared_ptr<Mesh> mesh, const ObjLoader &objLoader);
-    void createIndexBuffer(std::shared_ptr<Mesh> mesh, const ObjLoader &objLoader);
-    void createMaterialBuffer(std::shared_ptr<Mesh> mesh, const ObjLoader &objLoader);
-    void createMaterialIndicesBuffer(std::shared_ptr<Mesh> mesh, const ObjLoader &objLoader);
+    void createVertexBuffer(std::shared_ptr<ObjModel> objModel, const ObjLoader &objLoader);
+    void createIndexBuffer(std::shared_ptr<ObjModel> objModel, const ObjLoader &objLoader);
+    void createMaterialBuffer(std::shared_ptr<ObjModel> objModel, const ObjLoader &objLoader);
+    void createMaterialIndicesBuffer(std::shared_ptr<ObjModel> objModel, const ObjLoader &objLoader);
     void createUniformBuffers();
     void createSSBOs();
     void createDescriptorPool();
@@ -327,7 +328,7 @@ private:
     void initializeImGui();
 
     std::shared_ptr<Material> getMaterial(const std::string &name);
-    std::shared_ptr<Mesh> getMesh(const std::string &name);
+    std::shared_ptr<ObjModel> getObjModel(const std::string &name);
 
     // Raytracing TODO: cleanup this section
     std::unique_ptr<Image> outputImage;
