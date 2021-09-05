@@ -230,23 +230,26 @@ private:
     VkQueue presentQueue{ VK_NULL_HANDLE };
 
     std::unique_ptr<Swapchain> swapchain{ nullptr };
-    std::vector<std::unique_ptr<ImageView>> swapChainImageViews;
 
-    std::vector<VkAttachmentReference> inputAttachments;
-    std::vector<VkAttachmentReference> colorAttachments;
-    std::vector<VkAttachmentReference> resolveAttachments;
-    std::vector<VkAttachmentReference> depthStencilAttachments;
-    std::vector<uint32_t> preserveAttachments;
+    struct RenderPassData
+    {
+        std::unique_ptr<RenderPass> renderPass{ nullptr };
+        std::vector<Subpass> subpasses;
+        std::vector<VkAttachmentReference> inputAttachments;
+        std::vector<VkAttachmentReference> colorAttachments;
+        std::vector<VkAttachmentReference> resolveAttachments;
+        std::vector<VkAttachmentReference> depthStencilAttachments;
+        std::vector<uint32_t> preserveAttachments;
+    };
 
-    std::vector<Subpass> subpasses;
-    std::unique_ptr<RenderPass> renderPass{ nullptr };
+    RenderPassData mainRenderPass;
+    RenderPassData postRenderPass;
+
     std::unique_ptr<DescriptorSetLayout> globalDescriptorSetLayout{ nullptr };
     std::unique_ptr<DescriptorSetLayout> objectDescriptorSetLayout{ nullptr };
     std::unique_ptr<DescriptorSetLayout> textureDescriptorSetLayout{ nullptr };
     std::unique_ptr<DescriptorPool> descriptorPool;
     std::unique_ptr<DescriptorPool> imguiPool;
-
-    std::vector<std::unique_ptr<Framebuffer>> swapchainFramebuffers;
 
     std::unique_ptr<Image> depthImage{ nullptr };
     std::unique_ptr<ImageView> depthImageView{ nullptr };
@@ -263,6 +266,7 @@ private:
     {
         std::array<std::unique_ptr<Image>, maxFramesInFlight> outputImages;
         std::array<std::unique_ptr<ImageView>, maxFramesInFlight> outputImageViews;
+        std::array<std::unique_ptr<Framebuffer>, maxFramesInFlight> outputImageFramebuffers;
 
         std::array<VkSemaphore, maxFramesInFlight> imageAvailableSemaphores;
         std::array<VkSemaphore, maxFramesInFlight> renderingFinishedSemaphores;
@@ -297,9 +301,9 @@ private:
     void createSurface();
     void createDevice();
     void createSwapchain();
-    void createSwapchainImageViews();
     void createOutputImageAndImageView();
-    void createRenderPass();
+    void createMainRenderPass();
+    void createPostRenderPass();
     void createDescriptorSetLayouts();
     std::shared_ptr<PipelineData> createPipelineData(std::shared_ptr<GraphicsPipeline> pipeline, std::shared_ptr<PipelineState> pipelineState, const std::string &name);
     void createGraphicsPipelines();

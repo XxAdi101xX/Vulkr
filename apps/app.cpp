@@ -93,14 +93,12 @@ void MainApp::cleanupSwapchain()
     }
 
     depthImage.reset();
-
     depthImageView.reset();
 
-    for (uint32_t i = 0; i < swapchainFramebuffers.size(); ++i)
+    for (uint32_t i = 0; i < maxFramesInFlight; ++i)
     {
-        swapchainFramebuffers[i].reset();
+        frameData.outputImageFramebuffers[i].reset();
     }
-    swapchainFramebuffers.clear();
 
     for (auto &it : pipelineDataMap)
     {
@@ -110,19 +108,21 @@ void MainApp::cleanupSwapchain()
     pipelineDataMap.clear();
     renderables.clear();
 
-    renderPass.reset();
-    subpasses.clear();
+    mainRenderPass.renderPass.reset();
+    mainRenderPass.subpasses.clear();
+    mainRenderPass.inputAttachments.clear();
+    mainRenderPass.colorAttachments.clear();
+    mainRenderPass.resolveAttachments.clear();
+    mainRenderPass.depthStencilAttachments.clear();
+    mainRenderPass.preserveAttachments.clear();
 
-    for (uint32_t i = 0; i < swapChainImageViews.size(); ++i)
-    {
-        swapChainImageViews[i].reset();
-    }
-    swapChainImageViews.clear();
-    inputAttachments.clear();
-    colorAttachments.clear();
-    resolveAttachments.clear();
-    depthStencilAttachments.clear();
-    preserveAttachments.clear();
+    postRenderPass.renderPass.reset();
+    postRenderPass.subpasses.clear();
+    postRenderPass.inputAttachments.clear();
+    postRenderPass.colorAttachments.clear();
+    postRenderPass.resolveAttachments.clear();
+    postRenderPass.depthStencilAttachments.clear();
+    postRenderPass.preserveAttachments.clear();
 
     swapchain.reset();
 
@@ -166,9 +166,9 @@ void MainApp::prepare()
     }
 
     createSwapchain();
-    createSwapchainImageViews();
     createDepthResources();
-    createRenderPass();
+    createMainRenderPass();
+    createPostRenderPass();
     createCommandPools();
     createCommandBuffers();
     createOutputImageAndImageView();
@@ -234,21 +234,50 @@ void MainApp::update()
     clearValues[1].depthStencil = { 1.0f, 0u };
 
     frameData.commandBuffers[currentFrame]->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
-    //raytrace(swapchainImageIndex); // TODO enable this and disable drawObjects() to enable ray tracing
-    frameData.commandBuffers[currentFrame]->beginRenderPass(*renderPass, *(swapchainFramebuffers[swapchainImageIndex]), swapchain->getProperties().imageExtent, clearValues, VK_SUBPASS_CONTENTS_INLINE);
-    // Update uniform buffers and ssbos
+
+    // Main offscreen renderpass
+    frameData.commandBuffers[currentFrame]->beginRenderPass(*mainRenderPass.renderPass, *(frameData.outputImageFramebuffers[currentFrame]), swapchain->getProperties().imageExtent, clearValues, VK_SUBPASS_CONTENTS_INLINE);
     updateBuffersPerFrame();
-    // Render scene
 #ifdef RASTERIZE
     drawObjects();
 #endif
-    // Render UI
+    frameData.commandBuffers[currentFrame]->endRenderPass();
+#ifndef RASTERIZE
+    raytrace(swapchainImageIndex);
+#endif
+
+    // Post offscreen renderpass
+    frameData.commandBuffers[currentFrame]->beginRenderPass(*postRenderPass.renderPass, *(frameData.outputImageFramebuffers[currentFrame]), swapchain->getProperties().imageExtent, clearValues, VK_SUBPASS_CONTENTS_INLINE);
     ImGui::Render();
     ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), frameData.commandBuffers[currentFrame]->getHandle());
     frameData.commandBuffers[currentFrame]->endRenderPass();
-#ifndef RASTERIZE
-    raytrace(swapchainImageIndex); // TODO remove this
-#endif
+
+    // Copy the output image contents to the swapchain image
+    VkImageSubresourceRange subresourceRange = {};
+    subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    subresourceRange.baseMipLevel = 0;
+    subresourceRange.levelCount = 1;
+    subresourceRange.baseArrayLayer = 0;
+    subresourceRange.layerCount = 1;
+
+    // Prepare the current swapchain image as a transfer destination
+    swapchain->getImages()[swapchainImageIndex]->transitionImageLayout(*frameData.commandBuffers[currentFrame], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, subresourceRange);
+    // Prepare ray tracing output image as transfer source
+    frameData.outputImages[currentFrame]->transitionImageLayout(*frameData.commandBuffers[currentFrame], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, subresourceRange);
+
+    VkImageCopy copyRegion{};
+    copyRegion.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+    copyRegion.srcOffset = { 0, 0, 0 };
+    copyRegion.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+    copyRegion.dstOffset = { 0, 0, 0 };
+    copyRegion.extent = { swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, 1 };
+    vkCmdCopyImage(frameData.commandBuffers[currentFrame]->getHandle(), frameData.outputImages[currentFrame]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swapchain->getImages()[swapchainImageIndex]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
+
+    // Transition the current swapchain image back for presentation
+    swapchain->getImages()[swapchainImageIndex]->transitionImageLayout(*frameData.commandBuffers[currentFrame], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, subresourceRange);
+    // Transition the output image back to the general layout
+    frameData.outputImages[currentFrame]->transitionImageLayout(*frameData.commandBuffers[currentFrame], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL, subresourceRange);
+
     frameData.commandBuffers[currentFrame]->end();
 
     // I have setup a subpass dependency to ensure that the render pass waits for the swapchain to finish reading from the image before accessing it
@@ -300,9 +329,9 @@ void MainApp::recreateSwapchain()
     cleanupSwapchain();
 
     createSwapchain();
-    createSwapchainImageViews();
     setupCamera();
-    createRenderPass();
+    createMainRenderPass();
+    createPostRenderPass();
     createGraphicsPipelines();
     createDepthResources();
     createFramebuffers();
@@ -314,7 +343,7 @@ void MainApp::recreateSwapchain()
     updateRtDescriptorSet();
     createScene();
 
-    imagesInFlight.resize(swapChainImageViews.size(), VK_NULL_HANDLE);
+    imagesInFlight.resize(swapchain->getImages().size(), VK_NULL_HANDLE);
 }
 
 void MainApp::handleInputEvents(const InputEvent &inputEvent)
@@ -502,15 +531,6 @@ void MainApp::createSwapchain()
     swapchain = std::make_unique<Swapchain>(*device, surface, VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR, VK_PRESENT_MODE_FIFO_KHR, imageUsageFlags);
 }
 
-void MainApp::createSwapchainImageViews()
-{
-    swapChainImageViews.reserve(swapchain->getImages().size());
-    for (uint32_t i = 0; i < swapchain->getImages().size(); ++i)
-    {
-        swapChainImageViews.emplace_back(std::make_unique<ImageView>(*(swapchain->getImages()[i]), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, swapchain->getProperties().surfaceFormat.format));
-    }
-}
-
 void MainApp::setupCamera()
 {
     cameraController = std::make_unique<CameraController>(swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height);
@@ -518,10 +538,10 @@ void MainApp::setupCamera()
     cameraController->getCamera()->setView(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
 }
 
-void MainApp::createRenderPass()
+void MainApp::createMainRenderPass()
 {
     std::vector<Attachment> attachments;
-    Attachment colorAttachment{};
+    Attachment colorAttachment{}; // outputImage
     colorAttachment.format = swapchain->getProperties().surfaceFormat.format;
     colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
     colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
@@ -529,13 +549,13 @@ void MainApp::createRenderPass()
     colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
     colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
     colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    colorAttachment.finalLayout = VK_IMAGE_LAYOUT_GENERAL;
     attachments.push_back(colorAttachment);
 
     VkAttachmentReference colorAttachmentRef{};
     colorAttachmentRef.attachment = 0;
     colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    colorAttachments.push_back(colorAttachmentRef);
+    mainRenderPass.colorAttachments.push_back(colorAttachmentRef);
 
     Attachment depthAttachment{};
     depthAttachment.format = getSupportedDepthFormat(device->getPhysicalDevice().getHandle());
@@ -551,9 +571,16 @@ void MainApp::createRenderPass()
     VkAttachmentReference depthAttachmentRef{};
     depthAttachmentRef.attachment = 1;
     depthAttachmentRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-    depthStencilAttachments.push_back(depthAttachmentRef);
+    mainRenderPass.depthStencilAttachments.push_back(depthAttachmentRef);
 
-    subpasses.emplace_back(inputAttachments, colorAttachments, resolveAttachments, depthStencilAttachments, preserveAttachments, VK_PIPELINE_BIND_POINT_GRAPHICS);
+    mainRenderPass.subpasses.emplace_back(
+        mainRenderPass.inputAttachments,
+        mainRenderPass.colorAttachments,
+        mainRenderPass.resolveAttachments,
+        mainRenderPass.depthStencilAttachments,
+        mainRenderPass.preserveAttachments,
+        VK_PIPELINE_BIND_POINT_GRAPHICS
+    );
 
     std::vector<VkSubpassDependency> dependencies;
     dependencies.resize(1);
@@ -571,8 +598,73 @@ void MainApp::createRenderPass()
     // but since we are signalling a semaphore, we can rely on Vulkan's default behavior,
     // which injects an external dependency here with dstStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, dstAccessMask = 0. 
 
-    renderPass = std::make_unique<RenderPass>(*device, attachments, subpasses, dependencies);
+    mainRenderPass.renderPass = std::make_unique<RenderPass>(*device, attachments, mainRenderPass.subpasses, dependencies);
 }
+
+// TODO check if we need the depth attachment for the post render pass
+void MainApp::createPostRenderPass()
+{
+    std::vector<Attachment> attachments;
+    Attachment colorAttachment{}; // swapchainImage
+    colorAttachment.format = swapchain->getProperties().surfaceFormat.format;
+    colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+    colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+    colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE; 
+    colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    colorAttachment.initialLayout = VK_IMAGE_LAYOUT_GENERAL;
+    colorAttachment.finalLayout = VK_IMAGE_LAYOUT_GENERAL;
+    attachments.push_back(colorAttachment);
+
+    VkAttachmentReference colorAttachmentRef{};
+    colorAttachmentRef.attachment = 0;
+    colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    postRenderPass.colorAttachments.push_back(colorAttachmentRef);
+
+    Attachment depthAttachment{};
+    depthAttachment.format = getSupportedDepthFormat(device->getPhysicalDevice().getHandle());
+    depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+    depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    depthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    depthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    depthAttachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+    attachments.push_back(depthAttachment);
+
+    VkAttachmentReference depthAttachmentRef{};
+    depthAttachmentRef.attachment = 1;
+    depthAttachmentRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+    postRenderPass.depthStencilAttachments.push_back(depthAttachmentRef);
+
+    postRenderPass.subpasses.emplace_back(
+        postRenderPass.inputAttachments,
+        postRenderPass.colorAttachments,
+        postRenderPass.resolveAttachments,
+        postRenderPass.depthStencilAttachments,
+        postRenderPass.preserveAttachments,
+        VK_PIPELINE_BIND_POINT_GRAPHICS
+    );
+
+    std::vector<VkSubpassDependency> dependencies;
+    dependencies.resize(1);
+
+    // Only need a dependency coming in to ensure that the first layout transition happens at the right time.
+    // Second external dependency is implied by having a different finalLayout and subpass layout.
+    dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
+    dependencies[0].dstSubpass = 0; // References the subpass index in the subpasses array
+    dependencies[0].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+    dependencies[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+    dependencies[0].srcAccessMask = 0; // We don't have anything that we need to flush
+    dependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+
+    // Normally, we would need an external dependency at the end as well since we are changing layout in finalLayout,
+    // but since we are signalling a semaphore, we can rely on Vulkan's default behavior,
+    // which injects an external dependency here with dstStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, dstAccessMask = 0. 
+
+    postRenderPass.renderPass = std::make_unique<RenderPass>(*device, attachments, postRenderPass.subpasses, dependencies);
+}
+
 
 void MainApp::createDescriptorSetLayouts()
 {
@@ -731,7 +823,7 @@ void MainApp::createGraphicsPipelines()
     // Create default mesh pipeline
     std::shared_ptr<PipelineState> defaultMeshPipelineState = std::make_shared<PipelineState>(
         std::make_unique<PipelineLayout>(*device, shaderModules, descriptorSetLayoutHandles, pushConstantRangeHandles),
-        *renderPass,
+        *mainRenderPass.renderPass,
         vertexInputState,
         inputAssemblyState,
         viewportState,
@@ -757,7 +849,7 @@ void MainApp::createGraphicsPipelines()
 
     std::shared_ptr<PipelineState> texturedMeshPipelineState = std::make_shared<PipelineState>(
         std::make_unique<PipelineLayout>(*device, shaderModules, descriptorSetLayoutHandles, pushConstantRangeHandles),
-        *renderPass,
+        *mainRenderPass.renderPass,
         vertexInputState,
         inputAssemblyState,
         viewportState,
@@ -774,12 +866,11 @@ void MainApp::createGraphicsPipelines()
 
 void MainApp::createFramebuffers()
 {
-    swapchainFramebuffers.reserve(swapchain->getImages().size());
-    for (uint32_t i = 0; i < swapchain->getImages().size(); ++i)
+    for (uint32_t i = 0; i < maxFramesInFlight; ++i)
     {
-        std::vector<VkImageView> attachments{ swapChainImageViews[i]->getHandle(), depthImageView->getHandle() };
-
-        swapchainFramebuffers.emplace_back(std::make_unique<Framebuffer>(*device, *swapchain, *renderPass, attachments));
+        std::vector<VkImageView> attachments{ frameData.outputImageViews[i]->getHandle(), depthImageView->getHandle() };
+        frameData.outputImageFramebuffers[i] = std::make_unique<Framebuffer>(*device, *swapchain, *mainRenderPass.renderPass, attachments);
+        setDebugUtilsObjectName(device->getHandle(), frameData.outputImageFramebuffers[i]->getHandle(), "outputImageFramebuffer for frame #" + std::to_string(i));
     }
 }
 
@@ -788,6 +879,7 @@ void MainApp::createCommandPools()
     for (uint32_t i = 0; i < maxFramesInFlight; ++i)
     {
         frameData.commandPools[i] = std::make_unique<CommandPool>(*device, device->getOptimalGraphicsQueue().getFamilyIndex(), VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT);
+        setDebugUtilsObjectName(device->getHandle(), frameData.commandPools[i]->getHandle(), "commandPool for frame #" + std::to_string(i));
     }
 }
 
@@ -796,6 +888,7 @@ void MainApp::createCommandBuffers()
     for (uint32_t i = 0; i < maxFramesInFlight; ++i)
     {
         frameData.commandBuffers[i] = std::make_unique<CommandBuffer>(*frameData.commandPools[i], VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+        setDebugUtilsObjectName(device->getHandle(), frameData.commandBuffers[i]->getHandle(), "commandBuffer for frame #" + std::to_string(i));
     }
 }
 
@@ -835,9 +928,10 @@ void MainApp::createDepthResources()
 
     VkExtent3D extent{ swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, 1 };
     // TODO: a single depth buffer may not be correct... https://stackoverflow.com/questions/62371266/why-is-a-single-depth-buffer-sufficient-for-this-vulkan-swapchain-render-loop
-    // TODO: understand why I don't need to use a staging buffer here to access the depth buffer
     depthImage = std::make_unique<Image>(*device, depthFormat, extent, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VMA_MEMORY_USAGE_GPU_ONLY /* default values for remaining params */);
     depthImageView = std::make_unique<ImageView>(*depthImage, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_DEPTH_BIT, depthFormat);
+    setDebugUtilsObjectName(device->getHandle(), depthImage->getHandle(), "depthImage");
+    setDebugUtilsObjectName(device->getHandle(), depthImageView->getHandle(), "depthImageView");
 }
 
 std::unique_ptr<Image> MainApp::createTextureImage(const char *filename)
@@ -1354,11 +1448,11 @@ void MainApp::initializeImGui()
     initInfo.MinImageCount = swapchain->getProperties().imageCount;
     initInfo.ImageCount = swapchain->getProperties().imageCount;
     initInfo.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
-    initInfo.Allocator = device->getAllocationCallbacks(); // TODO pass VMA here
+    initInfo.Allocator = device->getAllocationCallbacks(); // TODO pass VMA here; figure out if this solution works
     initInfo.CheckVkResultFn = checkVkResult;
 
     ImGui_ImplVulkan_LoadFunctions(loadFunction); // TODO figure out how to integrate with volk
-    ImGui_ImplVulkan_Init(&initInfo, renderPass->getHandle());
+    ImGui_ImplVulkan_Init(&initInfo, postRenderPass.renderPass->getHandle());
 
     std::unique_ptr<CommandBuffer> commandBuffer = std::make_unique<CommandBuffer>(*frameData.commandPools[currentFrame], VK_COMMAND_BUFFER_LEVEL_PRIMARY);
     commandBuffer->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
@@ -1390,7 +1484,7 @@ void MainApp::createOutputImageAndImageView()
 
     for (uint32_t i = 0; i < maxFramesInFlight; ++i)
     {
-        frameData.outputImages[i] = std::make_unique<Image>(*device, swapchain->getProperties().surfaceFormat.format, extent, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+        frameData.outputImages[i] = std::make_unique<Image>(*device, swapchain->getProperties().surfaceFormat.format, extent, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
         frameData.outputImageViews[i] = std::make_unique<ImageView>(*(frameData.outputImages[i]), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, frameData.outputImages[i]->getFormat());
         
         std::unique_ptr<CommandBuffer> commandBuffer = std::make_unique<CommandBuffer>(*frameData.commandPools[currentFrame], VK_COMMAND_BUFFER_LEVEL_PRIMARY);
@@ -2228,32 +2322,6 @@ void MainApp::raytrace(const uint32_t &swapchainImageIndex)
 
     vkCmdTraceRaysKHR(frameData.commandBuffers[currentFrame]->getHandle(), &strideAddresses[0], &strideAddresses[1], &strideAddresses[2], &strideAddresses[3],
         swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, 1); // TODO, this was initially m_size
-
-    VkImageSubresourceRange subresourceRange = {};
-    subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    subresourceRange.baseMipLevel = 0;
-    subresourceRange.levelCount = 1;
-    subresourceRange.baseArrayLayer = 0;
-    subresourceRange.layerCount = 1;
-
-    // Prepare the current swapchain image as a transfer destination
-    swapchain->getImages()[swapchainImageIndex]->transitionImageLayout(*frameData.commandBuffers[currentFrame], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, subresourceRange);
-    // Prepare ray tracing output image as transfer source
-    frameData.outputImages[currentFrame]->transitionImageLayout(*frameData.commandBuffers[currentFrame], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, subresourceRange);
-
-
-    VkImageCopy copyRegion{};
-    copyRegion.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
-    copyRegion.srcOffset = { 0, 0, 0 };
-    copyRegion.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
-    copyRegion.dstOffset = { 0, 0, 0 };
-    copyRegion.extent = { swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, 1 };
-    vkCmdCopyImage(frameData.commandBuffers[currentFrame]->getHandle(), frameData.outputImages[currentFrame]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swapchain->getImages()[swapchainImageIndex]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
-
-    // Transition the current swapchain image back for presentation
-    swapchain->getImages()[swapchainImageIndex]->transitionImageLayout(*frameData.commandBuffers[currentFrame], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, subresourceRange);
-    // Transition the output image back to the general layout
-    frameData.outputImages[currentFrame]->transitionImageLayout(*frameData.commandBuffers[currentFrame], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL, subresourceRange);
 
     //m_debug.endLabel(cmdBuf);
 }
