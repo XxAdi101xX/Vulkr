@@ -401,6 +401,16 @@ void MainApp::drawImGuiInterface()
                 cameraController->getCamera()->setFovY(fovy);
                 changed = false;
             }
+
+            if (ImGui::CollapsingHeader("Light"))
+            {
+                ImGui::RadioButton("Point", &m_rtPushConstants.lightType, 0);
+                ImGui::SameLine();
+                ImGui::RadioButton("Infinite", &m_rtPushConstants.lightType, 1);
+
+                ImGui::SliderFloat3("Position", &m_rtPushConstants.lightPosition.x, -50.f, 50.f);
+                ImGui::SliderFloat("Intensity", &m_rtPushConstants.lightIntensity, 0.f, 150.f);
+            }
         }
 
         if (ImGui::BeginTabItem("Extra"))
@@ -535,7 +545,7 @@ void MainApp::setupCamera()
 {
     cameraController = std::make_unique<CameraController>(swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height);
     cameraController->getCamera()->setPerspectiveProjection(45.0f, swapchain->getProperties().imageExtent.width / (float)swapchain->getProperties().imageExtent.height, 0.1f, 100.0f);
-    cameraController->getCamera()->setView(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+    cameraController->getCamera()->setView(glm::vec3(-3.5f, 14.0f, 3.5f), glm::vec3(-1.0f, 12.0f, 3.0f), glm::vec3(0.0f, 1.0f, 0.0f));
 }
 
 void MainApp::createMainRenderPass()
