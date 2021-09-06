@@ -239,7 +239,7 @@ void MainApp::update()
     frameData.commandBuffers[currentFrame]->beginRenderPass(*mainRenderPass.renderPass, *(frameData.outputImageFramebuffers[currentFrame]), swapchain->getProperties().imageExtent, clearValues, VK_SUBPASS_CONTENTS_INLINE);
     updateBuffersPerFrame();
 #ifdef RASTERIZE
-    drawObjects();
+    rasterize();
 #endif
     frameData.commandBuffers[currentFrame]->endRenderPass();
 #ifndef RASTERIZE
@@ -458,8 +458,9 @@ void MainApp::updateBuffersPerFrame()
 // TODO: as opposed to doing slot based binding of descriptor sets which leads to multiple vkCmdBindDescriptorSets calls per drawcall, you can use
 // frequency based descriptor sets and use dynamicOffsetCount: see https://zeux.io/2020/02/27/writing-an-efficient-vulkan-renderer/, or just bindless
 // decriptors altogether
-void MainApp::drawObjects()
+void MainApp::rasterize()
 {
+    debugUtilBeginLabel(frameData.commandBuffers[currentFrame]->getHandle(), "Rasterize");
     // Draw renderables
     std::shared_ptr<ObjModel> lastObjModel = nullptr;
     std::shared_ptr<PipelineData> lastPipeline = nullptr;
@@ -502,6 +503,8 @@ void MainApp::drawObjects()
 
         vkCmdDrawIndexed(frameData.commandBuffers[currentFrame]->getHandle(), to_u32(object.objModel->indicesCount), 1, 0, 0, index);
     }
+    
+    debugUtilEndLabel(frameData.commandBuffers[currentFrame]->getHandle());
 }
 
 void MainApp::setupTimer()
@@ -2294,12 +2297,7 @@ void MainApp::createRtShaderBindingTable()
 //
 void MainApp::raytrace(const uint32_t &swapchainImageIndex)
 {
-    //m_debug.beginLabel(cmdBuf, "Ray trace"); // TODO
-    // Initializing push constant values
-    //m_rtPushConstants.clearColor = clearColor;
-    //m_rtPushConstants.lightPosition = m_pushConstant.lightPosition;
-    //m_rtPushConstants.lightIntensity = m_pushConstant.lightIntensity;
-    //m_rtPushConstants.lightType = m_pushConstant.lightType;
+    debugUtilBeginLabel(frameData.commandBuffers[currentFrame]->getHandle(), "Raytrace");
 
     std::vector<VkDescriptorSet> descSets{
         frameData.rtDescriptorSets[currentFrame]->getHandle(), 
@@ -2331,9 +2329,9 @@ void MainApp::raytrace(const uint32_t &swapchainImageIndex)
     };                                            
 
     vkCmdTraceRaysKHR(frameData.commandBuffers[currentFrame]->getHandle(), &strideAddresses[0], &strideAddresses[1], &strideAddresses[2], &strideAddresses[3],
-        swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, 1); // TODO, this was initially m_size
+        swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, 1);
 
-    //m_debug.endLabel(cmdBuf);
+    debugUtilEndLabel(frameData.commandBuffers[currentFrame]->getHandle());
 }
 
 } // namespace vulkr

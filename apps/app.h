@@ -51,6 +51,7 @@
 #include "common/helpers.h"
 #include "common/timer.h"
 #include "common/obj_loader.h"
+#include "common/debug_util.h"
 
 #include "platform/application.h"
 #include "platform/input_event.h"
@@ -295,7 +296,7 @@ private:
     // Subroutines
     void drawImGuiInterface();
     void updateBuffersPerFrame();
-    void drawObjects();
+    void rasterize();
     void cleanupSwapchain();
     void createInstance();
     void createSurface();

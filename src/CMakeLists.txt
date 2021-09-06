@@ -34,6 +34,7 @@ set(COMMON_FILES
     common/semaphore_pool.h
     common/timer.h
     common/obj_loader.h
+    common/debug_util.h
     # Source Files
     common/vulkan_common.cpp
     common/strings.cpp
@@ -41,6 +42,7 @@ set(COMMON_FILES
     common/semaphore_pool.cpp
     common/timer.cpp
     common/obj_loader.cpp
+    common/debug_util.cpp
 )
 
 set(CORE_FILES
