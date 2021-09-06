@@ -238,13 +238,18 @@ void MainApp::update()
     // Main offscreen renderpass
     frameData.commandBuffers[currentFrame]->beginRenderPass(*mainRenderPass.renderPass, *(frameData.outputImageFramebuffers[currentFrame]), swapchain->getProperties().imageExtent, clearValues, VK_SUBPASS_CONTENTS_INLINE);
     updateBuffersPerFrame();
-#ifdef RASTERIZE
-    rasterize();
-#endif
+
+    if (!raytracingEnabled)
+    {
+        rasterize();
+    }
+
     frameData.commandBuffers[currentFrame]->endRenderPass();
-#ifndef RASTERIZE
-    raytrace(swapchainImageIndex);
-#endif
+
+    if (raytracingEnabled)
+    {
+        raytrace(swapchainImageIndex);
+    }
 
     // Post offscreen renderpass
     frameData.commandBuffers[currentFrame]->beginRenderPass(*postRenderPass.renderPass, *(frameData.outputImageFramebuffers[currentFrame]), swapchain->getProperties().imageExtent, clearValues, VK_SUBPASS_CONTENTS_INLINE);
@@ -374,6 +379,8 @@ void MainApp::drawImGuiInterface()
     {
         if (ImGui::BeginTabItem("Camera"))
         {
+            ImGui::Checkbox("Raytracing enabled", &raytracingEnabled);
+
             ImGui::Text("Position");
             ImGui::SameLine();
             ImGui::InputFloat3("##Position", &position.x);
@@ -392,7 +399,6 @@ void MainApp::drawImGuiInterface()
                 cameraController->getCamera()->setCenter(center);
                 changed = false;
             }
-            ImGui::EndTabItem();
             ImGui::Text("FOV");
             ImGui::SameLine();
             changed |= ImGui::DragFloat("##FOV", &fovy, 1.0f, 1.0f, 179.0f, "%.3f", 0);
@@ -402,6 +408,11 @@ void MainApp::drawImGuiInterface()
                 changed = false;
             }
 
+            ImGui::EndTabItem();
+        }
+
+        if (ImGui::BeginTabItem("Environment"))
+        {
             if (ImGui::CollapsingHeader("Light"))
             {
                 ImGui::RadioButton("Point", &m_rtPushConstants.lightType, 0);
@@ -411,12 +422,10 @@ void MainApp::drawImGuiInterface()
                 ImGui::SliderFloat3("Position", &m_rtPushConstants.lightPosition.x, -50.f, 50.f);
                 ImGui::SliderFloat("Intensity", &m_rtPushConstants.lightIntensity, 0.f, 150.f);
             }
-        }
-
-        if (ImGui::BeginTabItem("Extra"))
-        {
+            
             ImGui::EndTabItem();
         }
+
         ImGui::EndTabBar();
     }
     // ImGui::End();
@@ -548,7 +557,7 @@ void MainApp::setupCamera()
 {
     cameraController = std::make_unique<CameraController>(swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height);
     cameraController->getCamera()->setPerspectiveProjection(45.0f, swapchain->getProperties().imageExtent.width / (float)swapchain->getProperties().imageExtent.height, 0.1f, 100.0f);
-    cameraController->getCamera()->setView(glm::vec3(-3.5f, 14.0f, 3.5f), glm::vec3(-1.0f, 12.0f, 3.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+    cameraController->getCamera()->setView(glm::vec3(-3.5f, 12.5f, 2.0f), glm::vec3(-1.0f, 12.0f, 3.0f), glm::vec3(0.0f, 1.0f, 0.0f));
 }
 
 void MainApp::createMainRenderPass()

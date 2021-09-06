@@ -74,12 +74,12 @@
 VkInstance g_instance;
 PFN_vkVoidFunction loadFunction(const char *function_name, void *user_data) { return vkGetInstanceProcAddr(g_instance, function_name); }
 
-//#define RASTERIZE
 namespace vulkr
 {
 
 constexpr uint32_t maxFramesInFlight{ 2 }; // Explanation on this how we got this number: https://software.intel.com/content/www/us/en/develop/articles/practical-approach-to-vulkan-part-1.html
 constexpr uint32_t MAX_OBJECT_COUNT{ 10000 };
+bool raytracingEnabled{ true }; // Flag to enable ray tracing vs rasterization
 
 /* Structs shared on both the GPU and CPU */
 struct CameraData
