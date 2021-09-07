@@ -64,26 +64,41 @@ void ObjLoader::loadModel(const char *filename)
             for (size_t v = 0; v < fv; v++)
             {
                 // Access to vertex
-                tinyobj::index_t idx = shape.mesh.indices[index_offset + v];
+                tinyobj::index_t index = shape.mesh.indices[index_offset + v];
+
+                VertexObj newVertex;
 
                 // Vertex position
-                tinyobj::real_t vx = objAttrib.vertices[3 * idx.vertex_index + 0];
-                tinyobj::real_t vy = objAttrib.vertices[3 * idx.vertex_index + 1];
-                tinyobj::real_t vz = objAttrib.vertices[3 * idx.vertex_index + 2];
-                // Vertex normal
-                tinyobj::real_t nx = objAttrib.normals[3 * idx.normal_index + 0];
-                tinyobj::real_t ny = objAttrib.normals[3 * idx.normal_index + 1];
-                tinyobj::real_t nz = objAttrib.normals[3 * idx.normal_index + 2];
-                // Texture coordinates
-                tinyobj::real_t ux = objAttrib.texcoords[2 * idx.texcoord_index + 0];
-                tinyobj::real_t uy = objAttrib.texcoords[2 * idx.texcoord_index + 1];
-
-                // Create a new vertex entry
-                VertexObj newVertex;
+                tinyobj::real_t vx = objAttrib.vertices[3 * index.vertex_index + 0];
+                tinyobj::real_t vy = objAttrib.vertices[3 * index.vertex_index + 1];
+                tinyobj::real_t vz = objAttrib.vertices[3 * index.vertex_index + 2];
                 newVertex.position = { vx, vy, vz };
-                newVertex.normal = { nx, ny, nz };
-                newVertex.color = { nx, ny, nz }; // Set the colour as the normal values for now
-                newVertex.textureCoordinate = { ux, 1 - uy };
+
+                // Vertex normal (will be computed separately if they're not providede)
+                if (!objAttrib.normals.empty() && index.normal_index >= 0)
+                {
+                    tinyobj::real_t nx = objAttrib.normals[3 * index.normal_index + 0];
+                    tinyobj::real_t ny = objAttrib.normals[3 * index.normal_index + 1];
+                    tinyobj::real_t nz = objAttrib.normals[3 * index.normal_index + 2];
+                    newVertex.normal = { nx, ny, nz };
+                }
+
+                // Vertex colors
+                if (!objAttrib.colors.empty())
+                {
+                    tinyobj::real_t cx = objAttrib.colors[3 * index.vertex_index + 0];
+                    tinyobj::real_t cy = objAttrib.colors[3 * index.vertex_index + 1];
+                    tinyobj::real_t cz = objAttrib.colors[3 * index.vertex_index + 2];
+                    newVertex.color = { cx, cy, cz };
+                }
+
+                // Texture coordinates
+                if (!objAttrib.texcoords.empty() && index.texcoord_index >= 0)
+                {
+                    tinyobj::real_t ux = objAttrib.texcoords[2 * index.texcoord_index + 0];
+                    tinyobj::real_t uy = objAttrib.texcoords[2 * index.texcoord_index + 1];
+                    newVertex.textureCoordinate = { ux, 1.0f - uy };
+                }
 
                 if (uniqueVertices.count(newVertex) == 0)
                 {
