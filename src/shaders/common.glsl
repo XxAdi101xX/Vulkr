@@ -1,9 +1,9 @@
 struct Vertex
 {
-  vec3 position;
-  vec3 normal;
-  vec3 color;
-  vec2 textureCoordinate;
+    vec3 position;
+    vec3 normal;
+    vec3 color;
+    vec2 textureCoordinate;
 };
 
 struct ObjInstance
@@ -20,16 +20,16 @@ struct ObjInstance
 
 struct WaveFrontMaterial
 {
-  vec3  ambient;
-  vec3  diffuse;
-  vec3  specular;
-  vec3  transmittance;
-  vec3  emission;
-  float shininess;
-  float ior;       // index of refraction
-  float dissolve;  // 1 == opaque; 0 == fully transparent
-  int   illum;     // illumination model (see http://www.fileformat.info/format/material/)
-  int   textureId;
+    vec3  ambient;
+    vec3  diffuse;
+    vec3  specular;
+    vec3  transmittance;
+    vec3  emission;
+    float shininess;
+    float ior;       // index of refraction
+    float dissolve;  // 1 == opaque; 0 == fully transparent
+    int   illum;     // illumination model (see http://www.fileformat.info/format/material/)
+    int   textureId;
 };
 
 vec3 computeDiffuse(WaveFrontMaterial mat, vec3 lightDir, vec3 normal)
@@ -37,17 +37,21 @@ vec3 computeDiffuse(WaveFrontMaterial mat, vec3 lightDir, vec3 normal)
     // Lambertian
     float dotNL = max(dot(normal, lightDir), 0.0);
     vec3  c     = mat.diffuse * dotNL;
-    if(mat.illum >= 1)
-    c += mat.ambient;
+
+    if (mat.illum >= 1)
+    {
+        c += mat.ambient;
+    }
     return c;
 }
 
 vec3 computeSpecular(WaveFrontMaterial mat, vec3 viewDir, vec3 lightDir, vec3 normal)
 {
-    if(mat.illum < 2)
-    return vec3(0);
+    if (mat.illum < 2)
+    {
+        return vec3(0);
+    }
 
-    // Compute specular only if not in shadow
     const float kPi        = 3.14159265;
     const float kShininess = max(mat.shininess, 4.0);
 

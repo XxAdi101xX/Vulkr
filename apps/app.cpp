@@ -956,13 +956,13 @@ void MainApp::createDepthResources()
     setDebugUtilsObjectName(device->getHandle(), depthImageView->getHandle(), "depthImageView");
 }
 
-std::unique_ptr<Image> MainApp::createTextureImage(const char *filename)
+std::unique_ptr<Image> MainApp::createTextureImage(const std::string &filename)
 {
     int texWidth, texHeight, texChannels;
 
-    stbi_uc *pixels = stbi_load(filename, &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+    stbi_uc *pixels = stbi_load(filename.c_str(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
     if (!pixels) {
-        LOGEANDABORT("failed to load texture image!");
+        LOGEANDABORT("Failed to load texture image {}!", filename);
     }
 
     VkDeviceSize imageSize{ static_cast<VkDeviceSize>(texWidth * texHeight * 4) };
@@ -1308,7 +1308,8 @@ void MainApp::createSemaphoreAndFencePools()
 
 void MainApp::loadTextureImages(const std::vector<std::string> &textureFiles)
 {
-    int x = 0;
+    LOGI("Loading {} texture files..", std::to_string(textureFiles.size()));
+    int x = 1;
     for (const std::string &textureFile : textureFiles)
     {
         LOGI(std::to_string(x++) + ": processing " + textureFile);
@@ -1330,7 +1331,7 @@ void MainApp::setupSynchronizationObjects()
     }
 }
 
-void MainApp::loadModel(const std::string objFileName, glm::mat4 transform)
+void MainApp::loadModel(const std::string &objFileName, glm::mat4 transform)
 {
     const std::string modelPath = "../../assets/models/";
     const std::string filePath = modelPath + objFileName;
@@ -1388,7 +1389,9 @@ void MainApp::loadModel(const std::string objFileName, glm::mat4 transform)
 void MainApp::loadModels()
 {
     loadModel("monkey_smooth.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 0)));
-    loadModel("lost_empire.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ 5,-10,0 }));
+    loadModel("plane.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(0, 0, 0)));
+    loadModel("Medieval_building.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ 5, 0,0 }));
+    //loadModel("lost_empire.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ 5,-10,0 }));
 }
 
 void MainApp::createScene()
@@ -1398,10 +1401,20 @@ void MainApp::createScene()
     monkey.pipelineData = getPipelineData("defaultmesh");
     renderables.push_back(monkey);
 
-    RenderObject map;
-    map.objModel = getObjModel("lost_empire.obj");
-    map.pipelineData = getPipelineData("texturedmesh");
-    renderables.push_back(map);
+    RenderObject plane;
+    plane.objModel = getObjModel("plane.obj");
+    plane.pipelineData = getPipelineData("defaultmesh");
+    renderables.push_back(plane);
+
+    RenderObject building;
+    building.objModel = getObjModel("Medieval_building.obj");
+    building.pipelineData = getPipelineData("texturedmesh");
+    renderables.push_back(building);
+
+    RenderObject empire;
+    empire.objModel = getObjModel("lost_empire.obj");
+    empire.pipelineData = getPipelineData("texturedmesh");
+    //renderables.push_back(empire);
 }
 
 std::shared_ptr<PipelineData> MainApp::getPipelineData(const std::string &name)
@@ -1413,7 +1426,6 @@ std::shared_ptr<PipelineData> MainApp::getPipelineData(const std::string &name)
     }
 
     return it->second;
-
 }
 
 std::shared_ptr<ObjModel> MainApp::getObjModel(const std::string &name)
@@ -1804,9 +1816,13 @@ void MainApp::buildBlas(const std::vector<BlasInput> &input, VkBuildAcceleration
         VK_CHECK(vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE));
         vkQueueWaitIdle(graphicsQueue);
 
-        LOGI(" RT BLAS: reducing from: %u to: %u = %u (%2.2f%s smaller) \n", statTotalOriSize, statTotalCompactSize,
+        LOGI(
+            "RT BLAS: reducing from: %u to: %u = %u (%2.2f%s smaller) \n",
+            statTotalOriSize,
+            statTotalCompactSize,
             statTotalOriSize - statTotalCompactSize,
-            (statTotalOriSize - statTotalCompactSize) / float(statTotalOriSize) * 100.f, "%%");
+            (statTotalOriSize - statTotalCompactSize) / float(statTotalOriSize) * 100.f, "%%"
+        );
     }
 
     vkDestroyQueryPool(device->getHandle(), queryPool, nullptr);

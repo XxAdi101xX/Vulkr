@@ -13,7 +13,7 @@
 
 hitAttributeEXT vec2 attribs;
 
-layout(location = 0) rayPayloadInEXT hitPayload prd;
+layout(location = 0) rayPayloadInEXT RayPayload payload;
 layout(location = 1) rayPayloadEXT bool isShadowed;
 
 layout(buffer_reference, scalar) buffer Vertices { Vertex v[]; }; // Positions of an object
@@ -34,8 +34,7 @@ layout(push_constant) uniform Constants
 	vec3  lightPosition;
 	float lightIntensity;
 	int   lightType;
-}
-pushC;
+} pushC;
 
 void main()
 {
@@ -92,7 +91,7 @@ void main()
 
     // Diffuse
     vec3 diffuse = computeDiffuse(mat, L, normal);
-    if(mat.textureId >= 0)
+    if (mat.textureId >= 0)
     {
         uint txtId = uint(mat.textureId + objResource.textureOffset);
         vec2 texCoord = v0.textureCoordinate * barycentrics.x + v1.textureCoordinate * barycentrics.y + v2.textureCoordinate * barycentrics.z;
@@ -103,7 +102,7 @@ void main()
     float attenuation = 1;
 
     // Tracing shadow ray only if the light is visible from the surface
-    if(dot(normal, L) > 0)
+    if (dot(normal, L) > 0)
     {
         float tMin   = 0.001;
         float tMax   = lightDistance;
@@ -111,17 +110,19 @@ void main()
         vec3  rayDir = L;
         uint  flags  = gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT | gl_RayFlagsSkipClosestHitShaderEXT;
         isShadowed   = true;
-        traceRayEXT(topLevelAS,  // acceleration structure
-                    flags,       // rayFlags
-                    0xFF,        // cullMask
-                    0,           // sbtRecordOffset
-                    0,           // sbtRecordStride
-                    1,           // missIndex (0 is regular miss while 1 is the shadow miss)
-                    origin,      // ray origin
-                    tMin,        // ray min range
-                    rayDir,      // ray direction
-                    tMax,        // ray max range
-                    1            // payload (location = 1)
+
+        traceRayEXT(
+            topLevelAS,  // acceleration structure
+            flags,       // rayFlags
+            0xFF,        // cullMask
+            0,           // sbtRecordOffset
+            0,           // sbtRecordStride
+            1,           // missIndex (0 is regular miss while 1 is the shadow miss)
+            origin,      // ray origin
+            tMin,        // ray min range
+            rayDir,      // ray direction
+            tMax,        // ray max range
+            1            // payload (location = 1)
         );
 
         if (isShadowed)
@@ -130,10 +131,10 @@ void main()
         }
         else
         {
-            // Specular
+            // Compute specular since we're not in the shadow
             specular = computeSpecular(mat, gl_WorldRayDirectionEXT, L, normal);
         }
     }
 
-    prd.hitValue = vec3(lightIntensity * attenuation * (diffuse + specular));
+    payload.hitValue = vec3(lightIntensity * attenuation * (diffuse + specular));
 }

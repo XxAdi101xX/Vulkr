@@ -185,7 +185,7 @@ struct BlasInstance
     uint32_t                   instanceCustomId{ 0 };  // Instance Index (gl_InstanceCustomIndexEXT)
     uint32_t                   hitGroupId{ 0 };        // Hit group index in the SBT
     uint32_t                   mask{ 0xFF };           // Visibility mask, will be AND-ed with ray mask
-    VkGeometryInstanceFlagsKHR flags{ VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR };
+    VkGeometryInstanceFlagsKHR flags{ VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR }; // Geometry instance flags
     glm::mat4                  transform{ glm::mat4(1) };  // Identity
 };
 
@@ -313,7 +313,7 @@ private:
     void createCommandBuffers();
     void copyBufferToImage(const Buffer &srcBuffer, const Image &dstImage, uint32_t width, uint32_t height);
     void createDepthResources();
-    std::unique_ptr<Image> createTextureImage(const char *filename);
+    std::unique_ptr<Image> createTextureImage(const std::string &filename);
     std::unique_ptr<ImageView> createTextureImageView(const Image &image);
     void createTextureSampler();
     void loadTextureImages(const std::vector<std::string> &textureFiles);
@@ -326,7 +326,7 @@ private:
     void createSSBOs();
     void createDescriptorPool();
     void createDescriptorSets();
-    void loadModel(const std::string objFileName, glm::mat4 transform);
+    void loadModel(const std::string &objFileName, glm::mat4 transform);
     void loadModels();
     void createScene();
     void createSemaphoreAndFencePools();
@@ -385,6 +385,8 @@ private:
     VkPipelineLayout                                  m_rtPipelineLayout;
     VkPipeline                                        m_rtPipeline;
 
+    // https://www.willusher.io/graphics/2019/11/20/the-sbt-three-ways is a great resource on how the SBT works and how we should be organizing our
+    // shaders into primary and occlusion hit groups
     void           createRtShaderBindingTable();
     std::unique_ptr<Buffer> m_rtSBTBuffer;
 
