@@ -30,11 +30,10 @@ layout(set = 3, binding = 0) uniform sampler2D[] textureSamplers;
 
 layout(push_constant) uniform Constants
 {
-	vec4  clearColor;
 	vec3  lightPosition;
 	float lightIntensity;
 	int   lightType;
-} pushC;
+} pushConstant;
 
 void main()
 {
@@ -68,20 +67,20 @@ void main()
 
     // Vector toward the light
     vec3  L;
-    float lightIntensity = pushC.lightIntensity;
+    float lightIntensity = pushConstant.lightIntensity;
     float lightDistance  = 100000.0;
 
     // Point light
-    if (pushC.lightType == 0)
+    if (pushConstant.lightType == 0)
     {
-        vec3 lDir      = pushC.lightPosition - worldPos;
+        vec3 lDir      = pushConstant.lightPosition - worldPos;
         lightDistance  = length(lDir);
-        lightIntensity = pushC.lightIntensity / (lightDistance * lightDistance);
+        lightIntensity = pushConstant.lightIntensity / (lightDistance * lightDistance);
         L              = normalize(lDir);
     }
     else // Directional light
     {
-        L = normalize(pushC.lightPosition - vec3(0));
+        L = normalize(pushConstant.lightPosition - vec3(0));
     }
 
 

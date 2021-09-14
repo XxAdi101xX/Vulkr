@@ -293,6 +293,13 @@ private:
     std::vector<Texture> textures;
     std::vector<ObjInstance> objInstances;
 
+    struct LightData
+    {
+        glm::vec3 lightPosition{ 10.0f, 13.0f, 4.5f };
+        float lightIntensity{ 100.0f };
+        int lightType{ 0 }; // 0: point, 1: infinite
+    } lightDataPushConstant;
+
     // Subroutines
     void drawImGuiInterface();
     void updateBuffersPerFrame();
@@ -371,13 +378,6 @@ private:
 
     void updateRtDescriptorSet();
 
-    struct RtPushConstant
-    {
-        glm::vec4 clearColor{ 1.0f, 1.0f, 1.0f, 1.0f };
-        glm::vec3 lightPosition{ 10.0f, 13.0f, 4.5f };
-        float lightIntensity{ 100.0f };
-        int lightType{ 0 }; // 0: point, 1: infinite
-    } m_rtPushConstants;
     void                                              createRtPipeline();
 
     std::vector<ShaderModule> raytracingShaderModules; // TODO: cleanup

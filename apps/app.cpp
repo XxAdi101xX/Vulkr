@@ -230,7 +230,7 @@ void MainApp::update()
 
     std::vector<VkClearValue> clearValues;
     clearValues.resize(2);
-    clearValues[0].color = { 0.0f, 0.0f, 0.0f, 1.0f };
+    clearValues[0].color = { 1.0f, 1.0f, 1.0f, 1.0f };
     clearValues[1].depthStencil = { 1.0f, 0u };
 
     frameData.commandBuffers[currentFrame]->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
@@ -415,12 +415,12 @@ void MainApp::drawImGuiInterface()
         {
             if (ImGui::CollapsingHeader("Light"))
             {
-                ImGui::RadioButton("Point", &m_rtPushConstants.lightType, 0);
+                ImGui::RadioButton("Point", &lightDataPushConstant.lightType, 0);
                 ImGui::SameLine();
-                ImGui::RadioButton("Infinite", &m_rtPushConstants.lightType, 1);
+                ImGui::RadioButton("Infinite", &lightDataPushConstant.lightType, 1);
 
-                ImGui::SliderFloat3("Position", &m_rtPushConstants.lightPosition.x, -50.f, 50.f);
-                ImGui::SliderFloat("Intensity", &m_rtPushConstants.lightIntensity, 0.f, 150.f);
+                ImGui::SliderFloat3("Position", &lightDataPushConstant.lightPosition.x, -50.f, 50.f);
+                ImGui::SliderFloat("Intensity", &lightDataPushConstant.lightIntensity, 0.f, 150.f);
             }
             
             ImGui::EndTabItem();
@@ -510,6 +510,7 @@ void MainApp::rasterize()
             lastObjModel = object.objModel;
         }
 
+        vkCmdPushConstants(frameData.commandBuffers[currentFrame]->getHandle(), object.pipelineData->pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(LightData), &lightDataPushConstant);
         vkCmdDrawIndexed(frameData.commandBuffers[currentFrame]->getHandle(), to_u32(object.objModel->indicesCount), 1, 0, 0, index);
     }
     
@@ -841,8 +842,10 @@ void MainApp::createGraphicsPipelines()
         objectDescriptorSetLayout->getHandle()
     };
     std::vector<VkPushConstantRange> pushConstantRangeHandles;
+    VkPushConstantRange pushConstant{ VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(LightData) };
+    pushConstantRangeHandles.push_back(pushConstant);
 
-    // Create default mesh pipeline
+    // Create default mesh pipeline TODO: defaultmesh is currently unused so it can be removed
     std::shared_ptr<PipelineState> defaultMeshPipelineState = std::make_shared<PipelineState>(
         std::make_unique<PipelineLayout>(*device, shaderModules, descriptorSetLayoutHandles, pushConstantRangeHandles),
         *mainRenderPass.renderPass,
@@ -868,6 +871,8 @@ void MainApp::createGraphicsPipelines()
     descriptorSetLayoutHandles.push_back(globalDescriptorSetLayout->getHandle());
     descriptorSetLayoutHandles.push_back(objectDescriptorSetLayout->getHandle());
     descriptorSetLayoutHandles.push_back(textureDescriptorSetLayout->getHandle());
+
+    // Using same push constants as defined for default mesh
 
     std::shared_ptr<PipelineState> texturedMeshPipelineState = std::make_shared<PipelineState>(
         std::make_unique<PipelineLayout>(*device, shaderModules, descriptorSetLayoutHandles, pushConstantRangeHandles),
@@ -1398,12 +1403,12 @@ void MainApp::createScene()
 {
     RenderObject monkey;
     monkey.objModel = getObjModel("monkey_smooth.obj");
-    monkey.pipelineData = getPipelineData("defaultmesh");
+    monkey.pipelineData = getPipelineData("texturedmesh");
     renderables.push_back(monkey);
 
     RenderObject plane;
     plane.objModel = getObjModel("plane.obj");
-    plane.pipelineData = getPipelineData("defaultmesh");
+    plane.pipelineData = getPipelineData("texturedmesh");
     renderables.push_back(plane);
 
     RenderObject building;
@@ -2220,7 +2225,7 @@ void MainApp::createRtPipeline()
 
     // Push constant: we want to be able to update constants used by the shaders
     VkPushConstantRange pushConstant{ VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR,
-                                     0, sizeof(RtPushConstant) };
+                                     0, sizeof(LightData) };
 
 
     VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo{ VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
@@ -2323,6 +2328,7 @@ void MainApp::createRtShaderBindingTable()
 void MainApp::raytrace(const uint32_t &swapchainImageIndex)
 {
     debugUtilBeginLabel(frameData.commandBuffers[currentFrame]->getHandle(), "Raytrace");
+    //lightDataPushConstant.clearColor = { 0.8f, 0.8f, 0.8f, 0.8f };
 
     std::vector<VkDescriptorSet> descSets{
         frameData.rtDescriptorSets[currentFrame]->getHandle(), 
@@ -2335,7 +2341,7 @@ void MainApp::raytrace(const uint32_t &swapchainImageIndex)
         to_u32(descSets.size()), descSets.data(), 0, nullptr);
     vkCmdPushConstants(frameData.commandBuffers[currentFrame]->getHandle(), m_rtPipelineLayout,
         VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR,
-        0, sizeof(RtPushConstant), &m_rtPushConstants);
+        0, sizeof(LightData), &lightDataPushConstant);
 
 
     // Size of a program identifier

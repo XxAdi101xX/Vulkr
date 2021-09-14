@@ -19,14 +19,23 @@ layout(location = 2) in vec3 inColor;
 layout(location = 3) in vec2 inTexCoord;
 
 layout(location = 0) out vec3 fragColor;
-layout(location = 1) out vec2 fragTexCoord;
-layout(location = 2) out int baseInstance;
+layout(location = 1) out vec3 fragNormal;
+layout(location = 2) out vec2 fragTexCoord;
+layout(location = 3) out int baseInstance;
+layout(location = 4) out vec3 worldPos;
+layout(location = 5) out vec3 viewDir;
 
 void main() {
     mat4 modelMatrix = objectBuffer.objects[gl_BaseInstance].transform;
-    gl_Position = camera.proj * camera.view * modelMatrix * vec4(inPosition, 1.0f);
-
+    vec3 origin = vec3(inverse(camera.view) * vec4(0, 0, 0, 1));
+    
+    // Setting pixel shader inputs
     fragColor = inColor;
+    fragNormal = inNormal;
     fragTexCoord = inTexCoord;
     baseInstance = gl_BaseInstance;
+    worldPos = vec3(modelMatrix * vec4(inPosition, 1.0));
+    viewDir = vec3(worldPos - origin);
+
+    gl_Position = camera.proj * camera.view * modelMatrix * vec4(inPosition, 1.0f);
 }
