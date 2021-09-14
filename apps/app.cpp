@@ -226,8 +226,6 @@ void MainApp::update()
     }
     imagesInFlight[swapchainImageIndex] = frameData.inFlightFences[currentFrame];
 
-    drawImGuiInterface();
-
     std::vector<VkClearValue> clearValues;
     clearValues.resize(2);
     clearValues[0].color = { 1.0f, 1.0f, 1.0f, 1.0f };
@@ -252,6 +250,7 @@ void MainApp::update()
     }
 
     // Post offscreen renderpass
+    drawImGuiInterface();
     frameData.commandBuffers[currentFrame]->beginRenderPass(*postRenderPass.renderPass, *(frameData.outputImageFramebuffers[currentFrame]), swapchain->getProperties().imageExtent, clearValues, VK_SUBPASS_CONTENTS_INLINE);
     ImGui::Render();
     ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), frameData.commandBuffers[currentFrame]->getHandle());
@@ -2082,11 +2081,7 @@ void MainApp::createRtDescriptorSets()
         descriptorWriteAccelerationStructure.dstArrayElement = 0;
         descriptorWriteAccelerationStructure.descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
         descriptorWriteAccelerationStructure.descriptorCount = 1;
-        descriptorWriteAccelerationStructure.pImageInfo = nullptr; // Optional
-        descriptorWriteAccelerationStructure.pBufferInfo = nullptr; // Optional
-        descriptorWriteAccelerationStructure.pTexelBufferView = nullptr; // Optional
         descriptorWriteAccelerationStructure.pNext = &descASInfo;
-
 
         VkDescriptorImageInfo outputImageInfo{};
         outputImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
@@ -2100,8 +2095,6 @@ void MainApp::createRtDescriptorSets()
         descriptorWriteStorageImage.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
         descriptorWriteStorageImage.descriptorCount = 1;
         descriptorWriteStorageImage.pImageInfo = &outputImageInfo;
-        descriptorWriteStorageImage.pBufferInfo = nullptr;
-        descriptorWriteStorageImage.pTexelBufferView = nullptr; // Optional
 
         std::vector<VkWriteDescriptorSet> writes;
         writes.push_back(descriptorWriteAccelerationStructure);
@@ -2124,7 +2117,7 @@ void MainApp::updateRtDescriptorSet()
         outputImageInfo.imageView = frameData.outputImageViews[i]->getHandle();
         outputImageInfo.sampler = {};
         VkWriteDescriptorSet descriptorWriteCombinedImageSampler{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        descriptorWriteCombinedImageSampler.dstSet = frameData.rtDescriptorSets[currentFrame]->getHandle();
+        descriptorWriteCombinedImageSampler.dstSet = frameData.rtDescriptorSets[i]->getHandle();
         descriptorWriteCombinedImageSampler.dstBinding = 1;
         descriptorWriteCombinedImageSampler.dstArrayElement = 0;
         descriptorWriteCombinedImageSampler.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
