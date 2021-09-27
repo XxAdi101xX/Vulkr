@@ -79,6 +79,7 @@ namespace vulkr
 
 constexpr uint32_t maxFramesInFlight{ 2 }; // Explanation on this how we got this number: https://software.intel.com/content/www/us/en/develop/articles/practical-approach-to-vulkan-part-1.html
 constexpr uint32_t MAX_OBJECT_COUNT{ 10000 };
+constexpr uint32_t MAX_LIGHT_COUNT{ 100 };
 bool raytracingEnabled{ true }; // Flag to enable ray tracing vs rasterization
 
 /* Structs shared on both the GPU and CPU */
@@ -101,6 +102,14 @@ struct ObjInstance
 };
 
 /* CPU only structs */
+// TODO check these alignments
+struct LightData
+{
+    alignas(16) glm::vec3 lightPosition{ 10.0f, 13.0f, 4.5f };
+    alignas(4) float lightIntensity{ 100.0f };
+    alignas(4) int lightType{ 0 }; // 0: point, 1: directional (infinite)
+};
+
 struct ObjModel
 {
     uint32_t verticesCount;
@@ -279,7 +288,8 @@ private:
         std::array<std::unique_ptr<DescriptorSet>, maxFramesInFlight> globalDescriptorSets;
         std::array<std::unique_ptr<DescriptorSet>, maxFramesInFlight> objectDescriptorSets;
         std::array<std::unique_ptr<DescriptorSet>, maxFramesInFlight> rtDescriptorSets;
-        std::array<std::unique_ptr<Buffer>, maxFramesInFlight> globalBuffers;
+        std::array<std::unique_ptr<Buffer>, maxFramesInFlight> cameraBuffers;
+        std::array<std::unique_ptr<Buffer>, maxFramesInFlight> lightBuffers;
         std::array<std::unique_ptr<Buffer>, maxFramesInFlight> objectBuffers;
     } frameData;
 
@@ -293,12 +303,10 @@ private:
     std::vector<Texture> textures;
     std::vector<ObjInstance> objInstances;
 
-    struct LightData
-    {
-        glm::vec3 lightPosition{ 10.0f, 13.0f, 4.5f };
-        float lightIntensity{ 100.0f };
-        int lightType{ 0 }; // 0: point, 1: infinite
-    } lightDataPushConstant;
+    LightData lightDataPushConstant;
+    // TODO: current this is not used in shaders so they must be added in the future
+    // TODO: if the type of struct is changed, ensure that you change lines where the size of the array is using sizeof(LightData)
+    std::vector<LightData> sceneLights;
 
     // Subroutines
     void drawImGuiInterface();
@@ -333,6 +341,7 @@ private:
     void createSSBOs();
     void createDescriptorPool();
     void createDescriptorSets();
+    void createSceneLights();
     void loadModel(const std::string &objFileName, glm::mat4 transform);
     void loadModels();
     void createScene();

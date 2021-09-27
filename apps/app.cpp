@@ -130,7 +130,8 @@ void MainApp::cleanupSwapchain()
     {
         frameData.globalDescriptorSets[i].reset();
         frameData.objectDescriptorSets[i].reset();
-        frameData.globalBuffers[i].reset();
+        frameData.cameraBuffers[i].reset();
+        frameData.lightBuffers[i].reset();
         frameData.objectBuffers[i].reset();
     }
 
@@ -186,6 +187,7 @@ void MainApp::prepare()
     createDescriptorSets();
     setupCamera();
     createScene();
+    createSceneLights();
 
     createBottomLevelAS();
     createTopLevelAS();
@@ -439,9 +441,14 @@ void MainApp::updateBuffersPerFrame()
     cameraData.view = cameraController->getCamera()->getView();
     cameraData.proj = cameraController->getCamera()->getProjection();
 
-    void *mappedData = frameData.globalBuffers[currentFrame]->map();
+    void *mappedData = frameData.cameraBuffers[currentFrame]->map();
     memcpy(mappedData, &cameraData, sizeof(cameraData));
-    frameData.globalBuffers[currentFrame]->unmap();
+    frameData.cameraBuffers[currentFrame]->unmap();
+
+    // Update the light buffer
+    mappedData = frameData.lightBuffers[currentFrame]->map();
+    memcpy(mappedData, sceneLights.data(), sizeof(LightData) * sceneLights.size());
+    frameData.lightBuffers[currentFrame]->unmap();
 
     // Update the object buffer
     mappedData = frameData.objectBuffers[currentFrame]->map();
@@ -691,14 +698,20 @@ void MainApp::createPostRenderPass()
 void MainApp::createDescriptorSetLayouts()
 {
     // Global descriptor set layout
-    VkDescriptorSetLayoutBinding uboLayoutBinding{};
-    uboLayoutBinding.binding = 0;
-    uboLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    uboLayoutBinding.descriptorCount = 1;
-    uboLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_RAYGEN_BIT_KHR;
-    uboLayoutBinding.pImmutableSamplers = nullptr; // Optional
+    VkDescriptorSetLayoutBinding cameraBufferLayoutBinding{};
+    cameraBufferLayoutBinding.binding = 0;
+    cameraBufferLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    cameraBufferLayoutBinding.descriptorCount = 1;
+    cameraBufferLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_RAYGEN_BIT_KHR;
+    cameraBufferLayoutBinding.pImmutableSamplers = nullptr; // Optional
+    VkDescriptorSetLayoutBinding lightBufferLayoutBinding{};
+    lightBufferLayoutBinding.binding = 1;
+    lightBufferLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    lightBufferLayoutBinding.descriptorCount = 1;
+    lightBufferLayoutBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_RAYGEN_BIT_KHR;
+    lightBufferLayoutBinding.pImmutableSamplers = nullptr; // Optional
 
-    std::vector<VkDescriptorSetLayoutBinding> globalDescriptorSetLayoutBindings{ uboLayoutBinding };
+    std::vector<VkDescriptorSetLayoutBinding> globalDescriptorSetLayoutBindings{ cameraBufferLayoutBinding, lightBufferLayoutBinding };
     globalDescriptorSetLayout = std::make_unique<DescriptorSetLayout>(*device, globalDescriptorSetLayoutBindings);
 
     // Object descriptor set layout
@@ -1169,10 +1182,8 @@ void MainApp::createMaterialIndicesBuffer(std::shared_ptr<ObjModel> objModel, co
 
 void MainApp::createUniformBuffers()
 {
-    VkDeviceSize bufferSize{ sizeof(CameraData) };
-
     VkBufferCreateInfo bufferInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
-    bufferInfo.size = bufferSize;
+    bufferInfo.size = sizeof(CameraData);
     bufferInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
     bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
@@ -1181,7 +1192,13 @@ void MainApp::createUniformBuffers()
 
     for (uint32_t i = 0; i < maxFramesInFlight; ++i)
     {
-        frameData.globalBuffers[i] = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
+        frameData.cameraBuffers[i] = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
+    }
+
+    bufferInfo.size = sizeof(LightData) * MAX_LIGHT_COUNT;
+    for (uint32_t i = 0; i < maxFramesInFlight; ++i)
+    {
+        frameData.lightBuffers[i] = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
     }
 }
 
@@ -1230,19 +1247,25 @@ void MainApp::createDescriptorSets()
         setDebugUtilsObjectName(device->getHandle(), frameData.globalDescriptorSets[i]->getHandle(), "globalDescriptorSet for frame #" + std::to_string(i));
 
         VkDescriptorBufferInfo cameraBufferInfo{};
-        cameraBufferInfo.buffer = frameData.globalBuffers[i]->getHandle();
+        cameraBufferInfo.buffer = frameData.cameraBuffers[i]->getHandle();
         cameraBufferInfo.offset = 0;
         cameraBufferInfo.range = sizeof(CameraData); // can also use VK_WHOLE_SIZE in this case
+        
+        VkDescriptorBufferInfo lightBufferInfo{};
+        lightBufferInfo.buffer = frameData.lightBuffers[i]->getHandle();
+        lightBufferInfo.offset = 0;
+        lightBufferInfo.range = sizeof(LightData) * MAX_LIGHT_COUNT; // can also use VK_WHOLE_SIZE in this case
+        std::array<VkDescriptorBufferInfo, 2> globalBufferInfos{ cameraBufferInfo, lightBufferInfo };
 
-        VkWriteDescriptorSet descriptorWriteUniformBuffer{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        descriptorWriteUniformBuffer.dstSet = frameData.globalDescriptorSets[i]->getHandle();
-        descriptorWriteUniformBuffer.dstBinding = 0;
-        descriptorWriteUniformBuffer.dstArrayElement = 0;
-        descriptorWriteUniformBuffer.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        descriptorWriteUniformBuffer.descriptorCount = 1;
-        descriptorWriteUniformBuffer.pBufferInfo = &cameraBufferInfo;
-        descriptorWriteUniformBuffer.pImageInfo = nullptr; // Optional
-        descriptorWriteUniformBuffer.pTexelBufferView = nullptr; // Optional
+        VkWriteDescriptorSet globalDescriptorsWrite{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        globalDescriptorsWrite.dstSet = frameData.globalDescriptorSets[i]->getHandle();
+        globalDescriptorsWrite.dstBinding = 0;
+        globalDescriptorsWrite.dstArrayElement = 0;
+        globalDescriptorsWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        globalDescriptorsWrite.descriptorCount = globalBufferInfos.size();
+        globalDescriptorsWrite.pBufferInfo = globalBufferInfos.data();
+        globalDescriptorsWrite.pImageInfo = nullptr; // Optional
+        globalDescriptorsWrite.pTexelBufferView = nullptr; // Optional
 
         // Object Descriptor Set
         VkDescriptorSetAllocateInfo objectDescriptorSetAllocateInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
@@ -1268,7 +1291,7 @@ void MainApp::createDescriptorSets()
         objectWrite.pTexelBufferView = nullptr; // Optional
 
         // Write descriptor sets
-        std::array<VkWriteDescriptorSet, 2> writeDescriptorSets{ descriptorWriteUniformBuffer, objectWrite };
+        std::array<VkWriteDescriptorSet, 2> writeDescriptorSets{ globalDescriptorsWrite, objectWrite };
         vkUpdateDescriptorSets(device->getHandle(), to_u32(writeDescriptorSets.size()), writeDescriptorSets.data(), 0, nullptr);
     }
 
@@ -1344,14 +1367,13 @@ void MainApp::loadModel(const std::string &objFileName, glm::mat4 transform)
     ObjLoader objLoader;
     objLoader.loadModel(filePath.c_str());
 
-    // TODO: figure out if this is required
-    // Converting the ambient, diffuse and specular values from srgb to linear
-    //for (auto &m : objLoader.materials)
-    //{
-    //    m.ambient = glm::pow(m.ambient, glm::vec3(2.2f));
-    //    m.diffuse = glm::pow(m.diffuse, glm::vec3(2.2f));
-    //    m.specular = glm::pow(m.specular, glm::vec3(2.2f));
-    //}
+    // Applying gamma correction to convert the ambient, diffuse and specular values from srgb non-linear to srgb linear prior to usage in shaders
+    for (auto &m : objLoader.materials)
+    {
+        m.ambient = glm::pow(m.ambient, glm::vec3(2.2f));
+        m.diffuse = glm::pow(m.diffuse, glm::vec3(2.2f));
+        m.specular = glm::pow(m.specular, glm::vec3(2.2f));
+    }
 
     objModel->verticesCount = to_u32(objLoader.vertices.size());
     objModel->indicesCount = to_u32(objLoader.indices.size());
@@ -1388,6 +1410,16 @@ void MainApp::loadModel(const std::string &objFileName, glm::mat4 transform)
 
     objInstances.push_back(instance);
     objModels[objFileName] = objModel;
+}
+
+void MainApp::createSceneLights()
+{
+    // TODO: currently these scene lights are not used
+    LightData l1;
+    LightData l2;
+    l2.lightPosition = glm::vec3(10.0f, 5.0f, 4.5f);
+    sceneLights.emplace_back(std::move(l1));
+    sceneLights.emplace_back(std::move(l2));
 }
 
 void MainApp::loadModels()

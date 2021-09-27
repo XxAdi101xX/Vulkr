@@ -22,7 +22,9 @@ layout(buffer_reference, scalar) buffer Materials {WaveFrontMaterial m[]; }; // 
 layout(buffer_reference, scalar) buffer MaterialIndices {int i[]; }; // Material ID for each triangle
 
 layout(set = 0, binding = 0) uniform accelerationStructureEXT topLevelAS;
-// set 1 is the global buffer
+//layout(set = 1, binding = 0) uniform LightBuffer {
+//	LightData lights[];
+//} lightBuffer;
 layout(std140, set = 2, binding = 0) readonly buffer ObjectBuffer {
 	ObjInstance objects[];
 } objectBuffer;
