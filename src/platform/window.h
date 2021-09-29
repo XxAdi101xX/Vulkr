@@ -33,7 +33,7 @@ class Platform;
 class Window
 {
 public:
-	Window(Platform &platform);
+	Window(Platform &platform, const std::string &applicationName);
 	~Window();
 
 	Window(const Window &) = delete;

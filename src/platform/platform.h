@@ -43,7 +43,7 @@ public:
 	Platform &operator=(Platform &&) = delete;
 
 	/* Initialize the platform by creating the window and logger */
-	void initialize(std::unique_ptr<Application> &&application);
+	void initialize(std::unique_ptr<Application> &&applicationToOwn);
 
 	/* Prepare the application before the main processing loop begins */
 	void prepareApplication() const;

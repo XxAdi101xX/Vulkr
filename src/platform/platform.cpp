@@ -24,13 +24,13 @@
 
 namespace vulkr {
 
-void Platform::initialize(std::unique_ptr<Application> &&application)
+void Platform::initialize(std::unique_ptr<Application> &&applicationToOwn)
 {
-	if (application == nullptr) {
+	if (applicationToOwn == nullptr) {
 		LOGEANDABORT("Application is not valid");
 	}
 
-	this->application = std::move(application);
+	this->application = std::move(applicationToOwn);
 
 #ifdef VULKR_DEBUG
 	spdlog::set_level(spdlog::level::debug);
@@ -41,7 +41,7 @@ void Platform::initialize(std::unique_ptr<Application> &&application)
 	spdlog::set_pattern(LOGGER_FORMAT);
 	LOGI("Logger initialized");
 
-	window = std::make_unique<Window>(*this);
+	window = std::make_unique<Window>(*this, this->application->getName());
 }
 
 void Platform::prepareApplication() const

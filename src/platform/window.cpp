@@ -149,7 +149,7 @@ void scrollCallback(GLFWwindow *window, double xoffset, double yoffset)
 } // namespace
 
 
-Window::Window(Platform &platform) : platform{ platform }
+Window::Window(Platform &platform, const std::string &applicationName) : platform{ platform }
 {
 	if (!glfwInit())
 	{
@@ -159,7 +159,7 @@ Window::Window(Platform &platform) : platform{ platform }
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 	glfwWindowHint(GLFW_RESIZABLE, GL_FALSE);
 
-	handle = glfwCreateWindow(WIDTH, HEIGHT, "Vulkr", nullptr, nullptr);
+	handle = glfwCreateWindow(WIDTH, HEIGHT, applicationName.c_str(), nullptr, nullptr);
 	if (handle == VK_NULL_HANDLE) {
 		LOGEANDABORT("glfwCreateWindow has failed to create a window");
 	}
