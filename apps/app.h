@@ -303,7 +303,21 @@ private:
     std::vector<Texture> textures;
     std::vector<ObjInstance> objInstances;
 
-    LightData lightDataPushConstant;
+    // Note that any modifications to push constants must be matched in the shaders
+    struct RasterizationPushConstant
+    {
+        glm::vec3 lightPosition{ 10.0f, 13.0f, 4.5f };
+        float lightIntensity{ 100.0f };
+        int lightType{ 0 }; // 0: point, 1: directional (infinite)
+    } rasterizationPushConstant;
+
+    struct RaytracingPushConstant
+    {
+        glm::vec3 lightPosition{ 10.0f, 13.0f, 4.5f };
+        float lightIntensity{ 100.0f };
+        int lightType{ 0 }; // 0: point, 1: directional (infinite)
+    } raytracingPushConstant;
+
     // TODO: current this is not used in shaders so they must be added in the future
     // TODO: if the type of struct is changed, ensure that you change lines where the size of the array is using sizeof(LightData)
     std::vector<LightData> sceneLights;

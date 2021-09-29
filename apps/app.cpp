@@ -416,12 +416,25 @@ void MainApp::drawImGuiInterface()
         {
             if (ImGui::CollapsingHeader("Light"))
             {
-                ImGui::RadioButton("Point", &lightDataPushConstant.lightType, 0);
-                ImGui::SameLine();
-                ImGui::RadioButton("Infinite", &lightDataPushConstant.lightType, 1);
+                if (raytracingEnabled)
+                {
+                    ImGui::RadioButton("Point", &raytracingPushConstant.lightType, 0);
+                    ImGui::SameLine();
+                    ImGui::RadioButton("Infinite", &raytracingPushConstant.lightType, 1);
 
-                ImGui::SliderFloat3("Position", &lightDataPushConstant.lightPosition.x, -50.f, 50.f);
-                ImGui::SliderFloat("Intensity", &lightDataPushConstant.lightIntensity, 0.f, 150.f);
+                    ImGui::SliderFloat3("Position", &raytracingPushConstant.lightPosition.x, -50.f, 50.f);
+                    ImGui::SliderFloat("Intensity", &raytracingPushConstant.lightIntensity, 0.f, 150.f);
+                }
+                else
+                {
+                    ImGui::RadioButton("Point", &rasterizationPushConstant.lightType, 0);
+                    ImGui::SameLine();
+                    ImGui::RadioButton("Infinite", &rasterizationPushConstant.lightType, 1);
+
+                    ImGui::SliderFloat3("Position", &rasterizationPushConstant.lightPosition.x, -50.f, 50.f);
+                    ImGui::SliderFloat("Intensity", &rasterizationPushConstant.lightIntensity, 0.f, 150.f);
+                }
+
             }
             
             ImGui::EndTabItem();
@@ -516,7 +529,7 @@ void MainApp::rasterize()
             lastObjModel = object.objModel;
         }
 
-        vkCmdPushConstants(frameData.commandBuffers[currentFrame]->getHandle(), object.pipelineData->pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(LightData), &lightDataPushConstant);
+        vkCmdPushConstants(frameData.commandBuffers[currentFrame]->getHandle(), object.pipelineData->pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(RasterizationPushConstant), &rasterizationPushConstant);
         vkCmdDrawIndexed(frameData.commandBuffers[currentFrame]->getHandle(), to_u32(object.objModel->indicesCount), 1, 0, 0, index);
     }
     
@@ -708,7 +721,7 @@ void MainApp::createDescriptorSetLayouts()
     lightBufferLayoutBinding.binding = 1;
     lightBufferLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     lightBufferLayoutBinding.descriptorCount = 1;
-    lightBufferLayoutBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_RAYGEN_BIT_KHR;
+    lightBufferLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_RAYGEN_BIT_KHR;
     lightBufferLayoutBinding.pImmutableSamplers = nullptr; // Optional
 
     std::vector<VkDescriptorSetLayoutBinding> globalDescriptorSetLayoutBindings{ cameraBufferLayoutBinding, lightBufferLayoutBinding };
@@ -2353,7 +2366,6 @@ void MainApp::createRtShaderBindingTable()
 void MainApp::raytrace(const uint32_t &swapchainImageIndex)
 {
     debugUtilBeginLabel(frameData.commandBuffers[currentFrame]->getHandle(), "Raytrace");
-    //lightDataPushConstant.clearColor = { 0.8f, 0.8f, 0.8f, 0.8f };
 
     std::vector<VkDescriptorSet> descSets{
         frameData.rtDescriptorSets[currentFrame]->getHandle(), 
@@ -2366,7 +2378,7 @@ void MainApp::raytrace(const uint32_t &swapchainImageIndex)
         to_u32(descSets.size()), descSets.data(), 0, nullptr);
     vkCmdPushConstants(frameData.commandBuffers[currentFrame]->getHandle(), m_rtPipelineLayout,
         VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR,
-        0, sizeof(LightData), &lightDataPushConstant);
+        0, sizeof(RaytracingPushConstant), &raytracingPushConstant);
 
 
     // Size of a program identifier

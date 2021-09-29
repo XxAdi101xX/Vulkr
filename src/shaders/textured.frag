@@ -20,7 +20,7 @@ layout(location = 5) in vec3 viewDir;
 
 layout(location = 0) out vec4 outColor;
 
-layout(push_constant) uniform Constants
+layout(push_constant) uniform RasterizationPushConstant
 {
 	vec3 lightPosition;
 	float lightIntensity;

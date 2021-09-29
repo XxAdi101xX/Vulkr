@@ -30,7 +30,7 @@ layout(std140, set = 2, binding = 0) readonly buffer ObjectBuffer {
 } objectBuffer;
 layout(set = 3, binding = 0) uniform sampler2D[] textureSamplers;
 
-layout(push_constant) uniform Constants
+layout(push_constant) uniform RaytracingPushConstant
 {
 	vec3  lightPosition;
 	float lightIntensity;

@@ -7,13 +7,6 @@
 
 layout(location = 0) rayPayloadInEXT RayPayload payload;
 
-layout(push_constant) uniform Constants
-{
-	vec3 lightPosition;
-	float lightIntensity;
-	int lightType; // 0: point, 1: infinite
-} pushConstant;
-
 void main()
 {
 	payload.hitValue = vec3(0.8f, 0.8f, 0.8f);
