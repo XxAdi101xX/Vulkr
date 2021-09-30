@@ -26,9 +26,7 @@ namespace vulkr
 {
 
 Camera::Camera(int32_t viewportWidth, int32_t viewportHeight) : viewport{glm::vec2(viewportWidth, viewportHeight)}
-{
-
-}
+{}
 
 glm::vec2 Camera::getViewport() const
 {
@@ -90,6 +88,11 @@ glm::vec3 Camera::getRight() const
 	return glm::transpose(view)[0];
 }
 
+bool Camera::isUpdated() const
+{
+	return updated;
+}
+
 void Camera::setFovY(float fovy)
 {
 	this->fovy = std::min(std::max(fovy, 0.01f), 179.0f);
@@ -143,32 +146,19 @@ void Camera::setPerspectiveProjection(float fovy, float aspect, float znear, flo
 void Camera::updateView()
 {
 	view = glm::lookAt(position, center, up);
+	updated = true;
 }
 
 void Camera::updatePerspectiveProjection()
 {
 	projection = glm::perspective(glm::radians(fovy), aspect, znear, zfar);
 	projection[1][1] *= -1;
+	updated = true;
 }
 
-float Camera::calculateZoom(float delta, float positionCoordinate, float centerCoordinate) const
+void Camera::resetUpdatedFlag()
 {
-	if (delta < 0.0f && positionCoordinate > centerCoordinate)
-	{
-		if ((delta + positionCoordinate) <= centerCoordinate)
-		{
-			return centerCoordinate + 0.001f;
-		}
-	}
-	else if (delta > 0.0f && positionCoordinate < centerCoordinate)
-	{
-		if ((delta + positionCoordinate) >= centerCoordinate)
-		{
-			return centerCoordinate - 0.001f;
-		}
-	}
-
-	return positionCoordinate + delta;
+	updated = false;
 }
 
 } // namespace vulkr

@@ -58,6 +58,7 @@ public:
 	glm::mat4 getView() const;
 	glm::vec3 getViewDirection() const;
 	glm::vec3 getRight() const;
+	bool isUpdated() const;
 
 	/* Setters */
 	void setFovY(float fovy);
@@ -67,10 +68,9 @@ public:
 	void setUp(glm::vec3 up);
 	void setView(glm::vec3 position, glm::vec3 center, glm::vec3 up);
 	void setPerspectiveProjection(float fovy, float aspect, float znear, float zfar);
-
-	void updateView();
-	void updatePerspectiveProjection();
+	void resetUpdatedFlag();
 private:
+	bool updated{ false };
 	glm::vec2 viewport;
 
 	float fovy;
@@ -85,7 +85,8 @@ private:
 	glm::mat4 projection;
 	glm::mat4 view;
 
-	float calculateZoom(float delta, float positionCoordinate, float centerCoordinate) const;
+	void updateView();
+	void updatePerspectiveProjection();
 };
 
 } // namespace vulkr
