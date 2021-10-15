@@ -1052,7 +1052,7 @@ void MainApp::createPostProcessingPipeline()
 {
     VertexInputState vertexInputState{};
     vertexInputState.bindingDescriptions.reserve(1);
-    vertexInputState.attributeDescriptions.reserve(1);
+    vertexInputState.attributeDescriptions.reserve(3);
 
     VkVertexInputBindingDescription bindingDescription{};
     bindingDescription.binding = 0;
@@ -1066,7 +1066,29 @@ void MainApp::createPostProcessingPipeline()
     positionAttributeDescription.location = 0;
     positionAttributeDescription.format = VK_FORMAT_R32G32B32_SFLOAT;
     positionAttributeDescription.offset = offsetof(VertexObj, position);
+    // Normal at location 1
+    VkVertexInputAttributeDescription normalAttributeDescription;
+    normalAttributeDescription.binding = 0;
+    normalAttributeDescription.location = 1;
+    normalAttributeDescription.format = VK_FORMAT_R32G32B32_SFLOAT;
+    normalAttributeDescription.offset = offsetof(VertexObj, normal);
+    // Color at location 2
+    VkVertexInputAttributeDescription colorAttributeDescription;
+    colorAttributeDescription.binding = 0;
+    colorAttributeDescription.location = 2;
+    colorAttributeDescription.format = VK_FORMAT_R32G32B32_SFLOAT;
+    colorAttributeDescription.offset = offsetof(VertexObj, color);
+    // TexCoord at location 3
+    VkVertexInputAttributeDescription textureCoordinateAttributeDescription;
+    textureCoordinateAttributeDescription.binding = 0;
+    textureCoordinateAttributeDescription.location = 3;
+    textureCoordinateAttributeDescription.format = VK_FORMAT_R32G32_SFLOAT;
+    textureCoordinateAttributeDescription.offset = offsetof(VertexObj, textureCoordinate);
+
     vertexInputState.attributeDescriptions.emplace_back(positionAttributeDescription);
+    vertexInputState.attributeDescriptions.emplace_back(normalAttributeDescription);
+    vertexInputState.attributeDescriptions.emplace_back(colorAttributeDescription);
+    vertexInputState.attributeDescriptions.emplace_back(textureCoordinateAttributeDescription);
 
     InputAssemblyState inputAssemblyState{};
     inputAssemblyState.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
@@ -1505,23 +1527,23 @@ void MainApp::createDescriptorSets()
         VkDescriptorBufferInfo cameraBufferInfo{};
         cameraBufferInfo.buffer = frameData.cameraBuffers[i]->getHandle();
         cameraBufferInfo.offset = 0;
-        cameraBufferInfo.range = sizeof(CameraData); // can also use VK_WHOLE_SIZE in this case
+        cameraBufferInfo.range = sizeof(CameraData);
         
         VkDescriptorBufferInfo lightBufferInfo{};
         lightBufferInfo.buffer = frameData.lightBuffers[i]->getHandle();
         lightBufferInfo.offset = 0;
-        lightBufferInfo.range = sizeof(LightData) * MAX_LIGHT_COUNT; // can also use VK_WHOLE_SIZE in this case
+        lightBufferInfo.range = sizeof(LightData) * MAX_LIGHT_COUNT;
         std::array<VkDescriptorBufferInfo, 2> globalBufferInfos{ cameraBufferInfo, lightBufferInfo };
 
-        VkWriteDescriptorSet globalDescriptorsWrite{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        globalDescriptorsWrite.dstSet = frameData.globalDescriptorSets[i]->getHandle();
-        globalDescriptorsWrite.dstBinding = 0;
-        globalDescriptorsWrite.dstArrayElement = 0;
-        globalDescriptorsWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        globalDescriptorsWrite.descriptorCount = globalBufferInfos.size();
-        globalDescriptorsWrite.pBufferInfo = globalBufferInfos.data();
-        globalDescriptorsWrite.pImageInfo = nullptr; // Optional
-        globalDescriptorsWrite.pTexelBufferView = nullptr; // Optional
+        VkWriteDescriptorSet writeGlobalDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        writeGlobalDescriptorSet.dstSet = frameData.globalDescriptorSets[i]->getHandle();
+        writeGlobalDescriptorSet.dstBinding = 0;
+        writeGlobalDescriptorSet.dstArrayElement = 0;
+        writeGlobalDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        writeGlobalDescriptorSet.descriptorCount = globalBufferInfos.size();
+        writeGlobalDescriptorSet.pBufferInfo = globalBufferInfos.data();
+        writeGlobalDescriptorSet.pImageInfo = nullptr;
+        writeGlobalDescriptorSet.pTexelBufferView = nullptr;
 
         // Object Descriptor Set
         VkDescriptorSetAllocateInfo objectDescriptorSetAllocateInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
@@ -1531,20 +1553,20 @@ void MainApp::createDescriptorSets()
         frameData.objectDescriptorSets[i] = std::make_unique<DescriptorSet>(*device, objectDescriptorSetAllocateInfo);
         setDebugUtilsObjectName(device->getHandle(), frameData.objectDescriptorSets[i]->getHandle(), "objectDescriptorSet for frame #" + std::to_string(i));
 
-        VkDescriptorBufferInfo objectBufferInfo{};
-        objectBufferInfo.buffer = frameData.objectBuffers[i]->getHandle();
-        objectBufferInfo.offset = 0;
-        objectBufferInfo.range = sizeof(ObjInstance) * MAX_OBJECT_COUNT;
+        VkDescriptorBufferInfo currentFrameObjectBufferInfo{};
+        currentFrameObjectBufferInfo.buffer = frameData.objectBuffers[i]->getHandle();
+        currentFrameObjectBufferInfo.offset = 0;
+        currentFrameObjectBufferInfo.range = sizeof(ObjInstance) * MAX_OBJECT_COUNT;
 
-        VkWriteDescriptorSet objectDescriptorsWrite{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        objectDescriptorsWrite.dstSet = frameData.objectDescriptorSets[i]->getHandle();
-        objectDescriptorsWrite.dstBinding = 0;
-        objectDescriptorsWrite.dstArrayElement = 0;
-        objectDescriptorsWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        objectDescriptorsWrite.descriptorCount = 1;
-        objectDescriptorsWrite.pBufferInfo = &objectBufferInfo;
-        objectDescriptorsWrite.pImageInfo = nullptr; // Optional
-        objectDescriptorsWrite.pTexelBufferView = nullptr; // Optional
+        VkWriteDescriptorSet writeObjectDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        writeObjectDescriptorSet.dstSet = frameData.objectDescriptorSets[i]->getHandle();
+        writeObjectDescriptorSet.dstBinding = 0;
+        writeObjectDescriptorSet.dstArrayElement = 0;
+        writeObjectDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        writeObjectDescriptorSet.descriptorCount = 1;
+        writeObjectDescriptorSet.pBufferInfo = &currentFrameObjectBufferInfo;
+        writeObjectDescriptorSet.pImageInfo = nullptr;
+        writeObjectDescriptorSet.pTexelBufferView = nullptr;
 
         // Post Processing Descriptor Set
         VkDescriptorSetAllocateInfo postProcessingDescriptorSetAllocateInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
@@ -1555,32 +1577,32 @@ void MainApp::createDescriptorSets()
         setDebugUtilsObjectName(device->getHandle(), frameData.postProcessingDescriptorSets[i]->getHandle(), "postProcessingDescriptorSet for frame #" + std::to_string(i));
 
         // Binding 0 is the camera buffer
-        VkWriteDescriptorSet postProcessingUniformBufferDescriptorsWrite{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        postProcessingUniformBufferDescriptorsWrite.dstSet = frameData.postProcessingDescriptorSets[i]->getHandle();
-        postProcessingUniformBufferDescriptorsWrite.dstBinding = 0;
-        postProcessingUniformBufferDescriptorsWrite.dstArrayElement = 0;
-        postProcessingUniformBufferDescriptorsWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        postProcessingUniformBufferDescriptorsWrite.descriptorCount = 1;
-        postProcessingUniformBufferDescriptorsWrite.pBufferInfo = &cameraBufferInfo;
-        postProcessingUniformBufferDescriptorsWrite.pImageInfo = nullptr; // Optional
-        postProcessingUniformBufferDescriptorsWrite.pTexelBufferView = nullptr; // Optional
+        VkWriteDescriptorSet writePostProcessingUniformBufferDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        writePostProcessingUniformBufferDescriptorSet.dstSet = frameData.postProcessingDescriptorSets[i]->getHandle();
+        writePostProcessingUniformBufferDescriptorSet.dstBinding = 0;
+        writePostProcessingUniformBufferDescriptorSet.dstArrayElement = 0;
+        writePostProcessingUniformBufferDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        writePostProcessingUniformBufferDescriptorSet.descriptorCount = 1;
+        writePostProcessingUniformBufferDescriptorSet.pBufferInfo = &cameraBufferInfo;
+        writePostProcessingUniformBufferDescriptorSet.pImageInfo = nullptr;
+        writePostProcessingUniformBufferDescriptorSet.pTexelBufferView = nullptr;
 
         // Bindings 1 and 2 are the currentFrameObjectBuffer and previousFrameObjectBuffer respectively
         VkDescriptorBufferInfo previousFrameObjectBufferInfo{};
         previousFrameObjectBufferInfo.buffer = frameData.previousFrameObjectBuffers[i]->getHandle();
         previousFrameObjectBufferInfo.offset = 0;
         previousFrameObjectBufferInfo.range = sizeof(ObjInstance) * MAX_OBJECT_COUNT;
-        std::array<VkDescriptorBufferInfo, 2> postProcessingStorageBufferInfos{ objectBufferInfo, previousFrameObjectBufferInfo };
+        std::array<VkDescriptorBufferInfo, 2> postProcessingStorageBufferInfos{ currentFrameObjectBufferInfo, previousFrameObjectBufferInfo };
 
-        VkWriteDescriptorSet postProcessingStorageBufferDescriptorsWrite{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        postProcessingStorageBufferDescriptorsWrite.dstSet = frameData.postProcessingDescriptorSets[i]->getHandle();
-        postProcessingStorageBufferDescriptorsWrite.dstBinding = 1;
-        postProcessingStorageBufferDescriptorsWrite.dstArrayElement = 0;
-        postProcessingStorageBufferDescriptorsWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        postProcessingStorageBufferDescriptorsWrite.descriptorCount = postProcessingStorageBufferInfos.size();
-        postProcessingStorageBufferDescriptorsWrite.pBufferInfo = postProcessingStorageBufferInfos.data();
-        postProcessingStorageBufferDescriptorsWrite.pImageInfo = nullptr; // Optional
-        postProcessingStorageBufferDescriptorsWrite.pTexelBufferView = nullptr; // Optional
+        VkWriteDescriptorSet writePostProcessingStorageBufferDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        writePostProcessingStorageBufferDescriptorSet.dstSet = frameData.postProcessingDescriptorSets[i]->getHandle();
+        writePostProcessingStorageBufferDescriptorSet.dstBinding = 1;
+        writePostProcessingStorageBufferDescriptorSet.dstArrayElement = 0;
+        writePostProcessingStorageBufferDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        writePostProcessingStorageBufferDescriptorSet.descriptorCount = postProcessingStorageBufferInfos.size();
+        writePostProcessingStorageBufferDescriptorSet.pBufferInfo = postProcessingStorageBufferInfos.data();
+        writePostProcessingStorageBufferDescriptorSet.pImageInfo = nullptr;
+        writePostProcessingStorageBufferDescriptorSet.pTexelBufferView = nullptr;
 
         // Bindings 3 is the history image
         VkDescriptorImageInfo historyImageInfo{};
@@ -1589,23 +1611,23 @@ void MainApp::createDescriptorSets()
         historyImageInfo.imageLayout = frameData.historyImageViews[i]->getImage().getLayout();
         std::array<VkDescriptorImageInfo, 1> postProcessingStorageImageInfos{ historyImageInfo };
         
-        VkWriteDescriptorSet postProcessingStorageImageDescriptorsWrite{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        postProcessingStorageImageDescriptorsWrite.dstSet = frameData.postProcessingDescriptorSets[i]->getHandle();
-        postProcessingStorageImageDescriptorsWrite.dstBinding = 3;
-        postProcessingStorageImageDescriptorsWrite.dstArrayElement = 0;
-        postProcessingStorageImageDescriptorsWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-        postProcessingStorageImageDescriptorsWrite.descriptorCount = postProcessingStorageImageInfos.size();
-        postProcessingStorageImageDescriptorsWrite.pImageInfo = postProcessingStorageImageInfos.data();
-        postProcessingStorageImageDescriptorsWrite.pBufferInfo = nullptr; // Optional
-        postProcessingStorageImageDescriptorsWrite.pTexelBufferView = nullptr; // Optional
+        VkWriteDescriptorSet writePostProcessingStorageImageDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        writePostProcessingStorageImageDescriptorSet.dstSet = frameData.postProcessingDescriptorSets[i]->getHandle();
+        writePostProcessingStorageImageDescriptorSet.dstBinding = 3;
+        writePostProcessingStorageImageDescriptorSet.dstArrayElement = 0;
+        writePostProcessingStorageImageDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        writePostProcessingStorageImageDescriptorSet.descriptorCount = postProcessingStorageImageInfos.size();
+        writePostProcessingStorageImageDescriptorSet.pImageInfo = postProcessingStorageImageInfos.data();
+        writePostProcessingStorageImageDescriptorSet.pBufferInfo = nullptr;
+        writePostProcessingStorageImageDescriptorSet.pTexelBufferView = nullptr;
 
         // Write descriptor sets
         std::array<VkWriteDescriptorSet, 5> writeDescriptorSets {
-            globalDescriptorsWrite,
-            objectDescriptorsWrite,
-            postProcessingUniformBufferDescriptorsWrite,
-            postProcessingStorageBufferDescriptorsWrite,
-            postProcessingStorageImageDescriptorsWrite
+            writeGlobalDescriptorSet,
+            writeObjectDescriptorSet,
+            writePostProcessingUniformBufferDescriptorSet,
+            writePostProcessingStorageBufferDescriptorSet,
+            writePostProcessingStorageImageDescriptorSet
         };
         vkUpdateDescriptorSets(device->getHandle(), to_u32(writeDescriptorSets.size()), writeDescriptorSets.data(), 0, nullptr);
     }
@@ -1628,18 +1650,18 @@ void MainApp::createDescriptorSets()
         textureImageInfos.push_back(textureImageInfo);
     }
 
-    VkWriteDescriptorSet descriptorWriteCombinedImageSampler{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-    descriptorWriteCombinedImageSampler.dstSet = textureDescriptorSet->getHandle();
-    descriptorWriteCombinedImageSampler.dstBinding = 0;
-    descriptorWriteCombinedImageSampler.dstArrayElement = 0;
-    descriptorWriteCombinedImageSampler.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    descriptorWriteCombinedImageSampler.descriptorCount = textureImageInfos.size();
-    descriptorWriteCombinedImageSampler.pImageInfo = textureImageInfos.data();
-    descriptorWriteCombinedImageSampler.pBufferInfo = nullptr; // Optional
-    descriptorWriteCombinedImageSampler.pTexelBufferView = nullptr; // Optional
+    VkWriteDescriptorSet writeTextureDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+    writeTextureDescriptorSet.dstSet = textureDescriptorSet->getHandle();
+    writeTextureDescriptorSet.dstBinding = 0;
+    writeTextureDescriptorSet.dstArrayElement = 0;
+    writeTextureDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    writeTextureDescriptorSet.descriptorCount = textureImageInfos.size();
+    writeTextureDescriptorSet.pImageInfo = textureImageInfos.data();
+    writeTextureDescriptorSet.pBufferInfo = nullptr;
+    writeTextureDescriptorSet.pTexelBufferView = nullptr;
 
-    std::array<VkWriteDescriptorSet, 1> writeDescriptorSets{ descriptorWriteCombinedImageSampler };
-    vkUpdateDescriptorSets(device->getHandle(), to_u32(writeDescriptorSets.size()), writeDescriptorSets.data(), 0, nullptr);
+    std::array<VkWriteDescriptorSet, 1> writeToDescriptorSets{ writeTextureDescriptorSet };
+    vkUpdateDescriptorSets(device->getHandle(), to_u32(writeToDescriptorSets.size()), writeToDescriptorSets.data(), 0, nullptr);
 }
 
 void MainApp::createSemaphoreAndFencePools()
@@ -2448,31 +2470,29 @@ void MainApp::createRtDescriptorSets()
         descASInfo.accelerationStructureCount = 1;
         descASInfo.pAccelerationStructures = &tlas;
 
-        VkWriteDescriptorSet descriptorWriteAccelerationStructure{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        descriptorWriteAccelerationStructure.dstSet = frameData.rtDescriptorSets[i]->getHandle();
-        descriptorWriteAccelerationStructure.dstBinding = 0;
-        descriptorWriteAccelerationStructure.dstArrayElement = 0;
-        descriptorWriteAccelerationStructure.descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
-        descriptorWriteAccelerationStructure.descriptorCount = 1;
-        descriptorWriteAccelerationStructure.pNext = &descASInfo;
+        VkWriteDescriptorSet writeAccelerationStructure{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        writeAccelerationStructure.dstSet = frameData.rtDescriptorSets[i]->getHandle();
+        writeAccelerationStructure.dstBinding = 0;
+        writeAccelerationStructure.dstArrayElement = 0;
+        writeAccelerationStructure.descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
+        writeAccelerationStructure.descriptorCount = 1;
+        writeAccelerationStructure.pNext = &descASInfo;
 
         VkDescriptorImageInfo outputImageInfo{};
         outputImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
         outputImageInfo.imageView = frameData.outputImageViews[i]->getHandle();
         outputImageInfo.sampler = {};
 
-        VkWriteDescriptorSet descriptorWriteStorageImage{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        descriptorWriteStorageImage.dstSet = frameData.rtDescriptorSets[i]->getHandle();
-        descriptorWriteStorageImage.dstBinding = 1;
-        descriptorWriteStorageImage.dstArrayElement = 0;
-        descriptorWriteStorageImage.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-        descriptorWriteStorageImage.descriptorCount = 1;
-        descriptorWriteStorageImage.pImageInfo = &outputImageInfo;
+        VkWriteDescriptorSet writeOutputImage{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        writeOutputImage.dstSet = frameData.rtDescriptorSets[i]->getHandle();
+        writeOutputImage.dstBinding = 1;
+        writeOutputImage.dstArrayElement = 0;
+        writeOutputImage.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        writeOutputImage.descriptorCount = 1;
+        writeOutputImage.pImageInfo = &outputImageInfo;
 
-        std::vector<VkWriteDescriptorSet> writes;
-        writes.push_back(descriptorWriteAccelerationStructure);
-        writes.push_back(descriptorWriteStorageImage);
-        vkUpdateDescriptorSets(device->getHandle(), to_u32(writes.size()), writes.data(), 0, nullptr);
+        std::array<VkWriteDescriptorSet, 2> writeToDescriptorSets{ writeAccelerationStructure, writeOutputImage };
+        vkUpdateDescriptorSets(device->getHandle(), to_u32(writeToDescriptorSets.size()), writeToDescriptorSets.data(), 0, nullptr);
     }
 }
 
@@ -2484,22 +2504,21 @@ void MainApp::updateRtDescriptorSet()
 {
     for (uint32_t i = 0; i < maxFramesInFlight; ++i)
     {
-        // (1) Output buffer
         VkDescriptorImageInfo outputImageInfo{};
         outputImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
         outputImageInfo.imageView = frameData.outputImageViews[i]->getHandle();
         outputImageInfo.sampler = {};
-        VkWriteDescriptorSet descriptorWriteCombinedImageSampler{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        descriptorWriteCombinedImageSampler.dstSet = frameData.rtDescriptorSets[i]->getHandle();
-        descriptorWriteCombinedImageSampler.dstBinding = 1;
-        descriptorWriteCombinedImageSampler.dstArrayElement = 0;
-        descriptorWriteCombinedImageSampler.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-        descriptorWriteCombinedImageSampler.descriptorCount = 1;
-        descriptorWriteCombinedImageSampler.pImageInfo = &outputImageInfo;
-        descriptorWriteCombinedImageSampler.pBufferInfo = nullptr;
-        descriptorWriteCombinedImageSampler.pTexelBufferView = nullptr; // Optional
+        VkWriteDescriptorSet writeOutputImage{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        writeOutputImage.dstSet = frameData.rtDescriptorSets[i]->getHandle();
+        writeOutputImage.dstBinding = 1;
+        writeOutputImage.dstArrayElement = 0;
+        writeOutputImage.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        writeOutputImage.descriptorCount = 1;
+        writeOutputImage.pImageInfo = &outputImageInfo;
+        writeOutputImage.pBufferInfo = nullptr;
+        writeOutputImage.pTexelBufferView = nullptr;
 
-        vkUpdateDescriptorSets(device->getHandle(), 1, &descriptorWriteCombinedImageSampler, 0, nullptr);
+        vkUpdateDescriptorSets(device->getHandle(), 1, &writeOutputImage, 0, nullptr);
     }
 }
 
