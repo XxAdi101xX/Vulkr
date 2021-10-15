@@ -388,6 +388,7 @@ void MainApp::drawImGuiInterface()
             changed |= ImGui::IsItemDeactivatedAfterEdit();
             if (changed)
             {
+                resetFrameSinceViewChange();
                 cameraController->getCamera()->setPosition(position);
                 changed = false;
             }
@@ -397,6 +398,7 @@ void MainApp::drawImGuiInterface()
             changed |= ImGui::IsItemDeactivatedAfterEdit();
             if (changed)
             {
+                resetFrameSinceViewChange();
                 cameraController->getCamera()->setCenter(center);
                 changed = false;
             }
@@ -405,6 +407,7 @@ void MainApp::drawImGuiInterface()
             changed |= ImGui::DragFloat("##FOV", &fovy, 1.0f, 1.0f, 179.0f, "%.3f", 0);
             if (changed)
             {
+                resetFrameSinceViewChange();
                 cameraController->getCamera()->setFovY(fovy);
                 changed = false;
             }
@@ -418,23 +421,28 @@ void MainApp::drawImGuiInterface()
             {
                 if (raytracingEnabled)
                 {
-                    ImGui::RadioButton("Point", &raytracingPushConstant.lightType, 0);
+                    changed |= ImGui::RadioButton("Point", &raytracingPushConstant.lightType, 0);
                     ImGui::SameLine();
-                    ImGui::RadioButton("Infinite", &raytracingPushConstant.lightType, 1);
+                    changed |= ImGui::RadioButton("Infinite", &raytracingPushConstant.lightType, 1);
 
-                    ImGui::SliderFloat3("Position", &raytracingPushConstant.lightPosition.x, -50.f, 50.f);
-                    ImGui::SliderFloat("Intensity", &raytracingPushConstant.lightIntensity, 0.f, 150.f);
+                    changed |= ImGui::SliderFloat3("Position", &raytracingPushConstant.lightPosition.x, -50.f, 50.f);
+                    changed |= ImGui::SliderFloat("Intensity", &raytracingPushConstant.lightIntensity, 0.f, 150.f);
                 }
                 else
                 {
-                    ImGui::RadioButton("Point", &rasterizationPushConstant.lightType, 0);
+                    changed |= ImGui::RadioButton("Point", &rasterizationPushConstant.lightType, 0);
                     ImGui::SameLine();
-                    ImGui::RadioButton("Infinite", &rasterizationPushConstant.lightType, 1);
+                    changed |= ImGui::RadioButton("Infinite", &rasterizationPushConstant.lightType, 1);
 
-                    ImGui::SliderFloat3("Position", &rasterizationPushConstant.lightPosition.x, -50.f, 50.f);
-                    ImGui::SliderFloat("Intensity", &rasterizationPushConstant.lightIntensity, 0.f, 150.f);
+                    changed |= ImGui::SliderFloat3("Position", &rasterizationPushConstant.lightPosition.x, -50.f, 50.f);
+                    changed |= ImGui::SliderFloat("Intensity", &rasterizationPushConstant.lightIntensity, 0.f, 150.f);
                 }
 
+                if (changed)
+                {
+                    resetFrameSinceViewChange();
+                    changed = false;
+                }
             }
             
             ImGui::EndTabItem();
@@ -586,7 +594,7 @@ void MainApp::createMainRenderPass()
     Attachment colorAttachment{}; // outputImage
     colorAttachment.format = swapchain->getProperties().surfaceFormat.format;
     colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
-    colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
     colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
     colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
     colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
@@ -1555,6 +1563,22 @@ void MainApp::initializeImGui()
     ImGui_ImplVulkan_DestroyFontUploadObjects();
 }
 
+void MainApp::resetFrameSinceViewChange()
+{
+    raytracingPushConstant.frameSinceViewChange = -1;
+}
+
+void MainApp::updateFrameSinceViewChange()
+{
+    // If the camera has updated, we don't want to use the previous frame for anti aliasing
+    if (cameraController->getCamera()->isUpdated())
+    {
+        resetFrameSinceViewChange();
+        cameraController->getCamera()->resetUpdatedFlag();
+    }
+    raytracingPushConstant.frameSinceViewChange += 1;
+}
+
 void MainApp::createOutputImageAndImageView()
 {
     VkExtent3D extent{ swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, 1 };
@@ -2366,6 +2390,7 @@ void MainApp::createRtShaderBindingTable()
 void MainApp::raytrace(const uint32_t &swapchainImageIndex)
 {
     debugUtilBeginLabel(frameData.commandBuffers[currentFrame]->getHandle(), "Raytrace");
+    updateFrameSinceViewChange();
 
     std::vector<VkDescriptorSet> descSets{
         frameData.rtDescriptorSets[currentFrame]->getHandle(), 
@@ -2407,7 +2432,7 @@ void MainApp::raytrace(const uint32_t &swapchainImageIndex)
 int main()
 {
     vulkr::Platform platform;
-    std::unique_ptr<vulkr::MainApp> app = std::make_unique<vulkr::MainApp>(platform, "Vulkan App");
+    std::unique_ptr<vulkr::MainApp> app = std::make_unique<vulkr::MainApp>(platform, "Vulkr");
 
     platform.initialize(std::move(app));
     platform.prepareApplication();

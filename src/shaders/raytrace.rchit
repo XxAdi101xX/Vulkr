@@ -35,6 +35,7 @@ layout(push_constant) uniform RaytracingPushConstant
 	vec3  lightPosition;
 	float lightIntensity;
 	int   lightType;
+	int   frameSinceViewChange;
 } pushConstant;
 
 void main()
