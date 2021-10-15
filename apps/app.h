@@ -61,6 +61,8 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
+#include <iostream>
+#include <random>
 #include <chrono>
 
 #define STB_IMAGE_IMPLEMENTATION
@@ -81,6 +83,7 @@ constexpr uint32_t maxFramesInFlight{ 2 }; // Explanation on this how we got thi
 constexpr uint32_t MAX_OBJECT_COUNT{ 10000 };
 constexpr uint32_t MAX_LIGHT_COUNT{ 100 };
 bool raytracingEnabled{ true }; // Flag to enable ray tracing vs rasterization
+bool temporalAntiAliasingEnabled{ false }; // Flag to enable temporal anti-aliasing
 
 /* Structs shared on both the GPU and CPU */
 struct CameraData
@@ -258,6 +261,7 @@ private:
     std::unique_ptr<DescriptorSetLayout> globalDescriptorSetLayout{ nullptr };
     std::unique_ptr<DescriptorSetLayout> objectDescriptorSetLayout{ nullptr };
     std::unique_ptr<DescriptorSetLayout> textureDescriptorSetLayout{ nullptr };
+    std::unique_ptr<DescriptorSetLayout> postProcessingDescriptorSetLayout{ nullptr };
     std::unique_ptr<DescriptorPool> descriptorPool;
     std::unique_ptr<DescriptorPool> imguiPool;
 
@@ -272,11 +276,18 @@ private:
     std::unique_ptr<CameraController> cameraController;
     std::unique_ptr<Timer> drawingTimer;
 
+    std::random_device randomDevice;
+    std::default_random_engine defaultRandomEngine;
+    std::uniform_real_distribution<float> zeroToOneDistribution;
+
     struct FrameData
     {
         std::array<std::unique_ptr<Image>, maxFramesInFlight> outputImages;
         std::array<std::unique_ptr<ImageView>, maxFramesInFlight> outputImageViews;
-        std::array<std::unique_ptr<Framebuffer>, maxFramesInFlight> outputImageFramebuffers;
+        std::array<std::unique_ptr<Image>, maxFramesInFlight> historyImages;
+        std::array<std::unique_ptr<ImageView>, maxFramesInFlight> historyImageViews;
+        std::array<std::unique_ptr<Framebuffer>, maxFramesInFlight> offscreenFramebuffers;
+        std::array<std::unique_ptr<Framebuffer>, maxFramesInFlight> postProcessingFramebuffers;
 
         std::array<VkSemaphore, maxFramesInFlight> imageAvailableSemaphores;
         std::array<VkSemaphore, maxFramesInFlight> renderingFinishedSemaphores;
@@ -287,10 +298,12 @@ private:
 
         std::array<std::unique_ptr<DescriptorSet>, maxFramesInFlight> globalDescriptorSets;
         std::array<std::unique_ptr<DescriptorSet>, maxFramesInFlight> objectDescriptorSets;
+        std::array<std::unique_ptr<DescriptorSet>, maxFramesInFlight> postProcessingDescriptorSets;
         std::array<std::unique_ptr<DescriptorSet>, maxFramesInFlight> rtDescriptorSets;
         std::array<std::unique_ptr<Buffer>, maxFramesInFlight> cameraBuffers;
         std::array<std::unique_ptr<Buffer>, maxFramesInFlight> lightBuffers;
         std::array<std::unique_ptr<Buffer>, maxFramesInFlight> objectBuffers;
+        std::array<std::unique_ptr<Buffer>, maxFramesInFlight> previousFrameObjectBuffers;
     } frameData;
 
     // Since the texture will be readonly, we don't require a descriptor set per frame
@@ -319,6 +332,12 @@ private:
         int frameSinceViewChange{ -1 }; // Used for temporal anti-aliasing 
     } raytracingPushConstant;
 
+    struct PostProcessPushConstant
+    {
+        glm::vec2 jitter;
+        int frameSinceViewChange{ -1 };
+    } postProcessPushConstant;
+
     // TODO: current this is not used in shaders so they must be added in the future
     // TODO: if the type of struct is changed, ensure that you change lines where the size of the array is using sizeof(LightData)
     std::vector<LightData> sceneLights;
@@ -327,17 +346,19 @@ private:
     void drawImGuiInterface();
     void updateBuffersPerFrame();
     void rasterize();
+    void drawPost();
     void cleanupSwapchain();
     void createInstance();
     void createSurface();
     void createDevice();
     void createSwapchain();
-    void createOutputImageAndImageView();
+    void createOutputAndHistoryImagesAndImageViews();
     void createMainRenderPass();
     void createPostRenderPass();
     void createDescriptorSetLayouts();
     std::shared_ptr<PipelineData> createPipelineData(std::shared_ptr<GraphicsPipeline> pipeline, std::shared_ptr<PipelineState> pipelineState, const std::string &name);
-    void createGraphicsPipelines();
+    void createMainRasterizationPipeline();
+    void createPostProcessingPipeline();
     void createFramebuffers();
     void createCommandPools();
     void createCommandBuffers();
@@ -363,6 +384,7 @@ private:
     void createSemaphoreAndFencePools();
     void setupSynchronizationObjects();
     void setupTimer();
+    void initializeRng();
     void setupCamera();
     void initializeImGui();
     void resetFrameSinceViewChange();

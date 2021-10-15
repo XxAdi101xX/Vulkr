@@ -42,6 +42,7 @@ MainApp::~MainApp()
     globalDescriptorSetLayout.reset();
     objectDescriptorSetLayout.reset();
     textureDescriptorSetLayout.reset();
+    postProcessingDescriptorSetLayout.reset();
 
     for (auto &it : objModels)
     {
@@ -65,6 +66,8 @@ MainApp::~MainApp()
 
     for (uint32_t i = 0; i < maxFramesInFlight; ++i)
     {
+        frameData.historyImages[i].reset();
+        frameData.historyImageViews[i].reset();
         frameData.outputImageViews[i].reset();
         frameData.outputImages[i].reset();
         frameData.commandPools[i].reset();
@@ -97,7 +100,8 @@ void MainApp::cleanupSwapchain()
 
     for (uint32_t i = 0; i < maxFramesInFlight; ++i)
     {
-        frameData.outputImageFramebuffers[i].reset();
+        frameData.offscreenFramebuffers[i].reset();
+        frameData.postProcessingFramebuffers[i].reset();
     }
 
     for (auto &it : pipelineDataMap)
@@ -130,9 +134,11 @@ void MainApp::cleanupSwapchain()
     {
         frameData.globalDescriptorSets[i].reset();
         frameData.objectDescriptorSets[i].reset();
+        frameData.postProcessingDescriptorSets[i].reset();
         frameData.cameraBuffers[i].reset();
         frameData.lightBuffers[i].reset();
         frameData.objectBuffers[i].reset();
+        frameData.previousFrameObjectBuffers[i].reset();
     }
 
     descriptorPool.reset();
@@ -150,6 +156,7 @@ void MainApp::prepare()
     Application::prepare();
 
     setupTimer();
+    initializeRng();
 
     createInstance();
     createSurface();
@@ -172,14 +179,15 @@ void MainApp::prepare()
     createPostRenderPass();
     createCommandPools();
     createCommandBuffers();
-    createOutputImageAndImageView();
+    createOutputAndHistoryImagesAndImageViews();
     createFramebuffers();
 
     initializeImGui();
     loadModels();
 
     createDescriptorSetLayouts();
-    createGraphicsPipelines();
+    createMainRasterizationPipeline();
+    createPostProcessingPipeline();
     createTextureSampler();
     createUniformBuffers();
     createSSBOs();
@@ -233,32 +241,26 @@ void MainApp::update()
     clearValues[0].color = { 1.0f, 1.0f, 1.0f, 1.0f };
     clearValues[1].depthStencil = { 1.0f, 0u };
 
+    // Begin command buffer for main frame processing
     frameData.commandBuffers[currentFrame]->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
 
-    // Main offscreen renderpass
-    frameData.commandBuffers[currentFrame]->beginRenderPass(*mainRenderPass.renderPass, *(frameData.outputImageFramebuffers[currentFrame]), swapchain->getProperties().imageExtent, clearValues, VK_SUBPASS_CONTENTS_INLINE);
     updateBuffersPerFrame();
-
-    if (!raytracingEnabled)
-    {
-        rasterize();
-    }
-
-    frameData.commandBuffers[currentFrame]->endRenderPass();
-
+    updateFrameSinceViewChange();
+    drawImGuiInterface();
+    // Main offscreen pass
     if (raytracingEnabled)
     {
         raytrace(swapchainImageIndex);
     }
+    else
+    {
+        frameData.commandBuffers[currentFrame]->beginRenderPass(*mainRenderPass.renderPass, *(frameData.offscreenFramebuffers[currentFrame]), swapchain->getProperties().imageExtent, clearValues, VK_SUBPASS_CONTENTS_INLINE);
+        rasterize();
+        frameData.commandBuffers[currentFrame]->endRenderPass();
+    }
 
-    // Post offscreen renderpass
-    drawImGuiInterface();
-    frameData.commandBuffers[currentFrame]->beginRenderPass(*postRenderPass.renderPass, *(frameData.outputImageFramebuffers[currentFrame]), swapchain->getProperties().imageExtent, clearValues, VK_SUBPASS_CONTENTS_INLINE);
-    ImGui::Render();
-    ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), frameData.commandBuffers[currentFrame]->getHandle());
-    frameData.commandBuffers[currentFrame]->endRenderPass();
-
-    // Copy the output image contents to the swapchain image
+    // Wait on primary pass to complete before postProcess pass
+    // TODO: this assumes that isUnifiedGraphicsAndTransferQueue is true
     VkImageSubresourceRange subresourceRange = {};
     subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     subresourceRange.baseMipLevel = 0;
@@ -266,10 +268,64 @@ void MainApp::update()
     subresourceRange.baseArrayLayer = 0;
     subresourceRange.layerCount = 1;
 
-    // Prepare the current swapchain image as a transfer destination
+    VkImageMemoryBarrier2KHR imageMemoryBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2_KHR };
+    imageMemoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR;
+    imageMemoryBarrier.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT_KHR;
+    imageMemoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR;
+    imageMemoryBarrier.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT_KHR; // This specifes read access to the color attachment during blending among other things
+    imageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    imageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    imageMemoryBarrier.srcQueueFamilyIndex = device->getOptimalGraphicsQueue().getFamilyIndex();
+    imageMemoryBarrier.dstQueueFamilyIndex = device->getOptimalGraphicsQueue().getFamilyIndex();
+    imageMemoryBarrier.image = frameData.outputImages[currentFrame]->getHandle();
+    imageMemoryBarrier.subresourceRange = subresourceRange;
+
+    VkDependencyInfoKHR dependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO_KHR };
+    dependencyInfo.dependencyFlags = 0;
+    dependencyInfo.memoryBarrierCount = 0;
+    dependencyInfo.bufferMemoryBarrierCount = 0;
+    dependencyInfo.imageMemoryBarrierCount = 1;
+    dependencyInfo.pImageMemoryBarriers = &imageMemoryBarrier;
+
+    // TODO: enable this!! This code is wrong without it
+    //vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame]->getHandle(), &dependencyInfo);
+
+    // Post offscreen renderpass
+    frameData.commandBuffers[currentFrame]->beginRenderPass(*postRenderPass.renderPass, *(frameData.postProcessingFramebuffers[currentFrame]), swapchain->getProperties().imageExtent, clearValues, VK_SUBPASS_CONTENTS_INLINE);
+    if (temporalAntiAliasingEnabled)
+    {
+        drawPost();
+    }
+    ImGui::Render();
+    ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), frameData.commandBuffers[currentFrame]->getHandle());
+    frameData.commandBuffers[currentFrame]->endRenderPass();
+
+    // Wait on postProcess pass to complete before copy operations
+    // TODO: this assumes that isUnifiedGraphicsAndTransferQueue is true
+    imageMemoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR;
+    imageMemoryBarrier.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT_KHR;
+    imageMemoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT_KHR;
+    imageMemoryBarrier.dstAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT_KHR;
+    imageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    imageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    imageMemoryBarrier.srcQueueFamilyIndex = device->getOptimalGraphicsQueue().getFamilyIndex();
+    imageMemoryBarrier.dstQueueFamilyIndex = device->getOptimalGraphicsQueue().getFamilyIndex();
+    imageMemoryBarrier.image = frameData.outputImages[currentFrame]->getHandle();
+    imageMemoryBarrier.subresourceRange = subresourceRange;
+
+    dependencyInfo.dependencyFlags = 0;
+    dependencyInfo.memoryBarrierCount = 0;
+    dependencyInfo.bufferMemoryBarrierCount = 0;
+    dependencyInfo.imageMemoryBarrierCount = 1;
+    dependencyInfo.pImageMemoryBarriers = &imageMemoryBarrier;
+
+    // TODO: enable this!! This code is wrong without it
+    //vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame]->getHandle(), &dependencyInfo);
+
+    // Prepare the current swapchain image and history buffer as transfer destinations
     swapchain->getImages()[swapchainImageIndex]->transitionImageLayout(*frameData.commandBuffers[currentFrame], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, subresourceRange);
-    // Prepare ray tracing output image as transfer source
-    frameData.outputImages[currentFrame]->transitionImageLayout(*frameData.commandBuffers[currentFrame], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, subresourceRange);
+    frameData.historyImages[currentFrame]->transitionImageLayout(*frameData.commandBuffers[currentFrame], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, subresourceRange);
+    // Note that the layout of the outputImage has been transitioned from VK_IMAGE_LAYOUT_GENERAL to VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL as defined in the postProcessingRenderPass configuration
 
     VkImageCopy copyRegion{};
     copyRegion.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
@@ -277,13 +333,19 @@ void MainApp::update()
     copyRegion.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
     copyRegion.dstOffset = { 0, 0, 0 };
     copyRegion.extent = { swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, 1 };
+
+    // Copy output image to swapchain image and history image (note that they can execute in any order due to lack of barriers)
     vkCmdCopyImage(frameData.commandBuffers[currentFrame]->getHandle(), frameData.outputImages[currentFrame]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swapchain->getImages()[swapchainImageIndex]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
+    vkCmdCopyImage(frameData.commandBuffers[currentFrame]->getHandle(), frameData.outputImages[currentFrame]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, frameData.historyImages[currentFrame]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
 
     // Transition the current swapchain image back for presentation
     swapchain->getImages()[swapchainImageIndex]->transitionImageLayout(*frameData.commandBuffers[currentFrame], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, subresourceRange);
+    // Transition the history image for general purpose operations
+    frameData.historyImages[currentFrame]->transitionImageLayout(*frameData.commandBuffers[currentFrame], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL, subresourceRange);
     // Transition the output image back to the general layout
     frameData.outputImages[currentFrame]->transitionImageLayout(*frameData.commandBuffers[currentFrame], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL, subresourceRange);
 
+    // End command buffer for main frame processing
     frameData.commandBuffers[currentFrame]->end();
 
     // I have setup a subpass dependency to ensure that the render pass waits for the swapchain to finish reading from the image before accessing it
@@ -338,7 +400,8 @@ void MainApp::recreateSwapchain()
     setupCamera();
     createMainRenderPass();
     createPostRenderPass();
-    createGraphicsPipelines();
+    createMainRasterizationPipeline();
+    createPostProcessingPipeline();
     createDepthResources();
     createFramebuffers();
     createCommandBuffers();
@@ -378,9 +441,10 @@ void MainApp::drawImGuiInterface()
     // ImGui::Begin();
     if (ImGui::BeginTabBar("Main Tab"))
     {
-        if (ImGui::BeginTabItem("Camera"))
+        if (ImGui::BeginTabItem("Scene"))
         {
             ImGui::Checkbox("Raytracing enabled", &raytracingEnabled);
+            ImGui::Checkbox("Temporal anti-aliasing enabled (Work in Progress)", &temporalAntiAliasingEnabled);
 
             ImGui::Text("Position");
             ImGui::SameLine();
@@ -388,7 +452,6 @@ void MainApp::drawImGuiInterface()
             changed |= ImGui::IsItemDeactivatedAfterEdit();
             if (changed)
             {
-                resetFrameSinceViewChange();
                 cameraController->getCamera()->setPosition(position);
                 changed = false;
             }
@@ -398,7 +461,6 @@ void MainApp::drawImGuiInterface()
             changed |= ImGui::IsItemDeactivatedAfterEdit();
             if (changed)
             {
-                resetFrameSinceViewChange();
                 cameraController->getCamera()->setCenter(center);
                 changed = false;
             }
@@ -407,7 +469,6 @@ void MainApp::drawImGuiInterface()
             changed |= ImGui::DragFloat("##FOV", &fovy, 1.0f, 1.0f, 179.0f, "%.3f", 0);
             if (changed)
             {
-                resetFrameSinceViewChange();
                 cameraController->getCamera()->setFovY(fovy);
                 changed = false;
             }
@@ -504,14 +565,14 @@ void MainApp::rasterize()
     {
         RenderObject object = renderables[index];
 
-        // Bind the pipeline if it doesn't match with the already bound one
+        // Bind the pipeline if it doesn't match with the already bound one TODO: this will always be the same so refactor away this check
         if (object.pipelineData != lastPipeline)
         {
 
             vkCmdBindPipeline(frameData.commandBuffers[currentFrame]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, object.pipelineData->pipeline->getHandle());
             lastPipeline = object.pipelineData;
 
-            // Camera data descriptor
+            // Global data descriptor
             vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, object.pipelineData->pipelineState->getPipelineLayout().getHandle(), 0, 1, &frameData.globalDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
 
             // Object data descriptor
@@ -544,10 +605,61 @@ void MainApp::rasterize()
     debugUtilEndLabel(frameData.commandBuffers[currentFrame]->getHandle());
 }
 
+void MainApp::drawPost()
+{
+    debugUtilBeginLabel(frameData.commandBuffers[currentFrame]->getHandle(), "Post");
+    // Draw renderables
+    std::shared_ptr<ObjModel> lastObjModel = nullptr;
+    for (int index = 0; index < renderables.size(); index++)
+    {
+        RenderObject object = renderables[index];
+
+        vkCmdBindPipeline(frameData.commandBuffers[currentFrame]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, getPipelineData("postprocess")->pipeline->getHandle());
+
+        // Post processing descriptor
+        vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, getPipelineData("postprocess")->pipelineState->getPipelineLayout().getHandle(), 0, 1, &frameData.postProcessingDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
+
+        // Bind the objModel if it's a different one from last one
+        if (object.objModel != lastObjModel)
+        {
+            VkBuffer vertexBuffers[] = { object.objModel->vertexBuffer->getHandle() };
+            VkDeviceSize offsets[] = { 0 };
+            vkCmdBindVertexBuffers(frameData.commandBuffers[currentFrame]->getHandle(), 0, 1, vertexBuffers, offsets);
+            vkCmdBindIndexBuffer(frameData.commandBuffers[currentFrame]->getHandle(), object.objModel->indexBuffer->getHandle(), 0, VK_INDEX_TYPE_UINT32);
+
+            lastObjModel = object.objModel;
+        }
+
+        postProcessPushConstant.jitter = glm::vec2(zeroToOneDistribution(defaultRandomEngine) - 0.5f, zeroToOneDistribution(defaultRandomEngine) - 0.5f);
+
+        // We have history buffer set to 1 - blendFactor so when we have enough samples and the frame has been still for a while, we don't want to recalculate
+        // the image but just use what's in the history buffer
+        float blendFactor = 0.0f;
+        if (postProcessPushConstant.frameSinceViewChange <= 200)
+        {
+            blendFactor = 1.0f / float(postProcessPushConstant.frameSinceViewChange + 1);
+            //blendFactor = 0.75f;//TODO remove
+        }
+
+        float blendConstants[4] = { blendFactor, blendFactor, blendFactor, blendFactor };
+        vkCmdSetBlendConstants(frameData.commandBuffers[currentFrame]->getHandle(), blendConstants);
+        vkCmdPushConstants(frameData.commandBuffers[currentFrame]->getHandle(), getPipelineData("postprocess")->pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PostProcessPushConstant), &postProcessPushConstant);
+        vkCmdDrawIndexed(frameData.commandBuffers[currentFrame]->getHandle(), to_u32(object.objModel->indicesCount), 1, 0, 0, index);
+    }
+
+    debugUtilEndLabel(frameData.commandBuffers[currentFrame]->getHandle());
+}
+
 void MainApp::setupTimer()
 {
     drawingTimer = std::make_unique<Timer>();
     drawingTimer->start();
+}
+
+void MainApp::initializeRng()
+{
+    defaultRandomEngine = std::default_random_engine(randomDevice());
+    zeroToOneDistribution = std::uniform_real_distribution(0.0f, 1.0f);
 }
 
 void MainApp::createInstance()
@@ -594,11 +706,14 @@ void MainApp::createMainRenderPass()
     Attachment colorAttachment{}; // outputImage
     colorAttachment.format = swapchain->getProperties().surfaceFormat.format;
     colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
-    colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+    colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
     colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
     colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
     colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    // We could set the finalLayout to VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL since the postProcessing step requires that but then we would have to add a
+    // layout transitions after a raytracing step to change the image from VK_IMAGE_LAYOUT_GENERAL to VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL. For simplicity,
+    // I've made it so that the finalLayout regardless of rasterization/raytracing is VK_IMAGE_LAYOUT_GENERAL
     colorAttachment.finalLayout = VK_IMAGE_LAYOUT_GENERAL;
     attachments.push_back(colorAttachment);
 
@@ -649,13 +764,13 @@ void MainApp::createMainRenderPass()
     // which injects an external dependency here with dstStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, dstAccessMask = 0. 
 
     mainRenderPass.renderPass = std::make_unique<RenderPass>(*device, attachments, mainRenderPass.subpasses, dependencies);
+    setDebugUtilsObjectName(device->getHandle(), mainRenderPass.renderPass->getHandle(), "mainRenderPass");
 }
 
-// TODO check if we need the depth attachment for the post render pass
 void MainApp::createPostRenderPass()
 {
     std::vector<Attachment> attachments;
-    Attachment colorAttachment{}; // swapchainImage
+    Attachment colorAttachment{}; // outputImage
     colorAttachment.format = swapchain->getProperties().surfaceFormat.format;
     colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
     colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
@@ -663,7 +778,7 @@ void MainApp::createPostRenderPass()
     colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
     colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
     colorAttachment.initialLayout = VK_IMAGE_LAYOUT_GENERAL;
-    colorAttachment.finalLayout = VK_IMAGE_LAYOUT_GENERAL;
+    colorAttachment.finalLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
     attachments.push_back(colorAttachment);
 
     VkAttachmentReference colorAttachmentRef{};
@@ -713,6 +828,7 @@ void MainApp::createPostRenderPass()
     // which injects an external dependency here with dstStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, dstAccessMask = 0. 
 
     postRenderPass.renderPass = std::make_unique<RenderPass>(*device, attachments, postRenderPass.subpasses, dependencies);
+    setDebugUtilsObjectName(device->getHandle(), postRenderPass.renderPass->getHandle(), "postProcessRenderPass");
 }
 
 
@@ -736,15 +852,49 @@ void MainApp::createDescriptorSetLayouts()
     globalDescriptorSetLayout = std::make_unique<DescriptorSetLayout>(*device, globalDescriptorSetLayoutBindings);
 
     // Object descriptor set layout
-    VkDescriptorSetLayoutBinding objectLayoutBinding{};
-    objectLayoutBinding.binding = 0;
-    objectLayoutBinding.descriptorCount = 1;
-    objectLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    objectLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
-    objectLayoutBinding.pImmutableSamplers = nullptr;
+    VkDescriptorSetLayoutBinding objectBufferLayoutBinding{};
+    objectBufferLayoutBinding.binding = 0;
+    objectBufferLayoutBinding.descriptorCount = 1;
+    objectBufferLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    objectBufferLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
+    objectBufferLayoutBinding.pImmutableSamplers = nullptr;
 
-    std::vector<VkDescriptorSetLayoutBinding> objectDescriptorSetLayoutBindings{ objectLayoutBinding };
+    std::vector<VkDescriptorSetLayoutBinding> objectDescriptorSetLayoutBindings{ objectBufferLayoutBinding };
     objectDescriptorSetLayout = std::make_unique<DescriptorSetLayout>(*device, objectDescriptorSetLayoutBindings);
+
+    // Post processing descriptor set layout
+    VkDescriptorSetLayoutBinding cameraBufferLayoutBindingForPost{};
+    cameraBufferLayoutBindingForPost.binding = 0;
+    cameraBufferLayoutBindingForPost.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    cameraBufferLayoutBindingForPost.descriptorCount = 1;
+    cameraBufferLayoutBindingForPost.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    cameraBufferLayoutBindingForPost.pImmutableSamplers = nullptr; // Optional
+    VkDescriptorSetLayoutBinding currentFrameObjectBufferLayoutBindingForPost{};
+    currentFrameObjectBufferLayoutBindingForPost.binding = 1;
+    currentFrameObjectBufferLayoutBindingForPost.descriptorCount = 1;
+    currentFrameObjectBufferLayoutBindingForPost.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    currentFrameObjectBufferLayoutBindingForPost.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    currentFrameObjectBufferLayoutBindingForPost.pImmutableSamplers = nullptr;
+    VkDescriptorSetLayoutBinding previousFrameObjectBufferLayoutBindingForPost{};
+    previousFrameObjectBufferLayoutBindingForPost.binding = 2;
+    previousFrameObjectBufferLayoutBindingForPost.descriptorCount = 1;
+    previousFrameObjectBufferLayoutBindingForPost.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    previousFrameObjectBufferLayoutBindingForPost.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    previousFrameObjectBufferLayoutBindingForPost.pImmutableSamplers = nullptr;
+    VkDescriptorSetLayoutBinding historyImageLayoutBindingForPost{};
+    historyImageLayoutBindingForPost.binding = 3;
+    historyImageLayoutBindingForPost.descriptorCount = 1;
+    historyImageLayoutBindingForPost.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    historyImageLayoutBindingForPost.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    historyImageLayoutBindingForPost.pImmutableSamplers = nullptr;
+
+    std::vector<VkDescriptorSetLayoutBinding> postProcessingDescriptorSetLayoutBindings {
+        cameraBufferLayoutBindingForPost,
+        currentFrameObjectBufferLayoutBindingForPost,
+        previousFrameObjectBufferLayoutBindingForPost,
+        historyImageLayoutBindingForPost
+    };
+    postProcessingDescriptorSetLayout = std::make_unique<DescriptorSetLayout>(*device, postProcessingDescriptorSetLayoutBindings);
 
     // Texture descriptor set layout
     VkDescriptorSetLayoutBinding samplerLayoutBinding{};
@@ -767,9 +917,8 @@ std::shared_ptr<PipelineData> MainApp::createPipelineData(std::shared_ptr<Graphi
     return pipelineData;
 }
 
-void MainApp::createGraphicsPipelines()
+void MainApp::createMainRasterizationPipeline()
 {
-    // Setup pipeline
     VertexInputState vertexInputState{};
     vertexInputState.bindingDescriptions.reserve(1);
     vertexInputState.attributeDescriptions.reserve(3);
@@ -862,24 +1011,26 @@ void MainApp::createGraphicsPipelines()
     colorBlendState.blendConstants[2] = 0.0f;
     colorBlendState.blendConstants[3] = 0.0f;
 
-    std::shared_ptr<ShaderSource> vertexShader = std::make_shared<ShaderSource>("main.vert.spv");
-    std::shared_ptr<ShaderSource> defaultFragmentShader = std::make_shared<ShaderSource>("default.frag.spv");
-    std::shared_ptr<ShaderSource> texturedFragmentShader = std::make_shared<ShaderSource>("textured.frag.spv");
+    std::vector<VkDynamicState> dynamicStates;
+
+    std::shared_ptr<ShaderSource> mainVertexShader = std::make_shared<ShaderSource>("main.vert.spv");
+    std::shared_ptr<ShaderSource> mainFragmentShader = std::make_shared<ShaderSource>("main.frag.spv");
 
     std::vector<ShaderModule> shaderModules;
-    shaderModules.emplace_back(*device, VK_SHADER_STAGE_VERTEX_BIT, vertexShader);
-    shaderModules.emplace_back(*device, VK_SHADER_STAGE_FRAGMENT_BIT, defaultFragmentShader);
+    shaderModules.emplace_back(*device, VK_SHADER_STAGE_VERTEX_BIT, mainVertexShader);
+    shaderModules.emplace_back(*device, VK_SHADER_STAGE_FRAGMENT_BIT, mainFragmentShader);
 
     std::vector<VkDescriptorSetLayout> descriptorSetLayoutHandles {
         globalDescriptorSetLayout->getHandle(),
-        objectDescriptorSetLayout->getHandle()
+        objectDescriptorSetLayout->getHandle(),
+        textureDescriptorSetLayout->getHandle()
     };
-    std::vector<VkPushConstantRange> pushConstantRangeHandles;
-    VkPushConstantRange pushConstant{ VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(LightData) };
-    pushConstantRangeHandles.push_back(pushConstant);
 
-    // Create default mesh pipeline TODO: defaultmesh is currently unused so it can be removed
-    std::shared_ptr<PipelineState> defaultMeshPipelineState = std::make_shared<PipelineState>(
+    std::vector<VkPushConstantRange> pushConstantRangeHandles;
+    VkPushConstantRange rasterizationPushConstantRange{ VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(RasterizationPushConstant) };
+    pushConstantRangeHandles.push_back(rasterizationPushConstantRange);
+
+    std::shared_ptr<PipelineState> mainRasterizationPipelineState = std::make_shared<PipelineState>(
         std::make_unique<PipelineLayout>(*device, shaderModules, descriptorSetLayoutHandles, pushConstantRangeHandles),
         *mainRenderPass.renderPass,
         vertexInputState,
@@ -888,40 +1039,117 @@ void MainApp::createGraphicsPipelines()
         rasterizationState,
         multisampleState,
         depthStencilState,
-        colorBlendState
+        colorBlendState,
+        dynamicStates
     );
 
-    std::shared_ptr<GraphicsPipeline> defaultMeshPipeline = std::make_shared<GraphicsPipeline>(*device, *defaultMeshPipelineState, nullptr);
+    std::shared_ptr<GraphicsPipeline> mainRasterizationPipeline = std::make_shared<GraphicsPipeline>(*device, *mainRasterizationPipelineState, nullptr);
 
-    createPipelineData(defaultMeshPipeline, defaultMeshPipelineState, "defaultmesh");
+    createPipelineData(mainRasterizationPipeline, mainRasterizationPipelineState, "texturedmesh");
+}
 
-    // Create textured mesh pipeline
-    shaderModules.clear();
-    shaderModules.emplace_back(*device, VK_SHADER_STAGE_VERTEX_BIT, vertexShader);
-    shaderModules.emplace_back(*device, VK_SHADER_STAGE_FRAGMENT_BIT, texturedFragmentShader);
+void MainApp::createPostProcessingPipeline()
+{
+    VertexInputState vertexInputState{};
+    vertexInputState.bindingDescriptions.reserve(1);
+    vertexInputState.attributeDescriptions.reserve(1);
 
-    descriptorSetLayoutHandles.clear();
-    descriptorSetLayoutHandles.push_back(globalDescriptorSetLayout->getHandle());
-    descriptorSetLayoutHandles.push_back(objectDescriptorSetLayout->getHandle());
-    descriptorSetLayoutHandles.push_back(textureDescriptorSetLayout->getHandle());
+    VkVertexInputBindingDescription bindingDescription{};
+    bindingDescription.binding = 0;
+    bindingDescription.stride = sizeof(VertexObj);
+    bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+    vertexInputState.bindingDescriptions.emplace_back(bindingDescription);
 
-    // Using same push constants as defined for default mesh
+    // Position at location 0
+    VkVertexInputAttributeDescription positionAttributeDescription;
+    positionAttributeDescription.binding = 0;
+    positionAttributeDescription.location = 0;
+    positionAttributeDescription.format = VK_FORMAT_R32G32B32_SFLOAT;
+    positionAttributeDescription.offset = offsetof(VertexObj, position);
+    vertexInputState.attributeDescriptions.emplace_back(positionAttributeDescription);
 
-    std::shared_ptr<PipelineState> texturedMeshPipelineState = std::make_shared<PipelineState>(
+    InputAssemblyState inputAssemblyState{};
+    inputAssemblyState.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    inputAssemblyState.primitiveRestartEnable = VK_FALSE;
+
+    ViewportState viewportState{};
+    VkViewport viewport{ 0.0f, 0.0f, swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, 0.0f, 1.0f };
+    viewportState.viewports.emplace_back(viewport);
+    VkRect2D scissor{};
+    scissor.offset = { 0, 0 };
+    scissor.extent = swapchain->getProperties().imageExtent;
+    viewportState.scissors.emplace_back(scissor);
+
+    RasterizationState rasterizationState{};
+    rasterizationState.depthClampEnable = VK_FALSE;
+    rasterizationState.rasterizerDiscardEnable = VK_FALSE;
+    rasterizationState.polygonMode = VK_POLYGON_MODE_FILL;
+    rasterizationState.cullMode = VK_CULL_MODE_BACK_BIT;
+    rasterizationState.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    rasterizationState.lineWidth = 1.0f;
+    rasterizationState.depthBiasEnable = VK_FALSE;
+
+    MultisampleState multisampleState{};
+    multisampleState.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+    multisampleState.sampleShadingEnable = VK_FALSE;
+
+    DepthStencilState depthStencilState{};
+    depthStencilState.depthTestEnable = VK_TRUE;
+    depthStencilState.depthWriteEnable = VK_TRUE;
+    // TODO: change this to VK_COMPARE_OP_GREATER: https://developer.nvidia.com/content/depth-precision-visualized , will need to also change the depthStencil clearValue to 0.0f instead of 1.0f
+    depthStencilState.depthCompareOp = VK_COMPARE_OP_LESS;
+    depthStencilState.depthBoundsTestEnable = VK_FALSE;
+    depthStencilState.stencilTestEnable = VK_FALSE;
+
+    ColorBlendAttachmentState colorBlendAttachmentState{};
+    colorBlendAttachmentState.blendEnable = VK_TRUE;
+    colorBlendAttachmentState.srcColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_CONSTANT_COLOR; // The value of the history buffer is returned
+    colorBlendAttachmentState.dstColorBlendFactor = VK_BLEND_FACTOR_CONSTANT_COLOR; // The outputImage is the non-accumulated image
+    colorBlendAttachmentState.colorBlendOp = VK_BLEND_OP_ADD;
+    colorBlendAttachmentState.srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO; // Ignore the alpha value in the history buffer
+    colorBlendAttachmentState.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE; // Always take the alpha value of the most recent frame
+    colorBlendAttachmentState.alphaBlendOp = VK_BLEND_OP_ADD;
+    colorBlendAttachmentState.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+
+    ColorBlendState colorBlendState{};
+    colorBlendState.logicOpEnable = VK_FALSE;
+    colorBlendState.logicOp = VK_LOGIC_OP_COPY;
+    colorBlendState.attachments.emplace_back(colorBlendAttachmentState);
+    // Blend constants must be set dynamically since the dynamic state is defined
+
+    std::vector<VkDynamicState> dynamicStates{ VK_DYNAMIC_STATE_BLEND_CONSTANTS };
+
+    std::shared_ptr<ShaderSource> postProcessVertexShader = std::make_shared<ShaderSource>("postProcess.vert.spv");
+    std::shared_ptr<ShaderSource> postProcessFragmentShader = std::make_shared<ShaderSource>("postProcess.frag.spv");
+
+    std::vector<ShaderModule> shaderModules;
+    std::vector<VkDescriptorSetLayout> descriptorSetLayoutHandles;
+    std::vector<VkPushConstantRange> pushConstantRangeHandles;
+
+    shaderModules.emplace_back(*device, VK_SHADER_STAGE_VERTEX_BIT, postProcessVertexShader);
+    shaderModules.emplace_back(*device, VK_SHADER_STAGE_FRAGMENT_BIT, postProcessFragmentShader);
+
+    descriptorSetLayoutHandles.push_back(postProcessingDescriptorSetLayout->getHandle());
+
+    VkPushConstantRange postProcessPushConstantRange{ VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PostProcessPushConstant) };
+    pushConstantRangeHandles.push_back(postProcessPushConstantRange);
+
+    std::shared_ptr<PipelineState> postProcessingPipelineState = std::make_shared<PipelineState>(
         std::make_unique<PipelineLayout>(*device, shaderModules, descriptorSetLayoutHandles, pushConstantRangeHandles),
-        *mainRenderPass.renderPass,
+        *postRenderPass.renderPass,
         vertexInputState,
         inputAssemblyState,
         viewportState,
         rasterizationState,
         multisampleState,
         depthStencilState,
-        colorBlendState
-        );
+        colorBlendState,
+        dynamicStates
+    );
 
-    std::shared_ptr<GraphicsPipeline> texturedMeshPipeline = std::make_shared<GraphicsPipeline>(*device, *texturedMeshPipelineState, nullptr);
+    std::shared_ptr<GraphicsPipeline> postProcessingPipeline = std::make_shared<GraphicsPipeline>(*device, *postProcessingPipelineState, nullptr);
 
-    createPipelineData(texturedMeshPipeline, texturedMeshPipelineState, "texturedmesh");
+    createPipelineData(postProcessingPipeline, postProcessingPipelineState, "postprocess");
 }
 
 void MainApp::createFramebuffers()
@@ -929,8 +1157,12 @@ void MainApp::createFramebuffers()
     for (uint32_t i = 0; i < maxFramesInFlight; ++i)
     {
         std::vector<VkImageView> attachments{ frameData.outputImageViews[i]->getHandle(), depthImageView->getHandle() };
-        frameData.outputImageFramebuffers[i] = std::make_unique<Framebuffer>(*device, *swapchain, *mainRenderPass.renderPass, attachments);
-        setDebugUtilsObjectName(device->getHandle(), frameData.outputImageFramebuffers[i]->getHandle(), "outputImageFramebuffer for frame #" + std::to_string(i));
+        frameData.offscreenFramebuffers[i] = std::make_unique<Framebuffer>(*device, *swapchain, *mainRenderPass.renderPass, attachments);
+        setDebugUtilsObjectName(device->getHandle(), frameData.offscreenFramebuffers[i]->getHandle(), "outputImageFramebuffer for frame #" + std::to_string(i));
+
+        std::vector<VkImageView> postProcessingAttachments{ frameData.outputImageViews[i]->getHandle(), depthImageView->getHandle() };
+        frameData.postProcessingFramebuffers[i] = std::make_unique<Framebuffer>(*device, *swapchain, *postRenderPass.renderPass, postProcessingAttachments);
+        setDebugUtilsObjectName(device->getHandle(), frameData.postProcessingFramebuffers[i]->getHandle(), "postProcessingFramebuffer for frame #" + std::to_string(i));
     }
 }
 
@@ -1238,19 +1470,22 @@ void MainApp::createSSBOs()
     for (uint32_t i = 0; i < maxFramesInFlight; ++i)
     {
         frameData.objectBuffers[i] = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
+        frameData.previousFrameObjectBuffers[i] = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
     }
 }
 
 void MainApp::createDescriptorPool()
 {
     std::vector<VkDescriptorPoolSize> poolSizes{};
-    poolSizes.resize(3);
+    poolSizes.resize(4);
     poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    poolSizes[0].descriptorCount = maxFramesInFlight;
+    poolSizes[0].descriptorCount = 10;
     poolSizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    poolSizes[1].descriptorCount = maxFramesInFlight;
-    poolSizes[2].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    poolSizes[2].descriptorCount = 1;
+    poolSizes[1].descriptorCount = 10;
+    poolSizes[2].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    poolSizes[2].descriptorCount = 10;
+    poolSizes[3].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    poolSizes[3].descriptorCount = 1;
 
     descriptorPool = std::make_unique<DescriptorPool>(*device, poolSizes, 10u, 0);
 }
@@ -1301,18 +1536,77 @@ void MainApp::createDescriptorSets()
         objectBufferInfo.offset = 0;
         objectBufferInfo.range = sizeof(ObjInstance) * MAX_OBJECT_COUNT;
 
-        VkWriteDescriptorSet objectWrite{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        objectWrite.dstSet = frameData.objectDescriptorSets[i]->getHandle();
-        objectWrite.dstBinding = 0;
-        objectWrite.dstArrayElement = 0;
-        objectWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        objectWrite.descriptorCount = 1;
-        objectWrite.pBufferInfo = &objectBufferInfo;
-        objectWrite.pImageInfo = nullptr; // Optional
-        objectWrite.pTexelBufferView = nullptr; // Optional
+        VkWriteDescriptorSet objectDescriptorsWrite{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        objectDescriptorsWrite.dstSet = frameData.objectDescriptorSets[i]->getHandle();
+        objectDescriptorsWrite.dstBinding = 0;
+        objectDescriptorsWrite.dstArrayElement = 0;
+        objectDescriptorsWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        objectDescriptorsWrite.descriptorCount = 1;
+        objectDescriptorsWrite.pBufferInfo = &objectBufferInfo;
+        objectDescriptorsWrite.pImageInfo = nullptr; // Optional
+        objectDescriptorsWrite.pTexelBufferView = nullptr; // Optional
+
+        // Post Processing Descriptor Set
+        VkDescriptorSetAllocateInfo postProcessingDescriptorSetAllocateInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+        postProcessingDescriptorSetAllocateInfo.descriptorPool = descriptorPool->getHandle();
+        postProcessingDescriptorSetAllocateInfo.descriptorSetCount = 1;
+        postProcessingDescriptorSetAllocateInfo.pSetLayouts = &postProcessingDescriptorSetLayout->getHandle();
+        frameData.postProcessingDescriptorSets[i] = std::make_unique<DescriptorSet>(*device, postProcessingDescriptorSetAllocateInfo);
+        setDebugUtilsObjectName(device->getHandle(), frameData.postProcessingDescriptorSets[i]->getHandle(), "postProcessingDescriptorSet for frame #" + std::to_string(i));
+
+        // Binding 0 is the camera buffer
+        VkWriteDescriptorSet postProcessingUniformBufferDescriptorsWrite{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        postProcessingUniformBufferDescriptorsWrite.dstSet = frameData.postProcessingDescriptorSets[i]->getHandle();
+        postProcessingUniformBufferDescriptorsWrite.dstBinding = 0;
+        postProcessingUniformBufferDescriptorsWrite.dstArrayElement = 0;
+        postProcessingUniformBufferDescriptorsWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        postProcessingUniformBufferDescriptorsWrite.descriptorCount = 1;
+        postProcessingUniformBufferDescriptorsWrite.pBufferInfo = &cameraBufferInfo;
+        postProcessingUniformBufferDescriptorsWrite.pImageInfo = nullptr; // Optional
+        postProcessingUniformBufferDescriptorsWrite.pTexelBufferView = nullptr; // Optional
+
+        // Bindings 1 and 2 are the currentFrameObjectBuffer and previousFrameObjectBuffer respectively
+        VkDescriptorBufferInfo previousFrameObjectBufferInfo{};
+        previousFrameObjectBufferInfo.buffer = frameData.previousFrameObjectBuffers[i]->getHandle();
+        previousFrameObjectBufferInfo.offset = 0;
+        previousFrameObjectBufferInfo.range = sizeof(ObjInstance) * MAX_OBJECT_COUNT;
+        std::array<VkDescriptorBufferInfo, 2> postProcessingStorageBufferInfos{ objectBufferInfo, previousFrameObjectBufferInfo };
+
+        VkWriteDescriptorSet postProcessingStorageBufferDescriptorsWrite{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        postProcessingStorageBufferDescriptorsWrite.dstSet = frameData.postProcessingDescriptorSets[i]->getHandle();
+        postProcessingStorageBufferDescriptorsWrite.dstBinding = 1;
+        postProcessingStorageBufferDescriptorsWrite.dstArrayElement = 0;
+        postProcessingStorageBufferDescriptorsWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        postProcessingStorageBufferDescriptorsWrite.descriptorCount = postProcessingStorageBufferInfos.size();
+        postProcessingStorageBufferDescriptorsWrite.pBufferInfo = postProcessingStorageBufferInfos.data();
+        postProcessingStorageBufferDescriptorsWrite.pImageInfo = nullptr; // Optional
+        postProcessingStorageBufferDescriptorsWrite.pTexelBufferView = nullptr; // Optional
+
+        // Bindings 3 is the history image
+        VkDescriptorImageInfo historyImageInfo{};
+        historyImageInfo.sampler = VK_NULL_HANDLE;
+        historyImageInfo.imageView = frameData.historyImageViews[i]->getHandle();
+        historyImageInfo.imageLayout = frameData.historyImageViews[i]->getImage().getLayout();
+        std::array<VkDescriptorImageInfo, 1> postProcessingStorageImageInfos{ historyImageInfo };
+        
+        VkWriteDescriptorSet postProcessingStorageImageDescriptorsWrite{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        postProcessingStorageImageDescriptorsWrite.dstSet = frameData.postProcessingDescriptorSets[i]->getHandle();
+        postProcessingStorageImageDescriptorsWrite.dstBinding = 3;
+        postProcessingStorageImageDescriptorsWrite.dstArrayElement = 0;
+        postProcessingStorageImageDescriptorsWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        postProcessingStorageImageDescriptorsWrite.descriptorCount = postProcessingStorageImageInfos.size();
+        postProcessingStorageImageDescriptorsWrite.pImageInfo = postProcessingStorageImageInfos.data();
+        postProcessingStorageImageDescriptorsWrite.pBufferInfo = nullptr; // Optional
+        postProcessingStorageImageDescriptorsWrite.pTexelBufferView = nullptr; // Optional
 
         // Write descriptor sets
-        std::array<VkWriteDescriptorSet, 2> writeDescriptorSets{ globalDescriptorsWrite, objectWrite };
+        std::array<VkWriteDescriptorSet, 5> writeDescriptorSets {
+            globalDescriptorsWrite,
+            objectDescriptorsWrite,
+            postProcessingUniformBufferDescriptorsWrite,
+            postProcessingStorageBufferDescriptorsWrite,
+            postProcessingStorageImageDescriptorsWrite
+        };
         vkUpdateDescriptorSets(device->getHandle(), to_u32(writeDescriptorSets.size()), writeDescriptorSets.data(), 0, nullptr);
     }
 
@@ -1565,7 +1859,8 @@ void MainApp::initializeImGui()
 
 void MainApp::resetFrameSinceViewChange()
 {
-    raytracingPushConstant.frameSinceViewChange = -1;
+    raytracingPushConstant.frameSinceViewChange = -1; // TODO remove
+    postProcessPushConstant.frameSinceViewChange = -1;
 }
 
 void MainApp::updateFrameSinceViewChange()
@@ -1576,10 +1871,11 @@ void MainApp::updateFrameSinceViewChange()
         resetFrameSinceViewChange();
         cameraController->getCamera()->resetUpdatedFlag();
     }
-    raytracingPushConstant.frameSinceViewChange += 1;
+    raytracingPushConstant.frameSinceViewChange += 1;// TODO remove
+    postProcessPushConstant.frameSinceViewChange += 1;
 }
 
-void MainApp::createOutputImageAndImageView()
+void MainApp::createOutputAndHistoryImagesAndImageViews()
 {
     VkExtent3D extent{ swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, 1 };
     VkImageSubresourceRange subresourceRange = {};
@@ -1593,10 +1889,18 @@ void MainApp::createOutputImageAndImageView()
     {
         frameData.outputImages[i] = std::make_unique<Image>(*device, swapchain->getProperties().surfaceFormat.format, extent, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
         frameData.outputImageViews[i] = std::make_unique<ImageView>(*(frameData.outputImages[i]), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, frameData.outputImages[i]->getFormat());
-        
+        frameData.historyImages[i] = std::make_unique<Image>(*device, swapchain->getProperties().surfaceFormat.format, extent, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+        frameData.historyImageViews[i] = std::make_unique<ImageView>(*(frameData.historyImages[i]), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, frameData.historyImages[i]->getFormat());
+
+        setDebugUtilsObjectName(device->getHandle(), frameData.outputImages[i]->getHandle(), "outputImage for frame #" + std::to_string(i));
+        setDebugUtilsObjectName(device->getHandle(), frameData.outputImageViews[i]->getHandle(), "outputImageView for frame #" + std::to_string(i));
+        setDebugUtilsObjectName(device->getHandle(), frameData.historyImages[i]->getHandle(), "historyImage for frame #" + std::to_string(i));
+        setDebugUtilsObjectName(device->getHandle(), frameData.historyImageViews[i]->getHandle(), "historyImageView for frame #" + std::to_string(i));
+
         std::unique_ptr<CommandBuffer> commandBuffer = std::make_unique<CommandBuffer>(*frameData.commandPools[currentFrame], VK_COMMAND_BUFFER_LEVEL_PRIMARY);
         commandBuffer->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
         frameData.outputImages[i]->transitionImageLayout(*commandBuffer, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresourceRange);
+        frameData.historyImages[i]->transitionImageLayout(*commandBuffer, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresourceRange);
         commandBuffer->end();
 
         VkSubmitInfo submitInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
@@ -2390,7 +2694,6 @@ void MainApp::createRtShaderBindingTable()
 void MainApp::raytrace(const uint32_t &swapchainImageIndex)
 {
     debugUtilBeginLabel(frameData.commandBuffers[currentFrame]->getHandle(), "Raytrace");
-    updateFrameSinceViewChange();
 
     std::vector<VkDescriptorSet> descSets{
         frameData.rtDescriptorSets[currentFrame]->getHandle(), 

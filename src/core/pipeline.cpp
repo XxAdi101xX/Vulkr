@@ -132,21 +132,20 @@ GraphicsPipeline::GraphicsPipeline(Device &device, PipelineState &pipelineState,
 	depthStencilState.minDepthBounds = pipelineState.getDepthStencilState().minDepthBounds;
 	depthStencilState.maxDepthBounds = pipelineState.getDepthStencilState().maxDepthBounds;
 
-	VkPipelineColorBlendStateCreateInfo color_blend_state{ VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO };
-	color_blend_state.logicOpEnable = pipelineState.getColorBlendState().logicOpEnable;
-	color_blend_state.logicOp = pipelineState.getColorBlendState().logicOp;
-	color_blend_state.attachmentCount = to_u32(pipelineState.getColorBlendState().attachments.size());
+	VkPipelineColorBlendStateCreateInfo colorBlendState{ VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO };
+	colorBlendState.logicOpEnable = pipelineState.getColorBlendState().logicOpEnable;
+	colorBlendState.logicOp = pipelineState.getColorBlendState().logicOp;
+	colorBlendState.attachmentCount = to_u32(pipelineState.getColorBlendState().attachments.size());
 	// This reinterpret_cast works because the structs are layed out the same way
-	color_blend_state.pAttachments = reinterpret_cast<const VkPipelineColorBlendAttachmentState *>(pipelineState.getColorBlendState().attachments.data());
-	color_blend_state.blendConstants[0] = pipelineState.getColorBlendState().blendConstants[0];
-	color_blend_state.blendConstants[1] = pipelineState.getColorBlendState().blendConstants[1];
-	color_blend_state.blendConstants[2] = pipelineState.getColorBlendState().blendConstants[2];
-	color_blend_state.blendConstants[3] = pipelineState.getColorBlendState().blendConstants[3];
+	colorBlendState.pAttachments = reinterpret_cast<const VkPipelineColorBlendAttachmentState *>(pipelineState.getColorBlendState().attachments.data());
+	colorBlendState.blendConstants[0] = pipelineState.getColorBlendState().blendConstants[0];
+	colorBlendState.blendConstants[1] = pipelineState.getColorBlendState().blendConstants[1];
+	colorBlendState.blendConstants[2] = pipelineState.getColorBlendState().blendConstants[2];
+	colorBlendState.blendConstants[3] = pipelineState.getColorBlendState().blendConstants[3];
 
-	// TODO: update this
-	//VkPipelineDynamicStateCreateInfo dynamicState{ VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO };
-	//dynamicState.pDynamicStates = pipelineState.getDyanmicStates().data();
-	//dynamicState.dynamicStateCount = to_u32(pipelineState.getDyanmicStates().size());
+	VkPipelineDynamicStateCreateInfo dynamicState{ VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO };
+	dynamicState.pDynamicStates = pipelineState.getDyanmicStates().data();
+	dynamicState.dynamicStateCount = to_u32(pipelineState.getDyanmicStates().size());
 
 	VkGraphicsPipelineCreateInfo graphicsPipeline{ VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO };
 	graphicsPipeline.stageCount = to_u32(shaderStageCreateInfos.size());
@@ -157,8 +156,8 @@ GraphicsPipeline::GraphicsPipeline(Device &device, PipelineState &pipelineState,
 	graphicsPipeline.pRasterizationState = &rasterizationState;
 	graphicsPipeline.pMultisampleState = &multisampleState;
 	graphicsPipeline.pDepthStencilState = &depthStencilState;
-	graphicsPipeline.pColorBlendState = &color_blend_state;
-	//graphicsPipeline.pDynamicState = &dynamicStates; // TODO: update this when dynamic states are enabled
+	graphicsPipeline.pColorBlendState = &colorBlendState;
+	graphicsPipeline.pDynamicState = &dynamicState;
 
 	graphicsPipeline.layout = pipelineState.getPipelineLayout().getHandle();
 	graphicsPipeline.renderPass = pipelineState.getRenderPass().getHandle();

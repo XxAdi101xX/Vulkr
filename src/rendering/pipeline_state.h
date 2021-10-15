@@ -111,8 +111,8 @@ struct DepthStencilState
 };
 
 /* 
- * @brief After a fragment shader has returned a color, it needs to be combined with the color that is already in the framebuffer.
- * ColorBlendAttachmentState contain the configuration per attached frame buffer
+ * After a fragment shader has returned a color, it needs to be combined with the color that is already in the framebuffer.
+ * ColorBlendAttachmentState contain the configuration per attached framebuffer
  */
 struct ColorBlendAttachmentState
 {
@@ -126,13 +126,13 @@ struct ColorBlendAttachmentState
 	VkColorComponentFlags colorWriteMask{ VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT };
 };
 
-/* Has the same purpose as explained above for ColorBlendAttachmentState but this struct contains the global color belnding setting */
+/* The ColorBlendState contains the global color blending configurations for each framebuffer attached to a pipeline */
 struct ColorBlendState
 {
 	VkBool32 logicOpEnable{ VK_FALSE };
 	VkLogicOp logicOp{ VK_LOGIC_OP_CLEAR };
 	std::vector<ColorBlendAttachmentState> attachments;
-	float blendConstants[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+	float blendConstants[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 };
 
 // TODO: create specialization constant class
@@ -149,7 +149,8 @@ public:
 		RasterizationState rasterizationState,
 		MultisampleState multisampleState,
 		DepthStencilState depthStencilState,
-		ColorBlendState colorBlendState
+		ColorBlendState colorBlendState,
+		std::vector<VkDynamicState> dynamicStates
 	);
 	~PipelineState();
 
@@ -176,7 +177,7 @@ public:
 
 	const ColorBlendState &getColorBlendState() const;
 
-	const std::array<VkDynamicState, 9> &getDyanmicStates() const;
+	const std::vector<VkDynamicState> &getDyanmicStates() const;
 
 	uint32_t getSubpassIndex() const;
 private:
@@ -198,17 +199,7 @@ private:
 
 	ColorBlendState colorBlendState{};
 
-	std::array<VkDynamicState, 9> dynamicStates{
-		VK_DYNAMIC_STATE_VIEWPORT,
-		VK_DYNAMIC_STATE_SCISSOR,
-		VK_DYNAMIC_STATE_LINE_WIDTH,
-		VK_DYNAMIC_STATE_DEPTH_BIAS,
-		VK_DYNAMIC_STATE_BLEND_CONSTANTS,
-		VK_DYNAMIC_STATE_DEPTH_BOUNDS,
-		VK_DYNAMIC_STATE_STENCIL_COMPARE_MASK,
-		VK_DYNAMIC_STATE_STENCIL_WRITE_MASK,
-		VK_DYNAMIC_STATE_STENCIL_REFERENCE
-	};
+	std::vector<VkDynamicState> dynamicStates;
 
 	uint32_t subpassIndex{ 0u }; // TODO do we need this, currently unused
 };

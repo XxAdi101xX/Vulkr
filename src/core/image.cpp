@@ -124,7 +124,8 @@ Image::Image(
 	usageFlags{ imageUsage },
 	arrayLayerCount{ arrayLayers },
 	sampleCount{ sampleCount },
-	tiling{ tiling }
+	tiling{ tiling },
+	layout{ initialLayout }
 {
 	if (mipLevels < 1)
 	{
@@ -238,6 +239,16 @@ void Image::transitionImageLayout(CommandBuffer &commandBuffer, VkImageLayout ol
 	{
 		sourceStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
 		destinationStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+	}
+	else if (oldLayout == VK_IMAGE_LAYOUT_GENERAL && newLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
+	{
+		sourceStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+		destinationStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+	}
+	else if (oldLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL && newLayout == VK_IMAGE_LAYOUT_GENERAL)
+	{
+		sourceStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+		destinationStage = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
 	}
 	else if (oldLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL && newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
 	{
@@ -381,6 +392,8 @@ void Image::transitionImageLayout(CommandBuffer &commandBuffer, VkImageLayout ol
 		0, nullptr,
 		1, &imageMemoryBarrier
 	);
+
+	layout = newLayout;
 }
 
 Device &Image::getDevice() const
@@ -436,6 +449,11 @@ VkImageSubresource Image::getSubresource() const
 uint32_t Image::getArrayLayerCount() const
 {
 	return arrayLayerCount;
+}
+
+VkImageLayout Image::getLayout() const
+{
+	return layout;
 }
 
 } // namespace vulkr

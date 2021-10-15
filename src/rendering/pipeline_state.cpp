@@ -35,7 +35,8 @@ PipelineState::PipelineState(
 	RasterizationState rasterizationState,
 	MultisampleState multisampleState,
 	DepthStencilState depthStencilState,
-	ColorBlendState colorBlendState
+	ColorBlendState colorBlendState,
+	std::vector<VkDynamicState> dynamicStates
 ): 
 	pipelineLayout{ std::move(pipelineLayout)},
 	renderPass{ renderPass },
@@ -45,7 +46,8 @@ PipelineState::PipelineState(
 	rasterizationState{ rasterizationState },
 	multisampleState{ multisampleState },
 	depthStencilState{ depthStencilState },
-	colorBlendState{ colorBlendState }
+	colorBlendState{ colorBlendState },
+	dynamicStates{ dynamicStates }
 {}
 
 PipelineState::~PipelineState()
@@ -98,7 +100,7 @@ const ColorBlendState &PipelineState::getColorBlendState() const
 	return colorBlendState;
 }
 
-const std::array<VkDynamicState, 9>  &PipelineState::getDyanmicStates() const
+const std::vector<VkDynamicState>  &PipelineState::getDyanmicStates() const
 {
 	return dynamicStates;
 }

@@ -95,6 +95,9 @@ public:
 
 	uint32_t getArrayLayerCount() const;
 
+	/* TODO: this value might be incorrect as we've not updated layouts when they're updated by the renderpass initalLayout, finalLayout and the per-subpass transitions as described in the AttachmentRefs*/
+	VkImageLayout getLayout() const;
+
 private:
 	Device &device;
 
@@ -121,6 +124,8 @@ private:
 	VkImageSubresource subresource{};
 
 	uint32_t arrayLayerCount{ 0u };
+
+	VkImageLayout layout{ VK_IMAGE_LAYOUT_UNDEFINED };
 };
 
 } // namespace vulkr
