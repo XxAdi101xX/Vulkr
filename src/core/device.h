@@ -50,14 +50,11 @@ public:
 	/* Get the physical device handle */
 	const PhysicalDevice &getPhysicalDevice() const;
 
-	/* Get a graphics queue with present support if available, else just grab the first available graphics queue */
-	const Queue &getOptimalGraphicsQueue();
+	/* Get the family index of the queue with the desired flags; will return -1 if none exist */
+	const int32_t getQueueFamilyIndexByFlags(VkQueueFlags desiredQueueFlags, bool requiresPresentation) const;
 
-	/* Get a queue with the desired queue flags */
-	const Queue &getQueueByFlags(VkQueueFlags desiredQueueFlags);
-
-	/* Get the first available queue that supports presentation. This is only called when the graphics queue does not support presentation */
-	const Queue &getQueueByPresentation();
+	/* Get the queue for the given family index and queue index*/
+	Queue *getQueue(uint32_t queueFamilyIndex, uint32_t queueIndex);
 
 	/* Get the memory allocator */
 	VmaAllocator getMemoryAllocator() const;
@@ -65,7 +62,7 @@ public:
 	const VkAllocationCallbacks *getAllocationCallbacks() const;
 
 	/* Get the memory type for the specified memoryPropertyFlags */
-	uint32_t getMemoryType(uint32_t memoryTypeBits, VkMemoryPropertyFlags propertieFlags);
+	uint32_t getMemoryType(uint32_t memoryTypeBits, VkMemoryPropertyFlags propertieFlags) const;
 private:
 	/* The logical device handle */
 	VkDevice handle{ VK_NULL_HANDLE };
@@ -92,9 +89,8 @@ private:
 	VmaAllocator memoryAllocator{ VK_NULL_HANDLE };
 
 	/* TODO
-	- Dedicated transfer queue is very under utilized so it can be used to defragment memeory, streaming resources or textures
-	- Add the command pool and the fence pool?
-	- Add a resource cache if necessary
+	 * Dedicated transfer queue is very under utilized so it can be used to defragment memeory, streaming resources or textures
+	 * Add a resource cache if necessary
 	*/
 };
 

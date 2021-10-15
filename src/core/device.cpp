@@ -216,49 +216,26 @@ const PhysicalDevice &Device::getPhysicalDevice() const
 	return *physicalDevice;
 }
 
-const Queue &Device::getOptimalGraphicsQueue()
+const int32_t Device::getQueueFamilyIndexByFlags(VkQueueFlags desiredQueueFlags, bool requiresPresentation) const
 {
 	for (uint32_t queueFamilyIndex = 0u; queueFamilyIndex < queues.size(); ++queueFamilyIndex)
 	{
-		Queue &firstQueueInFamily = queues[queueFamilyIndex][0];
+		const Queue &firstQueueInFamily = queues[queueFamilyIndex][0];
 
-		if (firstQueueInFamily.getProperties().queueCount > 0 && firstQueueInFamily.canSupportPresentation())
+		if (firstQueueInFamily.getProperties().queueCount > 0 &&
+			firstQueueInFamily.supportsQueueFlags(desiredQueueFlags) &&
+			(requiresPresentation ? firstQueueInFamily.canSupportPresentation() : true))
 		{
-			return firstQueueInFamily;
+			return queueFamilyIndex;
 		}
 	}
 
-	return getQueueByFlags(VK_QUEUE_GRAPHICS_BIT);
+	return -1;
 }
 
-const Queue &Device::getQueueByFlags(VkQueueFlags desiredQueueFlags)
+Queue *Device::getQueue(uint32_t queueFamilyIndex, uint32_t queueIndex)
 {
-	for (uint32_t queueFamilyIndex = 0u; queueFamilyIndex < queues.size(); ++queueFamilyIndex)
-	{
-		Queue& firstQueueInFamily = queues[queueFamilyIndex][0];
-
-		if (firstQueueInFamily.getProperties().queueCount > 0 && firstQueueInFamily.supportsQueueFlags(desiredQueueFlags))
-		{
-			return firstQueueInFamily;
-		}
-	}
-
-	LOGEANDABORT("Could not find a queue with the desired queueflags");
-}
-
-const Queue &Device::getQueueByPresentation()
-{
-	for (uint32_t queueFamilyIndex = 0u; queueFamilyIndex < queues.size(); ++queueFamilyIndex)
-	{
-		Queue& firstQueueInFamily = queues[queueFamilyIndex][0];
-
-		if (firstQueueInFamily.getProperties().queueCount > 0 && firstQueueInFamily.canSupportPresentation())
-		{
-			return firstQueueInFamily;
-		}
-	}
-
-	LOGEANDABORT("Could not find a queue with presentation support");
+	return &queues[queueFamilyIndex][queueIndex];
 }
 
 bool Device::isExtensionSupported(const char *extension) const
@@ -289,7 +266,7 @@ const VkAllocationCallbacks *Device::getAllocationCallbacks() const
 	return memoryAllocator->GetAllocationCallbacks();
 }
 
-uint32_t Device::getMemoryType(uint32_t memoryTypeBits, VkMemoryPropertyFlags propertyFlags)
+uint32_t Device::getMemoryType(uint32_t memoryTypeBits, VkMemoryPropertyFlags propertyFlags) const
 {
 	for (uint32_t i = 0; i < physicalDevice->getMemoryProperties().memoryTypeCount; ++i)
 	{

@@ -239,8 +239,9 @@ private:
     std::unique_ptr<Instance> instance{ nullptr };
     VkSurfaceKHR surface{ VK_NULL_HANDLE };
     std::unique_ptr<Device> device{ nullptr };
-    VkQueue graphicsQueue{ VK_NULL_HANDLE };
-    VkQueue presentQueue{ VK_NULL_HANDLE };
+    Queue *graphicsQueue{ VK_NULL_HANDLE };
+    Queue *presentQueue{ VK_NULL_HANDLE };
+    Queue *transferQueue{ VK_NULL_HANDLE }; // TODO: currently unused in code
 
     std::unique_ptr<Swapchain> swapchain{ nullptr };
 

@@ -54,7 +54,9 @@ public:
 		VkSurfaceKHR surface,
 		const VkSurfaceTransformFlagBitsKHR transform,
 		const VkPresentModeKHR presentMode,
-		const std::set<VkImageUsageFlagBits> &imageUsageFlags);
+		const std::set<VkImageUsageFlagBits> &imageUsageFlags,
+		uint32_t graphicsQueueFamilyIndex,
+		uint32_t presentQueueFamilyIndex);
 	~Swapchain();
 
 	Swapchain(const Swapchain &) = delete;
@@ -121,7 +123,7 @@ private:
 		VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR
 	};
 
-	void create();
+	void create(uint32_t graphicsQueueFamilyIndex, uint32_t presentQueueFamilyIndex);
 
 	/* Swapchain properties selection helper functions */
 	uint32_t chooseImageCount(uint32_t minImageCount, uint32_t maxImageCount) const;

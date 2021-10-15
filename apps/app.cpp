@@ -162,15 +162,48 @@ void MainApp::prepare()
     createSurface();
     createDevice();
 
-    graphicsQueue = device->getOptimalGraphicsQueue().getHandle();
+    // For simplicity, we will try to get a queue that supports graphics, transfer and present
+    int32_t desiredQueueFamilyIndex = device->getQueueFamilyIndexByFlags(VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_TRANSFER_BIT, true);
 
-    if (device->getOptimalGraphicsQueue().canSupportPresentation())
+    // TODO: check if ray tracing requires a compute queue, currently it is just using the graphics queue and not checking for compute capabilities
+    if (desiredQueueFamilyIndex >= 0)
     {
-        presentQueue = graphicsQueue;
+        graphicsQueue = device->getQueue(to_u32(desiredQueueFamilyIndex), 0u);
+        presentQueue = device->getQueue(to_u32(desiredQueueFamilyIndex), 0u);
+        transferQueue = device->getQueue(to_u32(desiredQueueFamilyIndex), 0u);
     }
     else
     {
-        presentQueue = device->getQueueByPresentation().getHandle();
+        // TODO: add concurrency with separate transfer queues
+        LOGEANDABORT("TODO: Cases when transfer and graphics queues are not unified are not supported yet");
+
+        // Find a queue that supports graphics and present operations
+        int32_t desiredGraphicsQueueFamilyIndex = device->getQueueFamilyIndexByFlags(VK_QUEUE_GRAPHICS_BIT, true);
+        if (desiredGraphicsQueueFamilyIndex >= 0)
+        {
+            graphicsQueue = device->getQueue(to_u32(desiredGraphicsQueueFamilyIndex), 0u);
+            presentQueue = device->getQueue(to_u32(desiredGraphicsQueueFamilyIndex), 0u);
+        }
+        else
+        {
+            int32_t graphicsQueueFamilyIndex = device->getQueueFamilyIndexByFlags(VK_QUEUE_GRAPHICS_BIT, false);
+            int32_t presentQueueFamilyIndex = device->getQueueFamilyIndexByFlags(0u, true);
+
+            if (graphicsQueueFamilyIndex < 0 || presentQueueFamilyIndex < 0)
+            {
+                LOGEANDABORT("Unable to find a queue that supports graphics and/or presentation")
+            }
+            graphicsQueue = device->getQueue(to_u32(graphicsQueueFamilyIndex), 0u);
+            presentQueue = device->getQueue(to_u32(presentQueueFamilyIndex), 0u);
+        }
+
+        // Find a queue that supports transfer operations
+        int32_t desiredTransferQueueFamilyIndex = device->getQueueFamilyIndexByFlags(VK_QUEUE_TRANSFER_BIT, false);
+        if (desiredTransferQueueFamilyIndex < 0)
+        {
+            LOGEANDABORT("Unable to find a queue that supports transfer operations");
+            transferQueue = device->getQueue(to_u32(desiredTransferQueueFamilyIndex), 0u);
+        }
     }
 
     createSwapchain();
@@ -275,8 +308,8 @@ void MainApp::update()
     imageMemoryBarrier.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT_KHR; // This specifes read access to the color attachment during blending among other things
     imageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     imageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    imageMemoryBarrier.srcQueueFamilyIndex = device->getOptimalGraphicsQueue().getFamilyIndex();
-    imageMemoryBarrier.dstQueueFamilyIndex = device->getOptimalGraphicsQueue().getFamilyIndex();
+    imageMemoryBarrier.srcQueueFamilyIndex = graphicsQueue->getFamilyIndex();
+    imageMemoryBarrier.dstQueueFamilyIndex = graphicsQueue->getFamilyIndex();
     imageMemoryBarrier.image = frameData.outputImages[currentFrame]->getHandle();
     imageMemoryBarrier.subresourceRange = subresourceRange;
 
@@ -308,8 +341,8 @@ void MainApp::update()
     imageMemoryBarrier.dstAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT_KHR;
     imageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     imageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-    imageMemoryBarrier.srcQueueFamilyIndex = device->getOptimalGraphicsQueue().getFamilyIndex();
-    imageMemoryBarrier.dstQueueFamilyIndex = device->getOptimalGraphicsQueue().getFamilyIndex();
+    imageMemoryBarrier.srcQueueFamilyIndex = graphicsQueue->getFamilyIndex();
+    imageMemoryBarrier.dstQueueFamilyIndex = graphicsQueue->getFamilyIndex();
     imageMemoryBarrier.image = frameData.outputImages[currentFrame]->getHandle();
     imageMemoryBarrier.subresourceRange = subresourceRange;
 
@@ -363,7 +396,7 @@ void MainApp::update()
     submitInfo.signalSemaphoreCount = to_u32(signalSemaphores.size());
     submitInfo.pSignalSemaphores = signalSemaphores.data();
 
-    VK_CHECK(vkQueueSubmit(graphicsQueue, 1, &submitInfo, frameData.inFlightFences[currentFrame]));
+    VK_CHECK(vkQueueSubmit(graphicsQueue->getHandle(), 1, &submitInfo, frameData.inFlightFences[currentFrame]));
 
     VkPresentInfoKHR presentInfo{ VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
     presentInfo.waitSemaphoreCount = to_u32(signalSemaphores.size());
@@ -375,7 +408,7 @@ void MainApp::update()
 
     presentInfo.pImageIndices = &swapchainImageIndex;
 
-    result = vkQueuePresentKHR(presentQueue, &presentInfo);
+    result = vkQueuePresentKHR(presentQueue->getHandle(), &presentInfo);
     if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR)
     {
         recreateSwapchain();
@@ -690,7 +723,7 @@ void MainApp::createDevice()
 void MainApp::createSwapchain()
 {
     const std::set<VkImageUsageFlagBits> imageUsageFlags{ VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VK_IMAGE_USAGE_TRANSFER_DST_BIT };
-    swapchain = std::make_unique<Swapchain>(*device, surface, VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR, VK_PRESENT_MODE_FIFO_KHR, imageUsageFlags);
+    swapchain = std::make_unique<Swapchain>(*device, surface, VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR, VK_PRESENT_MODE_FIFO_KHR, imageUsageFlags, graphicsQueue->getFamilyIndex(), presentQueue->getFamilyIndex());
 }
 
 void MainApp::setupCamera()
@@ -1192,7 +1225,7 @@ void MainApp::createCommandPools()
 {
     for (uint32_t i = 0; i < maxFramesInFlight; ++i)
     {
-        frameData.commandPools[i] = std::make_unique<CommandPool>(*device, device->getOptimalGraphicsQueue().getFamilyIndex(), VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT);
+        frameData.commandPools[i] = std::make_unique<CommandPool>(*device, graphicsQueue->getFamilyIndex(), VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT);
         setDebugUtilsObjectName(device->getHandle(), frameData.commandPools[i]->getHandle(), "commandPool for frame #" + std::to_string(i));
     }
 }
@@ -1232,8 +1265,8 @@ void MainApp::copyBufferToImage(const Buffer &srcBuffer, const Image &dstImage, 
     submitInfo.commandBufferCount = 1;
     submitInfo.pCommandBuffers = &commandBuffer->getHandle();
 
-    vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
-    vkQueueWaitIdle(graphicsQueue);
+    vkQueueSubmit(graphicsQueue->getHandle(), 1, &submitInfo, VK_NULL_HANDLE);
+    vkQueueWaitIdle(graphicsQueue->getHandle());
 }
 
 void MainApp::createDepthResources()
@@ -1292,8 +1325,8 @@ std::unique_ptr<Image> MainApp::createTextureImage(const std::string &filename)
     VkSubmitInfo submitInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
     submitInfo.commandBufferCount = 1;
     submitInfo.pCommandBuffers = &commandBuffer->getHandle();
-    vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
-    vkQueueWaitIdle(graphicsQueue);
+    vkQueueSubmit(graphicsQueue->getHandle(), 1, &submitInfo, VK_NULL_HANDLE);
+    vkQueueWaitIdle(graphicsQueue->getHandle());
 
     copyBufferToImage(*stagingBuffer, *textureImage, to_u32(texWidth), to_u32(texHeight));
 
@@ -1304,8 +1337,8 @@ std::unique_ptr<Image> MainApp::createTextureImage(const std::string &filename)
     commandBuffer->end();
 
     // Use the same submit info
-    vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
-    vkQueueWaitIdle(graphicsQueue);
+    vkQueueSubmit(graphicsQueue->getHandle(), 1, &submitInfo, VK_NULL_HANDLE);
+    vkQueueWaitIdle(graphicsQueue->getHandle());
 
     return textureImage;
 }
@@ -1353,8 +1386,8 @@ void MainApp::copyBufferToBuffer(const Buffer &srcBuffer, const Buffer &dstBuffe
     submitInfo.commandBufferCount = 1;
     submitInfo.pCommandBuffers = &commandBuffer->getHandle();
 
-    vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
-    vkQueueWaitIdle(graphicsQueue);
+    vkQueueSubmit(graphicsQueue->getHandle(), 1, &submitInfo, VK_NULL_HANDLE);
+    vkQueueWaitIdle(graphicsQueue->getHandle());
 }
 
 void MainApp::createVertexBuffer(std::shared_ptr<ObjModel> objModel, const ObjLoader &objLoader)
@@ -1847,8 +1880,8 @@ void MainApp::initializeImGui()
     initInfo.Instance = instance->getHandle();
     initInfo.PhysicalDevice = device->getPhysicalDevice().getHandle();
     initInfo.Device = device->getHandle();
-    initInfo.QueueFamily = device->getOptimalGraphicsQueue().getFamilyIndex();
-    initInfo.Queue = graphicsQueue;
+    initInfo.QueueFamily = graphicsQueue->getFamilyIndex();
+    initInfo.Queue = graphicsQueue->getHandle();
     initInfo.PipelineCache = VK_NULL_HANDLE;
     initInfo.DescriptorPool = imguiPool->getHandle();
     initInfo.Subpass = 0u;
@@ -1872,8 +1905,8 @@ void MainApp::initializeImGui()
     submitInfo.commandBufferCount = 1;
     submitInfo.pCommandBuffers = &commandBuffer->getHandle();
 
-    vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
-    vkQueueWaitIdle(graphicsQueue);
+    vkQueueSubmit(graphicsQueue->getHandle(), 1, &submitInfo, VK_NULL_HANDLE);
+    vkQueueWaitIdle(graphicsQueue->getHandle());
 
     // Clear font data on CPU
     ImGui_ImplVulkan_DestroyFontUploadObjects();
@@ -1928,8 +1961,8 @@ void MainApp::createOutputAndHistoryImagesAndImageViews()
         VkSubmitInfo submitInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
         submitInfo.commandBufferCount = 1;
         submitInfo.pCommandBuffers = &commandBuffer->getHandle();
-        vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
-        vkQueueWaitIdle(graphicsQueue);
+        vkQueueSubmit(graphicsQueue->getHandle(), 1, &submitInfo, VK_NULL_HANDLE);
+        vkQueueWaitIdle(graphicsQueue->getHandle());
     }
 }
 
@@ -1992,8 +2025,8 @@ void MainApp::createBottomLevelAS()
         // We could add more geometry in each BLAS, but we add only one for now
         allBlas.emplace_back(blas);
     }
-    // TODO BUILD THE BLASENTRY DIRECTLY RATHER THAN DOING THIS
-    buildBlas(allBlas, VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR);
+    // TODO BUILD THE BLASENTRY DIRECTLY RATHER THAN DOING THIS AND ENABLE COMPACTION
+    buildBlas(allBlas, VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR/* | VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_COMPACTION_BIT_KHR */);
 }
 
 std::unique_ptr<AccelKHR> MainApp::createAcceleration(VkAccelerationStructureCreateInfoKHR &accel)
@@ -2098,7 +2131,7 @@ void MainApp::buildBlas(const std::vector<BlasInput> &input, VkBuildAcceleration
     bool doCompaction = (flags & VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_COMPACTION_BIT_KHR)
         == VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_COMPACTION_BIT_KHR;
 
-    LOGI("Compaction is" + doCompaction ? "true" : "false");
+    LOGD("Acceleration structure compaction is {}", doCompaction ? "enabled" : "disabled");
 
     // Allocate a query pool for storing the needed size for every BLAS compaction.
     VkQueryPoolCreateInfo qpci{ VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO };
@@ -2110,7 +2143,7 @@ void MainApp::buildBlas(const std::vector<BlasInput> &input, VkBuildAcceleration
 
     // Allocate a command pool for queue of given queue index.
     // To avoid timeout, record and submit one command buffer per AS build.
-    CommandPool asCommandPool(*device, device->getOptimalGraphicsQueue().getFamilyIndex(), VK_COMMAND_POOL_CREATE_TRANSIENT_BIT);
+    CommandPool asCommandPool(*device, graphicsQueue->getFamilyIndex(), VK_COMMAND_POOL_CREATE_TRANSIENT_BIT);
     std::vector<std::shared_ptr<CommandBuffer>> allCmdBufs;
     allCmdBufs.reserve(nbBlas);
 
@@ -2163,8 +2196,8 @@ void MainApp::buildBlas(const std::vector<BlasInput> &input, VkBuildAcceleration
     VkSubmitInfo submitInfo = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
     submitInfo.pCommandBuffers = handles.data();
     submitInfo.commandBufferCount = to_u32(handles.size());
-    VK_CHECK(vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE));
-    vkQueueWaitIdle(graphicsQueue);
+    VK_CHECK(vkQueueSubmit(graphicsQueue->getHandle(), 1, &submitInfo, VK_NULL_HANDLE));
+    vkQueueWaitIdle(graphicsQueue->getHandle());
     allCmdBufs.clear();
 
     // Compacting all BLAS
@@ -2182,7 +2215,7 @@ void MainApp::buildBlas(const std::vector<BlasInput> &input, VkBuildAcceleration
         uint32_t                    statTotalOriSize{ 0 }, statTotalCompactSize{ 0 };
         for (uint32_t idx = 0; idx < nbBlas; idx++)
         {
-            // LOGI("Reducing %i, from %d to %d \n", i, originalSizes[i], compactSizes[i]);
+            // LOGD("Reducing %i, from %d to %d \n", i, originalSizes[i], compactSizes[i]);
             statTotalOriSize += (uint32_t)originalSizes[idx];
             statTotalCompactSize += (uint32_t)compactSizes[idx];
 
@@ -2212,10 +2245,10 @@ void MainApp::buildBlas(const std::vector<BlasInput> &input, VkBuildAcceleration
         VkSubmitInfo submitInfo = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
         submitInfo.pCommandBuffers = &cmdBuf->getHandle();
         submitInfo.commandBufferCount = 1u;
-        VK_CHECK(vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE));
-        vkQueueWaitIdle(graphicsQueue);
+        VK_CHECK(vkQueueSubmit(graphicsQueue->getHandle(), 1, &submitInfo, VK_NULL_HANDLE));
+        vkQueueWaitIdle(graphicsQueue->getHandle());
 
-        LOGI(
+        LOGD(
             "RT BLAS: reducing from: %u to: %u = %u (%2.2f%s smaller) \n",
             statTotalOriSize,
             statTotalCompactSize,
@@ -2260,7 +2293,7 @@ void MainApp::buildTlas(
         m_tlas = std::make_unique<Tlas>();
     }
 
-    CommandPool asCommandPool(*device, device->getOptimalGraphicsQueue().getFamilyIndex(), VK_COMMAND_POOL_CREATE_TRANSIENT_BIT);
+    CommandPool asCommandPool(*device, graphicsQueue->getFamilyIndex(), VK_COMMAND_POOL_CREATE_TRANSIENT_BIT);
     std::shared_ptr<CommandBuffer> cmdBuf = std::make_shared<CommandBuffer>(asCommandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
     cmdBuf->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
 
@@ -2385,8 +2418,8 @@ void MainApp::buildTlas(
     VkSubmitInfo submitInfo = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
     submitInfo.pCommandBuffers = &cmdBuf->getHandle();
     submitInfo.commandBufferCount = 1u;
-    VK_CHECK(vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE));
-    vkQueueWaitIdle(graphicsQueue);
+    VK_CHECK(vkQueueSubmit(graphicsQueue->getHandle(), 1, &submitInfo, VK_NULL_HANDLE));
+    vkQueueWaitIdle(graphicsQueue->getHandle());
 }
 
 VkAccelerationStructureInstanceKHR MainApp::instanceToVkGeometryInstanceKHR(const BlasInstance &instance)

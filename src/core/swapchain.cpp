@@ -39,7 +39,9 @@ Swapchain::Swapchain(
     VkSurfaceKHR surface,
     const VkSurfaceTransformFlagBitsKHR transform,
     const VkPresentModeKHR presentMode,
-    const std::set<VkImageUsageFlagBits> &imageUsageFlags):
+    const std::set<VkImageUsageFlagBits> &imageUsageFlags,
+    uint32_t graphicsQueueFamilyIndex,
+    uint32_t presentQueueFamilyIndex):
     device{device}, surface{surface}
 {
     uint32_t surfaceFormatCount{ 0u };
@@ -47,10 +49,10 @@ Swapchain::Swapchain(
     availableSurfaceFormats.resize(surfaceFormatCount);
     VK_CHECK(vkGetPhysicalDeviceSurfaceFormatsKHR(this->device.getPhysicalDevice().getHandle(), surface, &surfaceFormatCount, availableSurfaceFormats.data()));
 
-    LOGD("The following surface formats are available:");
+    LOGI("The following surface formats are available:");
     for (auto& surfaceFormat : availableSurfaceFormats)
     {
-        LOGD("  \t{}", to_string(surfaceFormat));
+        LOGI("  \t{}", to_string(surfaceFormat));
     }
 
     uint32_t presentModeCount{ 0u };
@@ -58,10 +60,10 @@ Swapchain::Swapchain(
     availablePresentModes.resize(presentModeCount);
     VK_CHECK(vkGetPhysicalDeviceSurfacePresentModesKHR(this->device.getPhysicalDevice().getHandle(), surface, &presentModeCount, availablePresentModes.data()));
 
-    LOGD("Surface supports the following present modes:");
+    LOGI("Surface supports the following present modes:");
     for (auto& presentMode : availablePresentModes)
     {
-        LOGD("  \t{}", to_string(presentMode));
+        LOGI("  \t{}", to_string(presentMode));
     }
 
     VkSurfaceCapabilitiesKHR surfaceCapabilities{};
@@ -80,7 +82,7 @@ Swapchain::Swapchain(
     properties.presentMode = choosePresentMode(presentMode);
     properties.clipped = VK_TRUE;
 
-    create();
+    create(graphicsQueueFamilyIndex, presentQueueFamilyIndex);
 }
 
 Swapchain::~Swapchain()
@@ -106,7 +108,7 @@ const std::vector<std::unique_ptr<Image>> &Swapchain::getImages() const
     return images;
 }
 
-void Swapchain::create()
+void Swapchain::create(uint32_t graphicsQueueFamilyIndex, uint32_t presentQueueFamilyIndex)
 {
     VkSwapchainCreateInfoKHR createInfo{ VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR };
     createInfo.surface = surface;
@@ -118,16 +120,16 @@ void Swapchain::create()
     createInfo.imageUsage = properties.imageUsage;
 
     // Check whether our graphics queue can support present and populate info accordingly
-    const Queue &graphicsQueue= device.getOptimalGraphicsQueue();
-    uint32_t queueFamilyIndices[] = { graphicsQueue.getFamilyIndex(), device.getQueueByPresentation().getFamilyIndex() };
+    uint32_t queueFamilyIndices[] = { graphicsQueueFamilyIndex, presentQueueFamilyIndex };
 
-    if (!graphicsQueue.canSupportPresentation())
+    if (graphicsQueueFamilyIndex != presentQueueFamilyIndex)
     {
         createInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
         createInfo.queueFamilyIndexCount = 2u;
         createInfo.pQueueFamilyIndices = queueFamilyIndices;
     }
-    else {
+    else
+    {
         createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
     }
 
@@ -159,11 +161,11 @@ uint32_t Swapchain::chooseImageCount(uint32_t minImageCount, uint32_t maxImageCo
     // We default to 1 more than the minimum as per the suggestions in the vulkan-tutorial
     uint32_t imageCount = minImageCount + 1;
     if (maxImageCount > 0 && imageCount > maxImageCount) {
-        LOGD("An image count of {} was chosen", maxImageCount);
+        LOGI("An image count of {} was chosen", maxImageCount);
         return maxImageCount;
     }
 
-    LOGD("An image count of {} was chosen", imageCount);
+    LOGI("An image count of {} was chosen", imageCount);
     return imageCount;
 }
 
@@ -257,16 +259,15 @@ VkImageUsageFlags Swapchain::chooseImageUsage(
 
 	if (imageUsageFlagSet.empty())
 	{
-		throw std::runtime_error("No compatible image usage found.");
+		LOGEANDABORT("No compatible image usage found.");
 	}
 
-    // Log image usage flags used
     std::string imageUsageList;
     for (VkImageUsageFlagBits imageUsage : imageUsageFlagSet)
     {
-        imageUsageList += to_string(imageUsage) + " ";
+        imageUsageList += to_string(imageUsage) + " | ";
     }
-    LOGI("(Swapchain) Image usage flags: {}", imageUsageList);
+    LOGI("Swapchain image usage flags: {}", imageUsageList);
 
 	VkImageUsageFlags imageUsage{};
 	for (auto flag : imageUsageFlagSet)

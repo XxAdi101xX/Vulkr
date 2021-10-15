@@ -58,7 +58,7 @@ void Application::step()
 void Application::finish()
 {
 	double executionTime = timer.stop();
-	LOGD("Closing application (Runtime: {:.1f} seconds)", executionTime);
+	LOGI("Closing application (Runtime: {:.1f} seconds)", executionTime);
 }
 
 void Application::recreateSwapchain()
