@@ -78,6 +78,7 @@ VkCommandPool CommandPool::getHandle() const
 	return handle;
 }
 
+// TODO: currently unused, maybe should be used in the code base
 std::shared_ptr<CommandBuffer> CommandPool::requestCommandBuffer(VkCommandBufferLevel level)
 {
 	if (level == VK_COMMAND_BUFFER_LEVEL_PRIMARY)

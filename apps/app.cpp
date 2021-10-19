@@ -92,7 +92,10 @@ void MainApp::cleanupSwapchain()
 {
     for (uint32_t i = 0; i < maxFramesInFlight; ++i)
     {
-        frameData.commandBuffers[i].reset();
+        for (uint32_t j = 0; j < commandBufferCountForFrame; ++j)
+        {
+            frameData.commandBuffers[i][j].reset();
+        }
     }
 
     depthImage.reset();
@@ -101,7 +104,7 @@ void MainApp::cleanupSwapchain()
     for (uint32_t i = 0; i < maxFramesInFlight; ++i)
     {
         frameData.offscreenFramebuffers[i].reset();
-        frameData.postProcessingFramebuffers[i].reset();
+        frameData.postProcessFramebuffers[i].reset();
     }
 
     for (auto &it : pipelineDataMap)
@@ -247,8 +250,11 @@ void MainApp::update()
     fencePool->wait(&frameData.inFlightFences[currentFrame]);
     fencePool->reset(&frameData.inFlightFences[currentFrame]);
 
-    //now that we are sure that the commands finished executing, we can safely reset the command buffer to begin recording again.
-    frameData.commandBuffers[currentFrame]->reset();
+    // Now that we are sure that the commands finished executing, we can safely reset the command buffers for the frame to begin recording again
+    for (uint32_t i = 0; i < commandBufferCountForFrame; ++i)
+    {
+        frameData.commandBuffers[currentFrame][i]->reset();
+    }
 
     uint32_t swapchainImageIndex;
     VkResult result = vkAcquireNextImageKHR(device->getHandle(), swapchain->getHandle(), std::numeric_limits<uint64_t>::max(), frameData.imageAvailableSemaphores[currentFrame], VK_NULL_HANDLE, &swapchainImageIndex);
@@ -269,17 +275,13 @@ void MainApp::update()
     }
     imagesInFlight[swapchainImageIndex] = frameData.inFlightFences[currentFrame];
 
-    std::vector<VkClearValue> clearValues;
-    clearValues.resize(2);
-    clearValues[0].color = { 1.0f, 1.0f, 1.0f, 1.0f };
-    clearValues[1].depthStencil = { 1.0f, 0u };
-
-    // Begin command buffer for main frame processing
-    frameData.commandBuffers[currentFrame]->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
-
     updateBuffersPerFrame();
     updateFrameSinceViewChange();
     drawImGuiInterface();
+
+    // Begin command buffer for offscreen pass
+    frameData.commandBuffers[currentFrame][0]->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
+
     // Main offscreen pass
     if (raytracingEnabled)
     {
@@ -287,13 +289,68 @@ void MainApp::update()
     }
     else
     {
-        frameData.commandBuffers[currentFrame]->beginRenderPass(*mainRenderPass.renderPass, *(frameData.offscreenFramebuffers[currentFrame]), swapchain->getProperties().imageExtent, clearValues, VK_SUBPASS_CONTENTS_INLINE);
+        frameData.commandBuffers[currentFrame][0]->beginRenderPass(*mainRenderPass.renderPass, *(frameData.offscreenFramebuffers[currentFrame]), swapchain->getProperties().imageExtent, offscreenFramebufferClearValues, VK_SUBPASS_CONTENTS_INLINE);
         rasterize();
-        frameData.commandBuffers[currentFrame]->endRenderPass();
+        frameData.commandBuffers[currentFrame][0]->endRenderPass();
     }
 
-    // Wait on primary pass to complete before postProcess pass
-    // TODO: this assumes that isUnifiedGraphicsAndTransferQueue is true
+    // End command buffer for offscreen pass
+    frameData.commandBuffers[currentFrame][0]->end();
+
+    // I have setup a subpass dependency to ensure that the render pass waits for the swapchain to finish reading from the image before accessing it
+    // hence I don't need to set the wait stages to VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT 
+    std::array<VkPipelineStageFlags, 1> offscreenWaitStages{ VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
+    std::array<VkSemaphore, 1> offscreenWaitSemaphores{ frameData.imageAvailableSemaphores[currentFrame] };
+    std::array<VkSemaphore, 1> offscreenSignalSemaphores{ frameData.offscreenRenderingFinishedSemaphores[currentFrame] };
+
+    VkSubmitInfo offscreenPassSubmitInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
+    offscreenPassSubmitInfo.waitSemaphoreCount = to_u32(offscreenWaitSemaphores.size());
+    offscreenPassSubmitInfo.pWaitSemaphores = offscreenWaitSemaphores.data();
+    offscreenPassSubmitInfo.pWaitDstStageMask = offscreenWaitStages.data();
+    offscreenPassSubmitInfo.commandBufferCount = 1;
+    offscreenPassSubmitInfo.pCommandBuffers = &frameData.commandBuffers[currentFrame][0]->getHandle();
+    offscreenPassSubmitInfo.signalSemaphoreCount = to_u32(offscreenSignalSemaphores.size());
+    offscreenPassSubmitInfo.pSignalSemaphores = offscreenSignalSemaphores.data();
+
+    //VK_CHECK(vkQueueSubmit(graphicsQueue->getHandle(), 1, &offscreenPassSubmitInfo, frameData.inFlightFences[currentFrame]));
+
+    // Begin command buffer for post process pass
+    frameData.commandBuffers[currentFrame][1]->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
+
+    // Post offscreen renderpass
+    frameData.commandBuffers[currentFrame][1]->beginRenderPass(*postRenderPass.renderPass, *(frameData.postProcessFramebuffers[currentFrame]), swapchain->getProperties().imageExtent, postProcessFramebufferClearValues, VK_SUBPASS_CONTENTS_INLINE);
+    if (temporalAntiAliasingEnabled)
+    {
+        drawPost();
+    }
+    ImGui::Render();
+    ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), frameData.commandBuffers[currentFrame][1]->getHandle());
+    frameData.commandBuffers[currentFrame][1]->endRenderPass();
+
+    // End command buffer for post process pass
+    frameData.commandBuffers[currentFrame][1]->end();
+
+    // Wait on postProcess pass to complete before copy operations
+    // I have setup a subpass dependency to ensure that the render pass waits for the swapchain to finish reading from the image before accessing it
+    // hence I don't need to set the wait stages to VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT 
+    std::array<VkPipelineStageFlags, 1> postProcessWaitStages{ VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
+    std::array<VkSemaphore, 1> postProcessWaitSemaphores{ frameData.offscreenRenderingFinishedSemaphores[currentFrame] };
+    std::array<VkSemaphore, 1> postProcessSignalSemaphores{ frameData.postProcessRenderingFinishedSemaphores[currentFrame] };
+
+    VkSubmitInfo postProcessSubmitInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
+    postProcessSubmitInfo.waitSemaphoreCount = to_u32(postProcessWaitSemaphores.size());
+    postProcessSubmitInfo.pWaitSemaphores = postProcessWaitSemaphores.data();
+    postProcessSubmitInfo.pWaitDstStageMask = postProcessWaitStages.data();
+    postProcessSubmitInfo.commandBufferCount = 1;
+    postProcessSubmitInfo.pCommandBuffers = &frameData.commandBuffers[currentFrame][1]->getHandle();
+    postProcessSubmitInfo.signalSemaphoreCount = to_u32(postProcessSignalSemaphores.size());
+    postProcessSubmitInfo.pSignalSemaphores = postProcessSignalSemaphores.data();
+
+    //VK_CHECK(vkQueueSubmit(graphicsQueue->getHandle(), 1, &postProcessSubmitInfo, frameData.inFlightFences[currentFrame]));
+
+    // Begin command buffer for outputImage copy operations to swapchain and history buffer
+    frameData.commandBuffers[currentFrame][2]->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
+
     VkImageSubresourceRange subresourceRange = {};
     subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     subresourceRange.baseMipLevel = 0;
@@ -301,63 +358,9 @@ void MainApp::update()
     subresourceRange.baseArrayLayer = 0;
     subresourceRange.layerCount = 1;
 
-    VkImageMemoryBarrier2KHR imageMemoryBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2_KHR };
-    imageMemoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR;
-    imageMemoryBarrier.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT_KHR;
-    imageMemoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR;
-    imageMemoryBarrier.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT_KHR; // This specifes read access to the color attachment during blending among other things
-    imageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    imageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    imageMemoryBarrier.srcQueueFamilyIndex = graphicsQueue->getFamilyIndex();
-    imageMemoryBarrier.dstQueueFamilyIndex = graphicsQueue->getFamilyIndex();
-    imageMemoryBarrier.image = frameData.outputImages[currentFrame]->getHandle();
-    imageMemoryBarrier.subresourceRange = subresourceRange;
-
-    VkDependencyInfoKHR dependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO_KHR };
-    dependencyInfo.dependencyFlags = 0;
-    dependencyInfo.memoryBarrierCount = 0;
-    dependencyInfo.bufferMemoryBarrierCount = 0;
-    dependencyInfo.imageMemoryBarrierCount = 1;
-    dependencyInfo.pImageMemoryBarriers = &imageMemoryBarrier;
-
-    // TODO: enable this!! This code is wrong without it
-    //vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame]->getHandle(), &dependencyInfo);
-
-    // Post offscreen renderpass
-    frameData.commandBuffers[currentFrame]->beginRenderPass(*postRenderPass.renderPass, *(frameData.postProcessingFramebuffers[currentFrame]), swapchain->getProperties().imageExtent, clearValues, VK_SUBPASS_CONTENTS_INLINE);
-    if (temporalAntiAliasingEnabled)
-    {
-        drawPost();
-    }
-    ImGui::Render();
-    ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), frameData.commandBuffers[currentFrame]->getHandle());
-    frameData.commandBuffers[currentFrame]->endRenderPass();
-
-    // Wait on postProcess pass to complete before copy operations
-    // TODO: this assumes that isUnifiedGraphicsAndTransferQueue is true
-    imageMemoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR;
-    imageMemoryBarrier.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT_KHR;
-    imageMemoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT_KHR;
-    imageMemoryBarrier.dstAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT_KHR;
-    imageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    imageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-    imageMemoryBarrier.srcQueueFamilyIndex = graphicsQueue->getFamilyIndex();
-    imageMemoryBarrier.dstQueueFamilyIndex = graphicsQueue->getFamilyIndex();
-    imageMemoryBarrier.image = frameData.outputImages[currentFrame]->getHandle();
-    imageMemoryBarrier.subresourceRange = subresourceRange;
-
-    dependencyInfo.dependencyFlags = 0;
-    dependencyInfo.memoryBarrierCount = 0;
-    dependencyInfo.bufferMemoryBarrierCount = 0;
-    dependencyInfo.imageMemoryBarrierCount = 1;
-    dependencyInfo.pImageMemoryBarriers = &imageMemoryBarrier;
-
-    // TODO: enable this!! This code is wrong without it
-    //vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame]->getHandle(), &dependencyInfo);
-
     // Prepare the current swapchain image and history buffer as transfer destinations
-    swapchain->getImages()[swapchainImageIndex]->transitionImageLayout(*frameData.commandBuffers[currentFrame], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, subresourceRange);
-    frameData.historyImages[currentFrame]->transitionImageLayout(*frameData.commandBuffers[currentFrame], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, subresourceRange);
+    swapchain->getImages()[swapchainImageIndex]->transitionImageLayout(*frameData.commandBuffers[currentFrame][2], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, subresourceRange);
+    frameData.historyImages[currentFrame]->transitionImageLayout(*frameData.commandBuffers[currentFrame][2], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, subresourceRange);
     // Note that the layout of the outputImage has been transitioned from VK_IMAGE_LAYOUT_GENERAL to VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL as defined in the postProcessingRenderPass configuration
 
     VkImageCopy copyRegion{};
@@ -368,39 +371,39 @@ void MainApp::update()
     copyRegion.extent = { swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, 1 };
 
     // Copy output image to swapchain image and history image (note that they can execute in any order due to lack of barriers)
-    vkCmdCopyImage(frameData.commandBuffers[currentFrame]->getHandle(), frameData.outputImages[currentFrame]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swapchain->getImages()[swapchainImageIndex]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
-    vkCmdCopyImage(frameData.commandBuffers[currentFrame]->getHandle(), frameData.outputImages[currentFrame]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, frameData.historyImages[currentFrame]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
+    vkCmdCopyImage(frameData.commandBuffers[currentFrame][2]->getHandle(), frameData.outputImages[currentFrame]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swapchain->getImages()[swapchainImageIndex]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
+    vkCmdCopyImage(frameData.commandBuffers[currentFrame][2]->getHandle(), frameData.outputImages[currentFrame]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, frameData.historyImages[currentFrame]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
 
     // Transition the current swapchain image back for presentation
-    swapchain->getImages()[swapchainImageIndex]->transitionImageLayout(*frameData.commandBuffers[currentFrame], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, subresourceRange);
+    swapchain->getImages()[swapchainImageIndex]->transitionImageLayout(*frameData.commandBuffers[currentFrame][2], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, subresourceRange);
     // Transition the history image for general purpose operations
-    frameData.historyImages[currentFrame]->transitionImageLayout(*frameData.commandBuffers[currentFrame], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL, subresourceRange);
+    frameData.historyImages[currentFrame]->transitionImageLayout(*frameData.commandBuffers[currentFrame][2], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL, subresourceRange);
     // Transition the output image back to the general layout
-    frameData.outputImages[currentFrame]->transitionImageLayout(*frameData.commandBuffers[currentFrame], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL, subresourceRange);
+    frameData.outputImages[currentFrame]->transitionImageLayout(*frameData.commandBuffers[currentFrame][2], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL, subresourceRange);
 
-    // End command buffer for main frame processing
-    frameData.commandBuffers[currentFrame]->end();
+    // End command buffer for copy operations
+    frameData.commandBuffers[currentFrame][2]->end();
 
-    // I have setup a subpass dependency to ensure that the render pass waits for the swapchain to finish reading from the image before accessing it
-    // hence I don't need to set the wait stages to VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT 
-    std::array<VkPipelineStageFlags, 1> waitStages{ VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
-    std::array<VkSemaphore, 1> waitSemaphores{ frameData.imageAvailableSemaphores[currentFrame] };
-    std::array<VkSemaphore, 1> signalSemaphores{ frameData.renderingFinishedSemaphores[currentFrame] };
+    std::array<VkPipelineStageFlags, 1> outputImageTransferWaitStages{ VK_PIPELINE_STAGE_TRANSFER_BIT };
+    std::array<VkSemaphore, 1> outputImageTransferWaitSemaphores{ frameData.postProcessRenderingFinishedSemaphores[currentFrame] };
+    std::array<VkSemaphore, 1> outputImageTransferSignalSemaphores{ frameData.outputImageCopyFinishedSemaphores[currentFrame] };
 
-    VkSubmitInfo submitInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
-    submitInfo.waitSemaphoreCount = to_u32(waitSemaphores.size());
-    submitInfo.pWaitSemaphores = waitSemaphores.data();
-    submitInfo.pWaitDstStageMask = waitStages.data();
-    submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &frameData.commandBuffers[currentFrame]->getHandle();
-    submitInfo.signalSemaphoreCount = to_u32(signalSemaphores.size());
-    submitInfo.pSignalSemaphores = signalSemaphores.data();
+    VkSubmitInfo outputImageTransferSubmitInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
+    outputImageTransferSubmitInfo.waitSemaphoreCount = to_u32(outputImageTransferWaitSemaphores.size());
+    outputImageTransferSubmitInfo.pWaitSemaphores = outputImageTransferWaitSemaphores.data();
+    outputImageTransferSubmitInfo.pWaitDstStageMask = outputImageTransferWaitStages.data();
+    outputImageTransferSubmitInfo.commandBufferCount = 1;
+    outputImageTransferSubmitInfo.pCommandBuffers = &frameData.commandBuffers[currentFrame][2]->getHandle();
+    outputImageTransferSubmitInfo.signalSemaphoreCount = to_u32(outputImageTransferSignalSemaphores.size());
+    outputImageTransferSubmitInfo.pSignalSemaphores = outputImageTransferSignalSemaphores.data();
 
-    VK_CHECK(vkQueueSubmit(graphicsQueue->getHandle(), 1, &submitInfo, frameData.inFlightFences[currentFrame]));
+    std::array<VkSubmitInfo, 3> submitInfo{ offscreenPassSubmitInfo, postProcessSubmitInfo, outputImageTransferSubmitInfo };
+    VK_CHECK(vkQueueSubmit(graphicsQueue->getHandle(), submitInfo.size(), submitInfo.data(), frameData.inFlightFences[currentFrame]));
+    //VK_CHECK(vkQueueSubmit(graphicsQueue->getHandle(), 1, &outputImageTransferSubmitInfo, frameData.inFlightFences[currentFrame]));
 
     VkPresentInfoKHR presentInfo{ VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
-    presentInfo.waitSemaphoreCount = to_u32(signalSemaphores.size());
-    presentInfo.pWaitSemaphores = signalSemaphores.data();
+    presentInfo.waitSemaphoreCount = to_u32(outputImageTransferSignalSemaphores.size());
+    presentInfo.pWaitSemaphores = outputImageTransferSignalSemaphores.data();
 
     std::array<VkSwapchainKHR, 1> swapchains{ swapchain->getHandle() };
     presentInfo.swapchainCount = to_u32(swapchains.size());
@@ -590,7 +593,7 @@ void MainApp::updateBuffersPerFrame()
 // decriptors altogether
 void MainApp::rasterize()
 {
-    debugUtilBeginLabel(frameData.commandBuffers[currentFrame]->getHandle(), "Rasterize");
+    debugUtilBeginLabel(frameData.commandBuffers[currentFrame][0]->getHandle(), "Rasterize");
     // Draw renderables
     std::shared_ptr<ObjModel> lastObjModel = nullptr;
     std::shared_ptr<PipelineData> lastPipeline = nullptr;
@@ -602,20 +605,20 @@ void MainApp::rasterize()
         if (object.pipelineData != lastPipeline)
         {
 
-            vkCmdBindPipeline(frameData.commandBuffers[currentFrame]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, object.pipelineData->pipeline->getHandle());
+            vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, object.pipelineData->pipeline->getHandle());
             lastPipeline = object.pipelineData;
 
             // Global data descriptor
-            vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, object.pipelineData->pipelineState->getPipelineLayout().getHandle(), 0, 1, &frameData.globalDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
+            vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, object.pipelineData->pipelineState->getPipelineLayout().getHandle(), 0, 1, &frameData.globalDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
 
             // Object data descriptor
-            vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, object.pipelineData->pipelineState->getPipelineLayout().getHandle(), 1, 1, &frameData.objectDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
+            vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, object.pipelineData->pipelineState->getPipelineLayout().getHandle(), 1, 1, &frameData.objectDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
 
             if (object.pipelineData == getPipelineData("texturedmesh"))
             {
                 // TODO we only need to bind this once so we should move it out of this method
                 // Texture descriptor
-                vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, object.pipelineData->pipelineState->getPipelineLayout().getHandle(), 2, 1, &textureDescriptorSet->getHandle(), 0, nullptr);
+                vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, object.pipelineData->pipelineState->getPipelineLayout().getHandle(), 2, 1, &textureDescriptorSet->getHandle(), 0, nullptr);
 
             }
         }
@@ -625,40 +628,40 @@ void MainApp::rasterize()
         {
             VkBuffer vertexBuffers[] = { object.objModel->vertexBuffer->getHandle() };
             VkDeviceSize offsets[] = { 0 };
-            vkCmdBindVertexBuffers(frameData.commandBuffers[currentFrame]->getHandle(), 0, 1, vertexBuffers, offsets);
-            vkCmdBindIndexBuffer(frameData.commandBuffers[currentFrame]->getHandle(), object.objModel->indexBuffer->getHandle(), 0, VK_INDEX_TYPE_UINT32);
+            vkCmdBindVertexBuffers(frameData.commandBuffers[currentFrame][0]->getHandle(), 0, 1, vertexBuffers, offsets);
+            vkCmdBindIndexBuffer(frameData.commandBuffers[currentFrame][0]->getHandle(), object.objModel->indexBuffer->getHandle(), 0, VK_INDEX_TYPE_UINT32);
 
             lastObjModel = object.objModel;
         }
 
-        vkCmdPushConstants(frameData.commandBuffers[currentFrame]->getHandle(), object.pipelineData->pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(RasterizationPushConstant), &rasterizationPushConstant);
-        vkCmdDrawIndexed(frameData.commandBuffers[currentFrame]->getHandle(), to_u32(object.objModel->indicesCount), 1, 0, 0, index);
+        vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), object.pipelineData->pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(RasterizationPushConstant), &rasterizationPushConstant);
+        vkCmdDrawIndexed(frameData.commandBuffers[currentFrame][0]->getHandle(), to_u32(object.objModel->indicesCount), 1, 0, 0, index);
     }
     
-    debugUtilEndLabel(frameData.commandBuffers[currentFrame]->getHandle());
+    debugUtilEndLabel(frameData.commandBuffers[currentFrame][0]->getHandle());
 }
 
 void MainApp::drawPost()
 {
-    debugUtilBeginLabel(frameData.commandBuffers[currentFrame]->getHandle(), "Post");
+    debugUtilBeginLabel(frameData.commandBuffers[currentFrame][1]->getHandle(), "Post");
     // Draw renderables
     std::shared_ptr<ObjModel> lastObjModel = nullptr;
     for (int index = 0; index < renderables.size(); index++)
     {
         RenderObject object = renderables[index];
 
-        vkCmdBindPipeline(frameData.commandBuffers[currentFrame]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, getPipelineData("postprocess")->pipeline->getHandle());
+        vkCmdBindPipeline(frameData.commandBuffers[currentFrame][1]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, getPipelineData("postprocess")->pipeline->getHandle());
 
         // Post processing descriptor
-        vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, getPipelineData("postprocess")->pipelineState->getPipelineLayout().getHandle(), 0, 1, &frameData.postProcessingDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
+        vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][1]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, getPipelineData("postprocess")->pipelineState->getPipelineLayout().getHandle(), 0, 1, &frameData.postProcessingDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
 
         // Bind the objModel if it's a different one from last one
         if (object.objModel != lastObjModel)
         {
             VkBuffer vertexBuffers[] = { object.objModel->vertexBuffer->getHandle() };
             VkDeviceSize offsets[] = { 0 };
-            vkCmdBindVertexBuffers(frameData.commandBuffers[currentFrame]->getHandle(), 0, 1, vertexBuffers, offsets);
-            vkCmdBindIndexBuffer(frameData.commandBuffers[currentFrame]->getHandle(), object.objModel->indexBuffer->getHandle(), 0, VK_INDEX_TYPE_UINT32);
+            vkCmdBindVertexBuffers(frameData.commandBuffers[currentFrame][1]->getHandle(), 0, 1, vertexBuffers, offsets);
+            vkCmdBindIndexBuffer(frameData.commandBuffers[currentFrame][1]->getHandle(), object.objModel->indexBuffer->getHandle(), 0, VK_INDEX_TYPE_UINT32);
 
             lastObjModel = object.objModel;
         }
@@ -675,12 +678,12 @@ void MainApp::drawPost()
         }
 
         float blendConstants[4] = { blendFactor, blendFactor, blendFactor, blendFactor };
-        vkCmdSetBlendConstants(frameData.commandBuffers[currentFrame]->getHandle(), blendConstants);
-        vkCmdPushConstants(frameData.commandBuffers[currentFrame]->getHandle(), getPipelineData("postprocess")->pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PostProcessPushConstant), &postProcessPushConstant);
-        vkCmdDrawIndexed(frameData.commandBuffers[currentFrame]->getHandle(), to_u32(object.objModel->indicesCount), 1, 0, 0, index);
+        vkCmdSetBlendConstants(frameData.commandBuffers[currentFrame][1]->getHandle(), blendConstants);
+        vkCmdPushConstants(frameData.commandBuffers[currentFrame][1]->getHandle(), getPipelineData("postprocess")->pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PostProcessPushConstant), &postProcessPushConstant);
+        vkCmdDrawIndexed(frameData.commandBuffers[currentFrame][1]->getHandle(), to_u32(object.objModel->indicesCount), 1, 0, 0, index);
     }
 
-    debugUtilEndLabel(frameData.commandBuffers[currentFrame]->getHandle());
+    debugUtilEndLabel(frameData.commandBuffers[currentFrame][1]->getHandle());
 }
 
 void MainApp::setupTimer()
@@ -781,8 +784,9 @@ void MainApp::createMainRenderPass()
     );
 
     std::vector<VkSubpassDependency> dependencies;
-    dependencies.resize(1);
+    dependencies.resize(2);
 
+    // TODO: verify these subpass dependencies are correct
     // Only need a dependency coming in to ensure that the first layout transition happens at the right time.
     // Second external dependency is implied by having a different finalLayout and subpass layout.
     dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
@@ -791,6 +795,15 @@ void MainApp::createMainRenderPass()
     dependencies[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
     dependencies[0].srcAccessMask = 0; // We don't have anything that we need to flush
     dependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    dependencies[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+
+    dependencies[1].srcSubpass = 0;
+    dependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
+    dependencies[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    dependencies[1].dstStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+    dependencies[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    dependencies[1].dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
+    dependencies[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
 
     // Normally, we would need an external dependency at the end as well since we are changing layout in finalLayout,
     // but since we are signalling a semaphore, we can rely on Vulkan's default behavior,
@@ -845,8 +858,9 @@ void MainApp::createPostRenderPass()
     );
 
     std::vector<VkSubpassDependency> dependencies;
-    dependencies.resize(1);
+    dependencies.resize(2);
 
+    // TODO: verify these subpass dependencies are correct
     // Only need a dependency coming in to ensure that the first layout transition happens at the right time.
     // Second external dependency is implied by having a different finalLayout and subpass layout.
     dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
@@ -854,7 +868,16 @@ void MainApp::createPostRenderPass()
     dependencies[0].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
     dependencies[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
     dependencies[0].srcAccessMask = 0; // We don't have anything that we need to flush
-    dependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    dependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    dependencies[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+
+    dependencies[1].srcSubpass = 0;
+    dependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
+    dependencies[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    dependencies[1].dstStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+    dependencies[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    dependencies[1].dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
+    dependencies[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
 
     // Normally, we would need an external dependency at the end as well since we are changing layout in finalLayout,
     // but since we are signalling a semaphore, we can rely on Vulkan's default behavior,
@@ -1216,9 +1239,18 @@ void MainApp::createFramebuffers()
         setDebugUtilsObjectName(device->getHandle(), frameData.offscreenFramebuffers[i]->getHandle(), "outputImageFramebuffer for frame #" + std::to_string(i));
 
         std::vector<VkImageView> postProcessingAttachments{ frameData.outputImageViews[i]->getHandle(), depthImageView->getHandle() };
-        frameData.postProcessingFramebuffers[i] = std::make_unique<Framebuffer>(*device, *swapchain, *postRenderPass.renderPass, postProcessingAttachments);
-        setDebugUtilsObjectName(device->getHandle(), frameData.postProcessingFramebuffers[i]->getHandle(), "postProcessingFramebuffer for frame #" + std::to_string(i));
+        frameData.postProcessFramebuffers[i] = std::make_unique<Framebuffer>(*device, *swapchain, *postRenderPass.renderPass, postProcessingAttachments);
+        setDebugUtilsObjectName(device->getHandle(), frameData.postProcessFramebuffers[i]->getHandle(), "postProcessingFramebuffer for frame #" + std::to_string(i));
     }
+
+    // Set clear values
+    offscreenFramebufferClearValues.resize(2);
+    offscreenFramebufferClearValues[0].color = { 1.0f, 1.0f, 1.0f, 1.0f };
+    offscreenFramebufferClearValues[1].depthStencil = { 1.0f, 0u };
+
+    postProcessFramebufferClearValues.resize(2);
+    postProcessFramebufferClearValues[0].color = { 1.0f, 1.0f, 1.0f, 1.0f };
+    postProcessFramebufferClearValues[1].depthStencil = { 1.0f, 0u };
 }
 
 void MainApp::createCommandPools()
@@ -1232,14 +1264,21 @@ void MainApp::createCommandPools()
 
 void MainApp::createCommandBuffers()
 {
+    if (commandBufferCountForFrame != 3) LOGEANDABORT("commandBufferCountForFrame should be 3");
+
     for (uint32_t i = 0; i < maxFramesInFlight; ++i)
     {
-        frameData.commandBuffers[i] = std::make_unique<CommandBuffer>(*frameData.commandPools[i], VK_COMMAND_BUFFER_LEVEL_PRIMARY);
-        setDebugUtilsObjectName(device->getHandle(), frameData.commandBuffers[i]->getHandle(), "commandBuffer for frame #" + std::to_string(i));
+        frameData.commandBuffers[i][0] = std::make_unique<CommandBuffer>(*frameData.commandPools[i], VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+        setDebugUtilsObjectName(device->getHandle(), frameData.commandBuffers[i][0]->getHandle(), "offscreen commandBuffer for frame #" + std::to_string(i));
+
+        frameData.commandBuffers[i][1] = std::make_unique<CommandBuffer>(*frameData.commandPools[i], VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+        setDebugUtilsObjectName(device->getHandle(), frameData.commandBuffers[i][1]->getHandle(), "post-process commandBuffer for frame #" + std::to_string(i));
+
+        frameData.commandBuffers[i][2] = std::make_unique<CommandBuffer>(*frameData.commandPools[i], VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+        setDebugUtilsObjectName(device->getHandle(), frameData.commandBuffers[i][2]->getHandle(), "image transfer commandBuffer for frame #" + std::to_string(i));
     }
 }
 
-// TODO create a new command pool and allocate the command buffer using requestCommandBuffer
 void MainApp::copyBufferToImage(const Buffer &srcBuffer, const Image &dstImage, uint32_t width, uint32_t height)
 {
     std::unique_ptr<CommandBuffer> commandBuffer = std::make_unique<CommandBuffer>(*frameData.commandPools[currentFrame], VK_COMMAND_BUFFER_LEVEL_PRIMARY);
@@ -1723,7 +1762,9 @@ void MainApp::setupSynchronizationObjects()
 
     for (size_t i = 0; i < maxFramesInFlight; ++i) {
         frameData.imageAvailableSemaphores[i] = semaphorePool->requestSemaphore();
-        frameData.renderingFinishedSemaphores[i] = semaphorePool->requestSemaphore();
+        frameData.offscreenRenderingFinishedSemaphores[i] = semaphorePool->requestSemaphore();
+        frameData.postProcessRenderingFinishedSemaphores[i] = semaphorePool->requestSemaphore();
+        frameData.outputImageCopyFinishedSemaphores[i] = semaphorePool->requestSemaphore();
         frameData.inFlightFences[i] = fencePool->requestFence();
     }
 }
@@ -2745,7 +2786,7 @@ void MainApp::createRtShaderBindingTable()
 //
 void MainApp::raytrace(const uint32_t &swapchainImageIndex)
 {
-    debugUtilBeginLabel(frameData.commandBuffers[currentFrame]->getHandle(), "Raytrace");
+    debugUtilBeginLabel(frameData.commandBuffers[currentFrame][0]->getHandle(), "Raytrace");
 
     std::vector<VkDescriptorSet> descSets{
         frameData.rtDescriptorSets[currentFrame]->getHandle(), 
@@ -2753,10 +2794,10 @@ void MainApp::raytrace(const uint32_t &swapchainImageIndex)
         frameData.objectDescriptorSets[currentFrame]->getHandle(),
         textureDescriptorSet->getHandle()
     };
-    vkCmdBindPipeline(frameData.commandBuffers[currentFrame]->getHandle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_rtPipeline);
-    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame]->getHandle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_rtPipelineLayout, 0,
+    vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_rtPipeline);
+    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_rtPipelineLayout, 0,
         to_u32(descSets.size()), descSets.data(), 0, nullptr);
-    vkCmdPushConstants(frameData.commandBuffers[currentFrame]->getHandle(), m_rtPipelineLayout,
+    vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), m_rtPipelineLayout,
         VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR,
         0, sizeof(RaytracingPushConstant), &raytracingPushConstant);
 
@@ -2776,10 +2817,10 @@ void MainApp::raytrace(const uint32_t &swapchainImageIndex)
         VkStridedDeviceAddressRegionKHR{0u, 0u, 0u}                                                // callable
     };                                            
 
-    vkCmdTraceRaysKHR(frameData.commandBuffers[currentFrame]->getHandle(), &strideAddresses[0], &strideAddresses[1], &strideAddresses[2], &strideAddresses[3],
+    vkCmdTraceRaysKHR(frameData.commandBuffers[currentFrame][0]->getHandle(), &strideAddresses[0], &strideAddresses[1], &strideAddresses[2], &strideAddresses[3],
         swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, 1);
 
-    debugUtilEndLabel(frameData.commandBuffers[currentFrame]->getHandle());
+    debugUtilEndLabel(frameData.commandBuffers[currentFrame][0]->getHandle());
 }
 
 } // namespace vulkr

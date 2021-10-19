@@ -36,35 +36,18 @@ SemaphorePool::~SemaphorePool()
 	}
 
 	semaphores.clear();
-	reset();
 }
 
 VkSemaphore SemaphorePool::requestSemaphore()
 {
-	if (activeSemaphoreCount < semaphores.size())
-	{
-		return semaphores.at(activeSemaphoreCount++);
-	}
-
 	VkSemaphore semaphore{ VK_NULL_HANDLE };
 	VkSemaphoreCreateInfo semaphoreCreateInfo{ VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
 
 	VK_CHECK(vkCreateSemaphore(device.getHandle(), &semaphoreCreateInfo, nullptr, &semaphore));
 
 	semaphores.push_back(semaphore);
-	++activeSemaphoreCount;
 
 	return semaphore;
-}
-
-void SemaphorePool::reset()
-{
-	activeSemaphoreCount = 0;
-}
-
-int32_t SemaphorePool::getActiveSemaphoreCount() const
-{
-	return activeSemaphoreCount;
 }
 
 } // namespace vulkr

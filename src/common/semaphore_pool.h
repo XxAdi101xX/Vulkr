@@ -28,6 +28,7 @@
 namespace vulkr
 {
 
+/* TODO: build out class to effeciently reuse semaphores */
 class SemaphorePool
 {
 public:
@@ -42,16 +43,10 @@ public:
 	/* Obtain a semaphore */
 	VkSemaphore requestSemaphore();
 
-	void reset();
-
-	int32_t getActiveSemaphoreCount() const;
-
 private:
 	Device &device;
 
 	std::vector<VkSemaphore> semaphores;
-
-	int32_t activeSemaphoreCount{ 0 };
 };
 
 } // namespace vulkr

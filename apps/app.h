@@ -80,6 +80,7 @@ namespace vulkr
 {
 
 constexpr uint32_t maxFramesInFlight{ 2 }; // Explanation on this how we got this number: https://software.intel.com/content/www/us/en/develop/articles/practical-approach-to-vulkan-part-1.html
+constexpr uint32_t commandBufferCountForFrame{ 3 };
 constexpr uint32_t MAX_OBJECT_COUNT{ 10000 };
 constexpr uint32_t MAX_LIGHT_COUNT{ 100 };
 bool raytracingEnabled{ true }; // Flag to enable ray tracing vs rasterization
@@ -288,14 +289,16 @@ private:
         std::array<std::unique_ptr<Image>, maxFramesInFlight> historyImages;
         std::array<std::unique_ptr<ImageView>, maxFramesInFlight> historyImageViews;
         std::array<std::unique_ptr<Framebuffer>, maxFramesInFlight> offscreenFramebuffers;
-        std::array<std::unique_ptr<Framebuffer>, maxFramesInFlight> postProcessingFramebuffers;
+        std::array<std::unique_ptr<Framebuffer>, maxFramesInFlight> postProcessFramebuffers;
 
         std::array<VkSemaphore, maxFramesInFlight> imageAvailableSemaphores;
-        std::array<VkSemaphore, maxFramesInFlight> renderingFinishedSemaphores;
+        std::array<VkSemaphore, maxFramesInFlight> offscreenRenderingFinishedSemaphores;
+        std::array<VkSemaphore, maxFramesInFlight> postProcessRenderingFinishedSemaphores;
+        std::array<VkSemaphore, maxFramesInFlight> outputImageCopyFinishedSemaphores;
         std::array<VkFence, maxFramesInFlight> inFlightFences;
 
         std::array<std::unique_ptr<CommandPool>, maxFramesInFlight> commandPools;
-        std::array<std::shared_ptr<CommandBuffer>, maxFramesInFlight> commandBuffers;
+        std::array<std::array<std::shared_ptr<CommandBuffer>, commandBufferCountForFrame>, maxFramesInFlight> commandBuffers;
 
         std::array<std::unique_ptr<DescriptorSet>, maxFramesInFlight> globalDescriptorSets;
         std::array<std::unique_ptr<DescriptorSet>, maxFramesInFlight> objectDescriptorSets;
@@ -306,6 +309,9 @@ private:
         std::array<std::unique_ptr<Buffer>, maxFramesInFlight> objectBuffers;
         std::array<std::unique_ptr<Buffer>, maxFramesInFlight> previousFrameObjectBuffers;
     } frameData;
+
+    std::vector<VkClearValue> offscreenFramebufferClearValues;
+    std::vector<VkClearValue> postProcessFramebufferClearValues;
 
     // Since the texture will be readonly, we don't require a descriptor set per frame
     std::unique_ptr<DescriptorSet> textureDescriptorSet;
