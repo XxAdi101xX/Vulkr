@@ -268,12 +268,12 @@ void Image::transitionImageLayout(CommandBuffer &commandBuffer, VkImageLayout ol
 	else if (oldLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL && newLayout == VK_IMAGE_LAYOUT_PRESENT_SRC_KHR)
 	{
 		sourceStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-		destinationStage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT; // TODO should fix this
+		destinationStage = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
 	}
 	else if (oldLayout == VK_IMAGE_LAYOUT_GENERAL && newLayout == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
 	{
-		sourceStage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
-		destinationStage = VK_PIPELINE_STAGE_TRANSFER_BIT; // TODO is this right
+		sourceStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+		destinationStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
 	}
 	else
 	{
