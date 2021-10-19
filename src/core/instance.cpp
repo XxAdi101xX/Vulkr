@@ -23,6 +23,8 @@
 #include "instance.h"
 #include "physical_device.h"
 
+#include <array>
+
 #include "common/logger.h"
 #include "common/helpers.h"
 
@@ -58,10 +60,14 @@ Instance::Instance(std::string applicationName)
     instanceCreateInfo.enabledLayerCount = to_u32(requiredValidationLayers.size());
     instanceCreateInfo.ppEnabledLayerNames = requiredValidationLayers.data();
 
-    VkValidationFeatureEnableEXT validationFeatureEnableEXT[] = { VK_VALIDATION_FEATURE_ENABLE_DEBUG_PRINTF_EXT };
+    std::array<VkValidationFeatureEnableEXT, 3> validationFeatureToEnable {
+        VK_VALIDATION_FEATURE_ENABLE_DEBUG_PRINTF_EXT,
+        VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT,
+        VK_VALIDATION_FEATURE_ENABLE_BEST_PRACTICES_EXT,
+    };
     VkValidationFeaturesEXT validationFeatures{ VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT };
-    validationFeatures.enabledValidationFeatureCount = 1;
-    validationFeatures.pEnabledValidationFeatures = validationFeatureEnableEXT;
+    validationFeatures.enabledValidationFeatureCount = to_u32(validationFeatureToEnable.size());
+    validationFeatures.pEnabledValidationFeatures = validationFeatureToEnable.data();
 
     VkDebugUtilsMessengerCreateInfoEXT debugUtilsCreateInfo = { VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT };
     debugUtilsCreateInfo.messageSeverity = /*VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | */VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
