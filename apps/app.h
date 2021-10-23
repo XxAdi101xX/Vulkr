@@ -62,7 +62,6 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <iostream>
-#include <random>
 #include <chrono>
 
 #define STB_IMAGE_IMPLEMENTATION
@@ -81,6 +80,7 @@ namespace vulkr
 
 constexpr uint32_t maxFramesInFlight{ 2 }; // Explanation on this how we got this number: https://software.intel.com/content/www/us/en/develop/articles/practical-approach-to-vulkan-part-1.html
 constexpr uint32_t commandBufferCountForFrame{ 3 };
+constexpr uint32_t taaDepth{ 128 };
 constexpr uint32_t MAX_OBJECT_COUNT{ 10000 };
 constexpr uint32_t MAX_LIGHT_COUNT{ 100 };
 bool raytracingEnabled{ true }; // Flag to enable ray tracing vs rasterization
@@ -278,9 +278,7 @@ private:
     std::unique_ptr<CameraController> cameraController;
     std::unique_ptr<Timer> drawingTimer;
 
-    std::random_device randomDevice;
-    std::default_random_engine defaultRandomEngine;
-    std::uniform_real_distribution<float> zeroToOneDistribution;
+    std::array<glm::vec2, taaDepth> haltonSequence;
 
     struct FrameData
     {
@@ -323,7 +321,7 @@ private:
     std::vector<Texture> textures;
     std::vector<ObjInstance> objInstances;
 
-    // Note that any modifications to push constants must be matched in the shaders
+    // Note that any modifications to push constants must be matched in the shaders and offsets must be set appropriately
     struct RasterizationPushConstant
     {
         glm::vec3 lightPosition{ 10.0f, 13.0f, 4.5f };
@@ -339,11 +337,12 @@ private:
         int frameSinceViewChange{ -1 }; // Used for temporal anti-aliasing 
     } raytracingPushConstant;
 
-    struct PostProcessPushConstant
+    struct TaaPushConstant
     {
-        glm::vec2 jitter;
         int frameSinceViewChange{ -1 };
-    } postProcessPushConstant;
+        glm::vec2 jitter{ glm::vec2(0.0f) };
+        int blank{ 0 }; // alignment
+    } taaPushConstant;
 
     // TODO: current this is not used in shaders so they must be added in the future
     // TODO: if the type of struct is changed, ensure that you change lines where the size of the array is using sizeof(LightData)
@@ -391,11 +390,11 @@ private:
     void createSemaphoreAndFencePools();
     void setupSynchronizationObjects();
     void setupTimer();
-    void initializeRng();
+    void initializeHaltonSequenceArray();
     void setupCamera();
     void initializeImGui();
     void resetFrameSinceViewChange();
-    void updateFrameSinceViewChange();
+    void updateTaaState();
 
     std::shared_ptr<PipelineData> getPipelineData(const std::string &name);
     std::shared_ptr<ObjModel> getObjModel(const std::string &name);

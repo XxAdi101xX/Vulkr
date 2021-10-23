@@ -33,11 +33,8 @@ layout(push_constant) uniform PostProcessingPushConstant
 } pushConstant;
 
 void main() {
-    //debugPrintfEXT("jitter is %f %f", pushConstant.jitter.x, pushConstant.jitter.y);
+//debugPrintfEXT("jitter is %f %f", pushConstant.jitter.x, pushConstant.jitter.y);
     mat4 modelMatrix = currentFrameObjectBuffer.objects[gl_BaseInstance].transform;
-
     vec4 clipPos = camera.proj * camera.view * modelMatrix * vec4(inPosition, 1.0f);
-    clipPos += vec4(pushConstant.jitter, 0.0f, 0.0f);
-
     gl_Position = clipPos;
 }

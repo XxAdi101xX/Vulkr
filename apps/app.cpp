@@ -159,7 +159,7 @@ void MainApp::prepare()
     Application::prepare();
 
     setupTimer();
-    initializeRng();
+    initializeHaltonSequenceArray();
 
     createInstance();
     createSurface();
@@ -276,8 +276,8 @@ void MainApp::update()
     imagesInFlight[swapchainImageIndex] = frameData.inFlightFences[currentFrame];
 
     updateBuffersPerFrame();
-    updateFrameSinceViewChange();
     drawImGuiInterface();
+    updateTaaState(); // must be called after drawingImGui
 
     // Begin command buffer for offscreen pass
     frameData.commandBuffers[currentFrame][0]->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
@@ -312,8 +312,6 @@ void MainApp::update()
     offscreenPassSubmitInfo.signalSemaphoreCount = to_u32(offscreenSignalSemaphores.size());
     offscreenPassSubmitInfo.pSignalSemaphores = offscreenSignalSemaphores.data();
 
-    //VK_CHECK(vkQueueSubmit(graphicsQueue->getHandle(), 1, &offscreenPassSubmitInfo, frameData.inFlightFences[currentFrame]));
-
     // Begin command buffer for post process pass
     frameData.commandBuffers[currentFrame][1]->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
 
@@ -345,8 +343,6 @@ void MainApp::update()
     postProcessSubmitInfo.pCommandBuffers = &frameData.commandBuffers[currentFrame][1]->getHandle();
     postProcessSubmitInfo.signalSemaphoreCount = to_u32(postProcessSignalSemaphores.size());
     postProcessSubmitInfo.pSignalSemaphores = postProcessSignalSemaphores.data();
-
-    //VK_CHECK(vkQueueSubmit(graphicsQueue->getHandle(), 1, &postProcessSubmitInfo, frameData.inFlightFences[currentFrame]));
 
     // Begin command buffer for outputImage copy operations to swapchain and history buffer
     frameData.commandBuffers[currentFrame][2]->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
@@ -399,7 +395,6 @@ void MainApp::update()
 
     std::array<VkSubmitInfo, 3> submitInfo{ offscreenPassSubmitInfo, postProcessSubmitInfo, outputImageTransferSubmitInfo };
     VK_CHECK(vkQueueSubmit(graphicsQueue->getHandle(), submitInfo.size(), submitInfo.data(), frameData.inFlightFences[currentFrame]));
-    //VK_CHECK(vkQueueSubmit(graphicsQueue->getHandle(), 1, &outputImageTransferSubmitInfo, frameData.inFlightFences[currentFrame]));
 
     VkPresentInfoKHR presentInfo{ VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
     presentInfo.waitSemaphoreCount = to_u32(outputImageTransferSignalSemaphores.size());
@@ -479,8 +474,13 @@ void MainApp::drawImGuiInterface()
     {
         if (ImGui::BeginTabItem("Scene"))
         {
-            ImGui::Checkbox("Raytracing enabled", &raytracingEnabled);
-            ImGui::Checkbox("Temporal anti-aliasing enabled (Work in Progress)", &temporalAntiAliasingEnabled);
+            changed |= ImGui::Checkbox("Raytracing enabled", &raytracingEnabled);
+            changed |= ImGui::Checkbox("Temporal anti-aliasing enabled (Work in Progress)", &temporalAntiAliasingEnabled);
+            if (changed)
+            {
+                resetFrameSinceViewChange();
+                changed = false;
+            }
 
             ImGui::Text("Position");
             ImGui::SameLine();
@@ -523,7 +523,7 @@ void MainApp::drawImGuiInterface()
                     changed |= ImGui::RadioButton("Infinite", &raytracingPushConstant.lightType, 1);
 
                     changed |= ImGui::SliderFloat3("Position", &raytracingPushConstant.lightPosition.x, -50.f, 50.f);
-                    changed |= ImGui::SliderFloat("Intensity", &raytracingPushConstant.lightIntensity, 0.f, 150.f);
+                    changed |= ImGui::SliderFloat("Intensity", &raytracingPushConstant.lightIntensity, 0.f, 250.f);
                 }
                 else
                 {
@@ -532,7 +532,7 @@ void MainApp::drawImGuiInterface()
                     changed |= ImGui::RadioButton("Infinite", &rasterizationPushConstant.lightType, 1);
 
                     changed |= ImGui::SliderFloat3("Position", &rasterizationPushConstant.lightPosition.x, -50.f, 50.f);
-                    changed |= ImGui::SliderFloat("Intensity", &rasterizationPushConstant.lightIntensity, 0.f, 150.f);
+                    changed |= ImGui::SliderFloat("Intensity", &rasterizationPushConstant.lightIntensity, 0.f, 250.f);
                 }
 
                 if (changed)
@@ -634,7 +634,8 @@ void MainApp::rasterize()
             lastObjModel = object.objModel;
         }
 
-        vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), object.pipelineData->pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(RasterizationPushConstant), &rasterizationPushConstant);
+        vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), object.pipelineData->pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(TaaPushConstant), &taaPushConstant);
+        vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), object.pipelineData->pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(TaaPushConstant), sizeof(RasterizationPushConstant), &rasterizationPushConstant);
         vkCmdDrawIndexed(frameData.commandBuffers[currentFrame][0]->getHandle(), to_u32(object.objModel->indicesCount), 1, 0, 0, index);
     }
     
@@ -666,20 +667,22 @@ void MainApp::drawPost()
             lastObjModel = object.objModel;
         }
 
-        postProcessPushConstant.jitter = glm::vec2(zeroToOneDistribution(defaultRandomEngine) - 0.5f, zeroToOneDistribution(defaultRandomEngine) - 0.5f);
+        // TODO check if this jitter value is correct
+        taaPushConstant.jitter = haltonSequence[std::min(taaPushConstant.frameSinceViewChange, static_cast<int>(taaDepth - 1))];
+        taaPushConstant.jitter.x = ((taaPushConstant.jitter.x - 0.5f) / swapchain->getProperties().imageExtent.width) * 5;
+        taaPushConstant.jitter.y = ((taaPushConstant.jitter.y - 0.5f) / swapchain->getProperties().imageExtent.height) * 5;
 
         // We have history buffer set to 1 - blendFactor so when we have enough samples and the frame has been still for a while, we don't want to recalculate
         // the image but just use what's in the history buffer
         float blendFactor = 0.0f;
-        if (postProcessPushConstant.frameSinceViewChange <= 200)
+        if (taaPushConstant.frameSinceViewChange < taaDepth)
         {
-            blendFactor = 1.0f / float(postProcessPushConstant.frameSinceViewChange + 1);
-            //blendFactor = 0.75f;//TODO remove
+            blendFactor = 1.0f / float(taaPushConstant.frameSinceViewChange + 1);
+            //blendFactor = 0.2f;//TODO remove
         }
 
         float blendConstants[4] = { blendFactor, blendFactor, blendFactor, blendFactor };
         vkCmdSetBlendConstants(frameData.commandBuffers[currentFrame][1]->getHandle(), blendConstants);
-        vkCmdPushConstants(frameData.commandBuffers[currentFrame][1]->getHandle(), getPipelineData("postprocess")->pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PostProcessPushConstant), &postProcessPushConstant);
         vkCmdDrawIndexed(frameData.commandBuffers[currentFrame][1]->getHandle(), to_u32(object.objModel->indicesCount), 1, 0, 0, index);
     }
 
@@ -692,10 +695,26 @@ void MainApp::setupTimer()
     drawingTimer->start();
 }
 
-void MainApp::initializeRng()
+float createHaltonSequence(uint32_t index, uint32_t base)
 {
-    defaultRandomEngine = std::default_random_engine(randomDevice());
-    zeroToOneDistribution = std::uniform_real_distribution(0.0f, 1.0f);
+    float f = 1;
+    float r = 0;
+    int current = index;
+    do
+    {
+        f = f / base;
+        r = r + f * (current % base);
+        current = glm::floor(current / base);
+    } while (current > 0);
+    return r;
+}
+
+void MainApp::initializeHaltonSequenceArray()
+{
+    for (int i = 0; i < taaDepth; ++i)
+    {
+        haltonSequence[i] = glm::vec2(createHaltonSequence(i + 1, 2), createHaltonSequence(i + 1, 3));
+    }
 }
 
 void MainApp::createInstance()
@@ -1083,7 +1102,9 @@ void MainApp::createMainRasterizationPipeline()
     };
 
     std::vector<VkPushConstantRange> pushConstantRangeHandles;
-    VkPushConstantRange rasterizationPushConstantRange{ VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(RasterizationPushConstant) };
+    VkPushConstantRange taaPushConstantRange{ VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(TaaPushConstant) };
+    pushConstantRangeHandles.push_back(taaPushConstantRange);
+    VkPushConstantRange rasterizationPushConstantRange{ VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(TaaPushConstant), sizeof(RasterizationPushConstant) };
     pushConstantRangeHandles.push_back(rasterizationPushConstantRange);
 
     std::shared_ptr<PipelineState> mainRasterizationPipelineState = std::make_shared<PipelineState>(
@@ -1208,9 +1229,6 @@ void MainApp::createPostProcessingPipeline()
     shaderModules.emplace_back(*device, VK_SHADER_STAGE_FRAGMENT_BIT, postProcessFragmentShader);
 
     descriptorSetLayoutHandles.push_back(postProcessingDescriptorSetLayout->getHandle());
-
-    VkPushConstantRange postProcessPushConstantRange{ VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PostProcessPushConstant) };
-    pushConstantRangeHandles.push_back(postProcessPushConstantRange);
 
     std::shared_ptr<PipelineState> postProcessingPipelineState = std::make_shared<PipelineState>(
         std::make_unique<PipelineLayout>(*device, shaderModules, descriptorSetLayoutHandles, pushConstantRangeHandles),
@@ -1956,11 +1974,18 @@ void MainApp::initializeImGui()
 void MainApp::resetFrameSinceViewChange()
 {
     raytracingPushConstant.frameSinceViewChange = -1; // TODO remove
-    postProcessPushConstant.frameSinceViewChange = -1;
+    taaPushConstant.frameSinceViewChange = -1;
 }
 
-void MainApp::updateFrameSinceViewChange()
+void MainApp::updateTaaState()
 {
+    if (!temporalAntiAliasingEnabled && !raytracingEnabled) // remove false
+    {
+        resetFrameSinceViewChange();
+        taaPushConstant.jitter = glm::vec2(0.0f);
+        return;
+    }
+
     // If the camera has updated, we don't want to use the previous frame for anti aliasing
     if (cameraController->getCamera()->isUpdated())
     {
@@ -1968,7 +1993,7 @@ void MainApp::updateFrameSinceViewChange()
         cameraController->getCamera()->resetUpdatedFlag();
     }
     raytracingPushConstant.frameSinceViewChange += 1;// TODO remove
-    postProcessPushConstant.frameSinceViewChange += 1;
+    taaPushConstant.frameSinceViewChange += 1;
 }
 
 void MainApp::createOutputAndHistoryImagesAndImageViews()

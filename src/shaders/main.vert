@@ -2,6 +2,7 @@
 
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
 #extension GL_GOOGLE_include_directive : enable
+#extension GL_EXT_debug_printf : enable
 #include "common.glsl"
 
 layout(set = 0, binding = 0) uniform CameraBuffer {
@@ -12,6 +13,13 @@ layout(set = 0, binding = 0) uniform CameraBuffer {
 layout(std140, set = 1, binding = 0) readonly buffer ObjectBuffer {
 	ObjInstance objects[];
 } objectBuffer;
+
+layout(push_constant) uniform TaaPushConstant
+{
+    int frameSinceViewChange;
+    vec2 jitter;
+    int blank; // alignment
+} pushConstant;
 
 layout(location = 0) in vec3 inPosition;
 layout(location = 1) in vec3 inNormal;
@@ -37,5 +45,9 @@ void main() {
     worldPos = vec3(modelMatrix * vec4(inPosition, 1.0));
     viewDir = vec3(worldPos - origin);
 
-    gl_Position = camera.proj * camera.view * modelMatrix * vec4(inPosition, 1.0f);
+    vec4 clipPos = camera.proj * camera.view * modelMatrix * vec4(inPosition, 1.0f);
+    
+    // jitter will be set to 0 if taa is disabled
+    clipPos += vec4(pushConstant.jitter, 0.0f, 0.0f);
+    gl_Position = clipPos;
 }

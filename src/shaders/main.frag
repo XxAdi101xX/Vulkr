@@ -22,6 +22,7 @@ layout(location = 0) out vec4 outColor;
 
 layout(push_constant) uniform RasterizationPushConstant
 {
+    layout(offset = 16)
 	vec3 lightPosition;
 	float lightIntensity;
 	int lightType; // 0: point, 1: infinite
