@@ -61,9 +61,10 @@ Instance::Instance(std::string applicationName)
     instanceCreateInfo.ppEnabledLayerNames = requiredValidationLayers.data();
 
     std::array<VkValidationFeatureEnableEXT, 3> validationFeatureToEnable {
-        VK_VALIDATION_FEATURE_ENABLE_DEBUG_PRINTF_EXT,
-        VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT,
+        VK_VALIDATION_FEATURE_ENABLE_GPU_ASSISTED_EXT,
         VK_VALIDATION_FEATURE_ENABLE_BEST_PRACTICES_EXT,
+        //VK_VALIDATION_FEATURE_ENABLE_DEBUG_PRINTF_EXT,
+        VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT,
     };
     VkValidationFeaturesEXT validationFeatures{ VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT };
     validationFeatures.enabledValidationFeatureCount = to_u32(validationFeatureToEnable.size());

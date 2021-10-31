@@ -2,12 +2,12 @@
 
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
 #extension GL_GOOGLE_include_directive : enable
-#extension GL_EXT_debug_printf : enable
+//#extension GL_EXT_debug_printf : enable
 
 #include "common.glsl"
 #include "random.glsl"
 
-layout(set = 0, binding = 0) uniform CameraBuffer
+layout(set = 0, binding = 0) uniform CurrentFrameCameraBuffer
 {
     mat4 view;
     mat4 proj;
@@ -16,10 +16,6 @@ layout(set = 0, binding = 0) uniform CameraBuffer
 layout(std140, set = 0, binding = 1) readonly buffer CurrentFrameObjectBuffer {
 	ObjInstance objects[];
 } currentFrameObjectBuffer;
-
-layout(std140, set = 0, binding = 2) readonly buffer PreviousFrameObjectBuffer {
-	ObjInstance objects[];
-} previousFrameObjectBuffer;
 
 layout(location = 0) in vec3 inPosition;
 layout(location = 1) in vec3 inNormal;

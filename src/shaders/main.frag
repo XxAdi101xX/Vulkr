@@ -17,8 +17,11 @@ layout(location = 2) in vec2 fragTexCoord;
 layout(location = 3) flat in int baseInstance;
 layout(location = 4) in vec3 worldPos;
 layout(location = 5) in vec3 viewDir;
+layout(location = 6) in vec4 currentFramePosition;
+layout(location = 7) in vec4 previousFramePosition;
 
 layout(location = 0) out vec4 outColor;
+layout(location = 1) out vec4 outVelocity;
 
 layout(push_constant) uniform RasterizationPushConstant
 {
@@ -76,4 +79,10 @@ void main() {
 
     // Result
     outColor = vec4(lightIntensity * (diffuse + specular), 1);
+
+    // Populate the velocity image
+    vec2 newPos = (currentFramePosition.xy / currentFramePosition.w) * 0.5 + 0.5;
+	vec2 prePos = (previousFramePosition.xy / previousFramePosition.w) * 0.5 + 0.5;
+    vec2 velocity = newPos - prePos;
+    outVelocity = vec4(velocity, 0.0f, 1.0f);
 }

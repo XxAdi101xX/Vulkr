@@ -84,7 +84,7 @@ constexpr uint32_t taaDepth{ 128 };
 constexpr uint32_t MAX_OBJECT_COUNT{ 10000 };
 constexpr uint32_t MAX_LIGHT_COUNT{ 100 };
 bool raytracingEnabled{ true }; // Flag to enable ray tracing vs rasterization
-bool temporalAntiAliasingEnabled{ false }; // Flag to enable temporal anti-aliasing
+bool temporalAntiAliasingEnabled{ false }; // Flag to enable temporal anti-aliasing (see https://ziyadbarakat.wordpress.com/2020/07/28/temporal-anti-aliasing-step-by-step/)
 
 /* Structs shared on both the GPU and CPU */
 struct CameraData
@@ -264,6 +264,7 @@ private:
     std::unique_ptr<DescriptorSetLayout> objectDescriptorSetLayout{ nullptr };
     std::unique_ptr<DescriptorSetLayout> textureDescriptorSetLayout{ nullptr };
     std::unique_ptr<DescriptorSetLayout> postProcessingDescriptorSetLayout{ nullptr };
+    std::unique_ptr<DescriptorSetLayout> taaDescriptorSetLayout{ nullptr };
     std::unique_ptr<DescriptorPool> descriptorPool;
     std::unique_ptr<DescriptorPool> imguiPool;
 
@@ -286,6 +287,8 @@ private:
         std::array<std::unique_ptr<ImageView>, maxFramesInFlight> outputImageViews;
         std::array<std::unique_ptr<Image>, maxFramesInFlight> historyImages;
         std::array<std::unique_ptr<ImageView>, maxFramesInFlight> historyImageViews;
+        std::array<std::unique_ptr<Image>, maxFramesInFlight> velocityImages;
+        std::array<std::unique_ptr<ImageView>, maxFramesInFlight> velocityImageViews;
         std::array<std::unique_ptr<Framebuffer>, maxFramesInFlight> offscreenFramebuffers;
         std::array<std::unique_ptr<Framebuffer>, maxFramesInFlight> postProcessFramebuffers;
 
@@ -301,8 +304,10 @@ private:
         std::array<std::unique_ptr<DescriptorSet>, maxFramesInFlight> globalDescriptorSets;
         std::array<std::unique_ptr<DescriptorSet>, maxFramesInFlight> objectDescriptorSets;
         std::array<std::unique_ptr<DescriptorSet>, maxFramesInFlight> postProcessingDescriptorSets;
+        std::array<std::unique_ptr<DescriptorSet>, maxFramesInFlight> taaDescriptorSets;
         std::array<std::unique_ptr<DescriptorSet>, maxFramesInFlight> rtDescriptorSets;
         std::array<std::unique_ptr<Buffer>, maxFramesInFlight> cameraBuffers;
+        std::array<std::unique_ptr<Buffer>, maxFramesInFlight> previousFrameCameraBuffers;
         std::array<std::unique_ptr<Buffer>, maxFramesInFlight> lightBuffers;
         std::array<std::unique_ptr<Buffer>, maxFramesInFlight> objectBuffers;
         std::array<std::unique_ptr<Buffer>, maxFramesInFlight> previousFrameObjectBuffers;
@@ -358,7 +363,7 @@ private:
     void createSurface();
     void createDevice();
     void createSwapchain();
-    void createOutputAndHistoryImagesAndImageViews();
+    void createImageResourcesForFrames();
     void createMainRenderPass();
     void createPostRenderPass();
     void createDescriptorSetLayouts();
@@ -444,7 +449,7 @@ private:
     void           createRtShaderBindingTable();
     std::unique_ptr<Buffer> m_rtSBTBuffer;
 
-    void raytrace(const uint32_t &swapchainImageIndex);
+    void raytrace();
 };
 
 } // namespace vulkr

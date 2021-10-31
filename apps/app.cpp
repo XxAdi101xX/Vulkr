@@ -43,6 +43,7 @@ MainApp::~MainApp()
     objectDescriptorSetLayout.reset();
     textureDescriptorSetLayout.reset();
     postProcessingDescriptorSetLayout.reset();
+    taaDescriptorSetLayout.reset();
 
     for (auto &it : objModels)
     {
@@ -68,8 +69,10 @@ MainApp::~MainApp()
     {
         frameData.historyImages[i].reset();
         frameData.historyImageViews[i].reset();
-        frameData.outputImageViews[i].reset();
         frameData.outputImages[i].reset();
+        frameData.outputImageViews[i].reset();
+        frameData.velocityImages[i].reset();
+        frameData.velocityImageViews[i].reset();
         frameData.commandPools[i].reset();
     }
     imguiPool.reset();
@@ -135,10 +138,14 @@ void MainApp::cleanupSwapchain()
 
     for (uint32_t i = 0; i < maxFramesInFlight; ++i)
     {
+        // Descriptor sets
         frameData.globalDescriptorSets[i].reset();
         frameData.objectDescriptorSets[i].reset();
         frameData.postProcessingDescriptorSets[i].reset();
+        frameData.taaDescriptorSets[i].reset();
+        // Buffers
         frameData.cameraBuffers[i].reset();
+        frameData.previousFrameCameraBuffers[i].reset();
         frameData.lightBuffers[i].reset();
         frameData.objectBuffers[i].reset();
         frameData.previousFrameObjectBuffers[i].reset();
@@ -215,7 +222,7 @@ void MainApp::prepare()
     createPostRenderPass();
     createCommandPools();
     createCommandBuffers();
-    createOutputAndHistoryImagesAndImageViews();
+    createImageResourcesForFrames();
     createFramebuffers();
 
     initializeImGui();
@@ -285,7 +292,7 @@ void MainApp::update()
     // Main offscreen pass
     if (raytracingEnabled)
     {
-        raytrace(swapchainImageIndex);
+        raytrace();
     }
     else
     {
@@ -359,16 +366,29 @@ void MainApp::update()
     frameData.historyImages[currentFrame]->transitionImageLayout(*frameData.commandBuffers[currentFrame][2], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, subresourceRange);
     // Note that the layout of the outputImage has been transitioned from VK_IMAGE_LAYOUT_GENERAL to VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL as defined in the postProcessingRenderPass configuration
 
-    VkImageCopy copyRegion{};
-    copyRegion.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
-    copyRegion.srcOffset = { 0, 0, 0 };
-    copyRegion.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
-    copyRegion.dstOffset = { 0, 0, 0 };
-    copyRegion.extent = { swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, 1 };
+    VkImageCopy outputImageCopyRegion{};
+    outputImageCopyRegion.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+    outputImageCopyRegion.srcOffset = { 0, 0, 0 };
+    outputImageCopyRegion.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+    outputImageCopyRegion.dstOffset = { 0, 0, 0 };
+    outputImageCopyRegion.extent = { swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, 1 };
 
     // Copy output image to swapchain image and history image (note that they can execute in any order due to lack of barriers)
-    vkCmdCopyImage(frameData.commandBuffers[currentFrame][2]->getHandle(), frameData.outputImages[currentFrame]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swapchain->getImages()[swapchainImageIndex]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
-    vkCmdCopyImage(frameData.commandBuffers[currentFrame][2]->getHandle(), frameData.outputImages[currentFrame]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, frameData.historyImages[currentFrame]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
+    vkCmdCopyImage(frameData.commandBuffers[currentFrame][2]->getHandle(), frameData.outputImages[currentFrame]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swapchain->getImages()[swapchainImageIndex]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &outputImageCopyRegion);
+    vkCmdCopyImage(frameData.commandBuffers[currentFrame][2]->getHandle(), frameData.outputImages[currentFrame]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, frameData.historyImages[currentFrame]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &outputImageCopyRegion);
+
+    // TODO create staging buffer before conducting the two cmdCopyBuffer, see copyBufferToBuffer method as well
+    VkBufferCopy cameraBufferCopyRegion{};
+    cameraBufferCopyRegion.srcOffset = 0;
+    cameraBufferCopyRegion.dstOffset = 0;
+    cameraBufferCopyRegion.size = sizeof(CameraData);
+    vkCmdCopyBuffer(frameData.commandBuffers[currentFrame][2]->getHandle(), frameData.cameraBuffers[currentFrame]->getHandle(), frameData.previousFrameCameraBuffers[currentFrame]->getHandle(), 1, &cameraBufferCopyRegion);
+
+    VkBufferCopy objectBufferCopyRegion{};
+    objectBufferCopyRegion.srcOffset = 0;
+    objectBufferCopyRegion.dstOffset = 0;
+    objectBufferCopyRegion.size = sizeof(ObjInstance) * MAX_OBJECT_COUNT;
+    vkCmdCopyBuffer(frameData.commandBuffers[currentFrame][2]->getHandle(), frameData.objectBuffers[currentFrame]->getHandle(), frameData.previousFrameObjectBuffers[currentFrame]->getHandle(), 1, &objectBufferCopyRegion);
 
     // Transition the current swapchain image back for presentation
     swapchain->getImages()[swapchainImageIndex]->transitionImageLayout(*frameData.commandBuffers[currentFrame][2], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, subresourceRange);
@@ -568,6 +588,11 @@ void MainApp::updateBuffersPerFrame()
     memcpy(mappedData, sceneLights.data(), sizeof(LightData) * sceneLights.size());
     frameData.lightBuffers[currentFrame]->unmap();
 
+    // TODO: remove this, this won't work for raytracing since you have to recreated TLAS
+    //float time = std::chrono::duration<float, std::chrono::seconds::period>(drawingTimer->elapsed()).count();
+    //objInstances[2].transform = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+    //objInstances[2].transformIT = glm::transpose(glm::inverse(objInstances[2].transform));
+
     // Update the object buffer
     mappedData = frameData.objectBuffers[currentFrame]->map();
     ObjInstance *objectSSBO = (ObjInstance *)mappedData;
@@ -614,13 +639,16 @@ void MainApp::rasterize()
             // Object data descriptor
             vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, object.pipelineData->pipelineState->getPipelineLayout().getHandle(), 1, 1, &frameData.objectDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
 
+            // TODO remove this if condition since it should always be true
             if (object.pipelineData == getPipelineData("texturedmesh"))
             {
                 // TODO we only need to bind this once so we should move it out of this method
                 // Texture descriptor
                 vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, object.pipelineData->pipelineState->getPipelineLayout().getHandle(), 2, 1, &textureDescriptorSet->getHandle(), 0, nullptr);
-
             }
+
+            // Taa data descriptor
+            vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, object.pipelineData->pipelineState->getPipelineLayout().getHandle(), 3, 1, &frameData.taaDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
         }
 
         // Bind the objModel if it's a different one from last one
@@ -669,8 +697,8 @@ void MainApp::drawPost()
 
         // TODO check if this jitter value is correct
         taaPushConstant.jitter = haltonSequence[std::min(taaPushConstant.frameSinceViewChange, static_cast<int>(taaDepth - 1))];
-        taaPushConstant.jitter.x = ((taaPushConstant.jitter.x - 0.5f) / swapchain->getProperties().imageExtent.width) * 5;
-        taaPushConstant.jitter.y = ((taaPushConstant.jitter.y - 0.5f) / swapchain->getProperties().imageExtent.height) * 5;
+        taaPushConstant.jitter.x = (taaPushConstant.jitter.x / swapchain->getProperties().imageExtent.width) * 5;
+        taaPushConstant.jitter.y = (taaPushConstant.jitter.y / swapchain->getProperties().imageExtent.height) * 5;
 
         // We have history buffer set to 1 - blendFactor so when we have enough samples and the frame has been still for a while, we don't want to recalculate
         // the image but just use what's in the history buffer
@@ -758,24 +786,40 @@ void MainApp::setupCamera()
 void MainApp::createMainRenderPass()
 {
     std::vector<Attachment> attachments;
-    Attachment colorAttachment{}; // outputImage
-    colorAttachment.format = swapchain->getProperties().surfaceFormat.format;
-    colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
-    colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    Attachment outputImageAttachment{}; // outputImage
+    outputImageAttachment.format = swapchain->getProperties().surfaceFormat.format;
+    outputImageAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+    outputImageAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    outputImageAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    outputImageAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    outputImageAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    outputImageAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     // We could set the finalLayout to VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL since the postProcessing step requires that but then we would have to add a
     // layout transitions after a raytracing step to change the image from VK_IMAGE_LAYOUT_GENERAL to VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL. For simplicity,
     // I've made it so that the finalLayout regardless of rasterization/raytracing is VK_IMAGE_LAYOUT_GENERAL
-    colorAttachment.finalLayout = VK_IMAGE_LAYOUT_GENERAL;
-    attachments.push_back(colorAttachment);
+    outputImageAttachment.finalLayout = VK_IMAGE_LAYOUT_GENERAL;
+    attachments.push_back(outputImageAttachment);
 
-    VkAttachmentReference colorAttachmentRef{};
-    colorAttachmentRef.attachment = 0;
-    colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    mainRenderPass.colorAttachments.push_back(colorAttachmentRef);
+    VkAttachmentReference outputImageAttachmentRef{};
+    outputImageAttachmentRef.attachment = 0;
+    outputImageAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    mainRenderPass.colorAttachments.push_back(outputImageAttachmentRef);
+
+    Attachment velocityImageAttachment{}; // velocityImage
+    velocityImageAttachment.format = swapchain->getProperties().surfaceFormat.format;
+    velocityImageAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+    velocityImageAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    velocityImageAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    velocityImageAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    velocityImageAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    velocityImageAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    velocityImageAttachment.finalLayout = VK_IMAGE_LAYOUT_GENERAL;
+    attachments.push_back(velocityImageAttachment);
+
+    VkAttachmentReference velocityImageAttachmentRef{};
+    velocityImageAttachmentRef.attachment = 1;
+    velocityImageAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    mainRenderPass.colorAttachments.push_back(velocityImageAttachmentRef);
 
     Attachment depthAttachment{};
     depthAttachment.format = getSupportedDepthFormat(device->getPhysicalDevice().getHandle());
@@ -789,7 +833,7 @@ void MainApp::createMainRenderPass()
     attachments.push_back(depthAttachment);
 
     VkAttachmentReference depthAttachmentRef{};
-    depthAttachmentRef.attachment = 1;
+    depthAttachmentRef.attachment = 2;
     depthAttachmentRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
     mainRenderPass.depthStencilAttachments.push_back(depthAttachmentRef);
 
@@ -938,38 +982,58 @@ void MainApp::createDescriptorSetLayouts()
     objectDescriptorSetLayout = std::make_unique<DescriptorSetLayout>(*device, objectDescriptorSetLayoutBindings);
 
     // Post processing descriptor set layout
-    VkDescriptorSetLayoutBinding cameraBufferLayoutBindingForPost{};
-    cameraBufferLayoutBindingForPost.binding = 0;
-    cameraBufferLayoutBindingForPost.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    cameraBufferLayoutBindingForPost.descriptorCount = 1;
-    cameraBufferLayoutBindingForPost.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-    cameraBufferLayoutBindingForPost.pImmutableSamplers = nullptr; // Optional
+    VkDescriptorSetLayoutBinding currentFrameCameraBufferLayoutBindingForPost{};
+    currentFrameCameraBufferLayoutBindingForPost.binding = 0;
+    currentFrameCameraBufferLayoutBindingForPost.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    currentFrameCameraBufferLayoutBindingForPost.descriptorCount = 1;
+    currentFrameCameraBufferLayoutBindingForPost.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    currentFrameCameraBufferLayoutBindingForPost.pImmutableSamplers = nullptr;
     VkDescriptorSetLayoutBinding currentFrameObjectBufferLayoutBindingForPost{};
     currentFrameObjectBufferLayoutBindingForPost.binding = 1;
-    currentFrameObjectBufferLayoutBindingForPost.descriptorCount = 1;
     currentFrameObjectBufferLayoutBindingForPost.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    currentFrameObjectBufferLayoutBindingForPost.descriptorCount = 1;
     currentFrameObjectBufferLayoutBindingForPost.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
     currentFrameObjectBufferLayoutBindingForPost.pImmutableSamplers = nullptr;
-    VkDescriptorSetLayoutBinding previousFrameObjectBufferLayoutBindingForPost{};
-    previousFrameObjectBufferLayoutBindingForPost.binding = 2;
-    previousFrameObjectBufferLayoutBindingForPost.descriptorCount = 1;
-    previousFrameObjectBufferLayoutBindingForPost.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    previousFrameObjectBufferLayoutBindingForPost.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-    previousFrameObjectBufferLayoutBindingForPost.pImmutableSamplers = nullptr;
     VkDescriptorSetLayoutBinding historyImageLayoutBindingForPost{};
-    historyImageLayoutBindingForPost.binding = 3;
-    historyImageLayoutBindingForPost.descriptorCount = 1;
+    historyImageLayoutBindingForPost.binding = 2;
     historyImageLayoutBindingForPost.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    historyImageLayoutBindingForPost.descriptorCount = 1;
     historyImageLayoutBindingForPost.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
     historyImageLayoutBindingForPost.pImmutableSamplers = nullptr;
+    VkDescriptorSetLayoutBinding velocityImageLayoutBindingForPost{};
+    velocityImageLayoutBindingForPost.binding = 3;
+    velocityImageLayoutBindingForPost.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    velocityImageLayoutBindingForPost.descriptorCount = 1;
+    velocityImageLayoutBindingForPost.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    velocityImageLayoutBindingForPost.pImmutableSamplers = nullptr;
 
     std::vector<VkDescriptorSetLayoutBinding> postProcessingDescriptorSetLayoutBindings {
-        cameraBufferLayoutBindingForPost,
+        currentFrameCameraBufferLayoutBindingForPost,
         currentFrameObjectBufferLayoutBindingForPost,
-        previousFrameObjectBufferLayoutBindingForPost,
-        historyImageLayoutBindingForPost
+        historyImageLayoutBindingForPost,
+        velocityImageLayoutBindingForPost
     };
     postProcessingDescriptorSetLayout = std::make_unique<DescriptorSetLayout>(*device, postProcessingDescriptorSetLayoutBindings);
+
+    // Taa descriptor set layout
+    VkDescriptorSetLayoutBinding previousFrameCameraBufferLayoutBindingForTaa{};
+    previousFrameCameraBufferLayoutBindingForTaa.binding = 0;
+    previousFrameCameraBufferLayoutBindingForTaa.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    previousFrameCameraBufferLayoutBindingForTaa.descriptorCount = 1;
+    previousFrameCameraBufferLayoutBindingForTaa.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    previousFrameCameraBufferLayoutBindingForTaa.pImmutableSamplers = nullptr;
+    VkDescriptorSetLayoutBinding previousFrameObjectBufferLayoutBindingForTaa{};
+    previousFrameObjectBufferLayoutBindingForTaa.binding = 1;
+    previousFrameObjectBufferLayoutBindingForTaa.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    previousFrameObjectBufferLayoutBindingForTaa.descriptorCount = 1;
+    previousFrameObjectBufferLayoutBindingForTaa.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    previousFrameObjectBufferLayoutBindingForTaa.pImmutableSamplers = nullptr;
+
+    std::vector<VkDescriptorSetLayoutBinding> taaDescriptorSetLayoutBindings {
+        previousFrameCameraBufferLayoutBindingForTaa,
+        previousFrameObjectBufferLayoutBindingForTaa
+    };
+    taaDescriptorSetLayout = std::make_unique<DescriptorSetLayout>(*device, taaDescriptorSetLayoutBindings);
 
     // Texture descriptor set layout
     VkDescriptorSetLayoutBinding samplerLayoutBinding{};
@@ -1069,18 +1133,12 @@ void MainApp::createMainRasterizationPipeline()
 
     ColorBlendAttachmentState colorBlendAttachmentState{};
     colorBlendAttachmentState.blendEnable = VK_FALSE;
-    colorBlendAttachmentState.srcColorBlendFactor = VK_BLEND_FACTOR_ONE; // Optional
-    colorBlendAttachmentState.dstColorBlendFactor = VK_BLEND_FACTOR_ZERO; // Optional
-    colorBlendAttachmentState.colorBlendOp = VK_BLEND_OP_ADD; // Optional
-    colorBlendAttachmentState.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE; // Optional
-    colorBlendAttachmentState.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO; // Optional
-    colorBlendAttachmentState.alphaBlendOp = VK_BLEND_OP_ADD; // Optional
-    colorBlendAttachmentState.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
 
     ColorBlendState colorBlendState{};
     colorBlendState.logicOpEnable = VK_FALSE;
     colorBlendState.logicOp = VK_LOGIC_OP_COPY;
-    colorBlendState.attachments.emplace_back(colorBlendAttachmentState);
+    colorBlendState.attachments.emplace_back(colorBlendAttachmentState); // No blending for output image
+    colorBlendState.attachments.emplace_back(colorBlendAttachmentState); // No blending for velocity image
     colorBlendState.blendConstants[0] = 0.0f;
     colorBlendState.blendConstants[1] = 0.0f;
     colorBlendState.blendConstants[2] = 0.0f;
@@ -1098,7 +1156,8 @@ void MainApp::createMainRasterizationPipeline()
     std::vector<VkDescriptorSetLayout> descriptorSetLayoutHandles {
         globalDescriptorSetLayout->getHandle(),
         objectDescriptorSetLayout->getHandle(),
-        textureDescriptorSetLayout->getHandle()
+        textureDescriptorSetLayout->getHandle(),
+        taaDescriptorSetLayout->getHandle()
     };
 
     std::vector<VkPushConstantRange> pushConstantRangeHandles;
@@ -1252,8 +1311,8 @@ void MainApp::createFramebuffers()
 {
     for (uint32_t i = 0; i < maxFramesInFlight; ++i)
     {
-        std::vector<VkImageView> attachments{ frameData.outputImageViews[i]->getHandle(), depthImageView->getHandle() };
-        frameData.offscreenFramebuffers[i] = std::make_unique<Framebuffer>(*device, *swapchain, *mainRenderPass.renderPass, attachments);
+        std::vector<VkImageView> offscreenAttachments{ frameData.outputImageViews[i]->getHandle(), frameData.velocityImageViews[i]->getHandle(), depthImageView->getHandle() };
+        frameData.offscreenFramebuffers[i] = std::make_unique<Framebuffer>(*device, *swapchain, *mainRenderPass.renderPass, offscreenAttachments);
         setDebugUtilsObjectName(device->getHandle(), frameData.offscreenFramebuffers[i]->getHandle(), "outputImageFramebuffer for frame #" + std::to_string(i));
 
         std::vector<VkImageView> postProcessingAttachments{ frameData.outputImageViews[i]->getHandle(), depthImageView->getHandle() };
@@ -1262,9 +1321,10 @@ void MainApp::createFramebuffers()
     }
 
     // Set clear values
-    offscreenFramebufferClearValues.resize(2);
+    offscreenFramebufferClearValues.resize(3);
     offscreenFramebufferClearValues[0].color = { 1.0f, 1.0f, 1.0f, 1.0f };
-    offscreenFramebufferClearValues[1].depthStencil = { 1.0f, 0u };
+    offscreenFramebufferClearValues[1].color = { 0.0f, 0.0f, 0.0f, 0.0f };
+    offscreenFramebufferClearValues[2].depthStencil = { 1.0f, 0u };
 
     postProcessFramebufferClearValues.resize(2);
     postProcessFramebufferClearValues[0].color = { 1.0f, 1.0f, 1.0f, 1.0f };
@@ -1549,7 +1609,7 @@ void MainApp::createUniformBuffers()
 {
     VkBufferCreateInfo bufferInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
     bufferInfo.size = sizeof(CameraData);
-    bufferInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+    bufferInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
     bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
     VmaAllocationCreateInfo memoryInfo{};
@@ -1560,6 +1620,13 @@ void MainApp::createUniformBuffers()
         frameData.cameraBuffers[i] = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
     }
 
+    bufferInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    for (uint32_t i = 0; i < maxFramesInFlight; ++i)
+    {
+        frameData.previousFrameCameraBuffers[i] = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
+    }
+
+    bufferInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
     bufferInfo.size = sizeof(LightData) * MAX_LIGHT_COUNT;
     for (uint32_t i = 0; i < maxFramesInFlight; ++i)
     {
@@ -1573,7 +1640,7 @@ void MainApp::createSSBOs()
 
     VkBufferCreateInfo bufferInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
     bufferInfo.size = bufferSize;
-    bufferInfo.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+    bufferInfo.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
     bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
     VmaAllocationCreateInfo memoryInfo{};
@@ -1582,6 +1649,11 @@ void MainApp::createSSBOs()
     for (uint32_t i = 0; i < maxFramesInFlight; ++i)
     {
         frameData.objectBuffers[i] = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
+    }
+
+    bufferInfo.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    for (uint32_t i = 0; i < maxFramesInFlight; ++i)
+    {
         frameData.previousFrameObjectBuffers[i] = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
     }
 }
@@ -1667,23 +1739,19 @@ void MainApp::createDescriptorSets()
         setDebugUtilsObjectName(device->getHandle(), frameData.postProcessingDescriptorSets[i]->getHandle(), "postProcessingDescriptorSet for frame #" + std::to_string(i));
 
         // Binding 0 is the camera buffer
+        std::array<VkDescriptorBufferInfo, 1> postProcessingUniformBufferInfos{ cameraBufferInfo };
         VkWriteDescriptorSet writePostProcessingUniformBufferDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
         writePostProcessingUniformBufferDescriptorSet.dstSet = frameData.postProcessingDescriptorSets[i]->getHandle();
         writePostProcessingUniformBufferDescriptorSet.dstBinding = 0;
         writePostProcessingUniformBufferDescriptorSet.dstArrayElement = 0;
         writePostProcessingUniformBufferDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        writePostProcessingUniformBufferDescriptorSet.descriptorCount = 1;
-        writePostProcessingUniformBufferDescriptorSet.pBufferInfo = &cameraBufferInfo;
+        writePostProcessingUniformBufferDescriptorSet.descriptorCount = postProcessingUniformBufferInfos.size();
+        writePostProcessingUniformBufferDescriptorSet.pBufferInfo = postProcessingUniformBufferInfos.data();
         writePostProcessingUniformBufferDescriptorSet.pImageInfo = nullptr;
         writePostProcessingUniformBufferDescriptorSet.pTexelBufferView = nullptr;
 
-        // Bindings 1 and 2 are the currentFrameObjectBuffer and previousFrameObjectBuffer respectively
-        VkDescriptorBufferInfo previousFrameObjectBufferInfo{};
-        previousFrameObjectBufferInfo.buffer = frameData.previousFrameObjectBuffers[i]->getHandle();
-        previousFrameObjectBufferInfo.offset = 0;
-        previousFrameObjectBufferInfo.range = sizeof(ObjInstance) * MAX_OBJECT_COUNT;
-        std::array<VkDescriptorBufferInfo, 2> postProcessingStorageBufferInfos{ currentFrameObjectBufferInfo, previousFrameObjectBufferInfo };
-
+        // Binding 1 is the currentFrameObjectBuffer
+        std::array<VkDescriptorBufferInfo, 1> postProcessingStorageBufferInfos{ currentFrameObjectBufferInfo };
         VkWriteDescriptorSet writePostProcessingStorageBufferDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
         writePostProcessingStorageBufferDescriptorSet.dstSet = frameData.postProcessingDescriptorSets[i]->getHandle();
         writePostProcessingStorageBufferDescriptorSet.dstBinding = 1;
@@ -1694,16 +1762,20 @@ void MainApp::createDescriptorSets()
         writePostProcessingStorageBufferDescriptorSet.pImageInfo = nullptr;
         writePostProcessingStorageBufferDescriptorSet.pTexelBufferView = nullptr;
 
-        // Bindings 3 is the history image
+        // Bindings 2 and 3 are the history image and velocity image respectively
         VkDescriptorImageInfo historyImageInfo{};
         historyImageInfo.sampler = VK_NULL_HANDLE;
         historyImageInfo.imageView = frameData.historyImageViews[i]->getHandle();
         historyImageInfo.imageLayout = frameData.historyImageViews[i]->getImage().getLayout();
-        std::array<VkDescriptorImageInfo, 1> postProcessingStorageImageInfos{ historyImageInfo };
+        VkDescriptorImageInfo velocityImageInfo{};
+        velocityImageInfo.sampler = VK_NULL_HANDLE;
+        velocityImageInfo.imageView = frameData.velocityImageViews[i]->getHandle();
+        velocityImageInfo.imageLayout = frameData.velocityImageViews[i]->getImage().getLayout();
+        std::array<VkDescriptorImageInfo, 2> postProcessingStorageImageInfos{ historyImageInfo, velocityImageInfo };
         
         VkWriteDescriptorSet writePostProcessingStorageImageDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
         writePostProcessingStorageImageDescriptorSet.dstSet = frameData.postProcessingDescriptorSets[i]->getHandle();
-        writePostProcessingStorageImageDescriptorSet.dstBinding = 3;
+        writePostProcessingStorageImageDescriptorSet.dstBinding = 2;
         writePostProcessingStorageImageDescriptorSet.dstArrayElement = 0;
         writePostProcessingStorageImageDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
         writePostProcessingStorageImageDescriptorSet.descriptorCount = postProcessingStorageImageInfos.size();
@@ -1711,13 +1783,59 @@ void MainApp::createDescriptorSets()
         writePostProcessingStorageImageDescriptorSet.pBufferInfo = nullptr;
         writePostProcessingStorageImageDescriptorSet.pTexelBufferView = nullptr;
 
+        // Taa Descriptor Set
+        VkDescriptorSetAllocateInfo taaDescriptorSetAllocateInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+        taaDescriptorSetAllocateInfo.descriptorPool = descriptorPool->getHandle();
+        taaDescriptorSetAllocateInfo.descriptorSetCount = 1;
+        taaDescriptorSetAllocateInfo.pSetLayouts = &taaDescriptorSetLayout->getHandle();
+        frameData.taaDescriptorSets[i] = std::make_unique<DescriptorSet>(*device, taaDescriptorSetAllocateInfo);
+        setDebugUtilsObjectName(device->getHandle(), frameData.taaDescriptorSets[i]->getHandle(), "taaDescriptorSet for frame #" + std::to_string(i));
+        
+        // Binding 0 is the previous frame camera buffer
+        VkDescriptorBufferInfo previousFrameCameraBufferInfo{};
+        previousFrameCameraBufferInfo.buffer = frameData.previousFrameCameraBuffers[i]->getHandle();
+        previousFrameCameraBufferInfo.offset = 0;
+        previousFrameCameraBufferInfo.range = sizeof(CameraData);
+        std::array<VkDescriptorBufferInfo, 1> taaUniformBufferInfos{ previousFrameCameraBufferInfo };
+
+        VkWriteDescriptorSet writeTaaUniformBufferDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        writeTaaUniformBufferDescriptorSet.dstSet = frameData.taaDescriptorSets[i]->getHandle();
+        writeTaaUniformBufferDescriptorSet.dstBinding = 0;
+        writeTaaUniformBufferDescriptorSet.dstArrayElement = 0;
+        writeTaaUniformBufferDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        writeTaaUniformBufferDescriptorSet.descriptorCount = taaUniformBufferInfos.size();
+        writeTaaUniformBufferDescriptorSet.pBufferInfo = taaUniformBufferInfos.data();
+        writeTaaUniformBufferDescriptorSet.pImageInfo = nullptr;
+        writeTaaUniformBufferDescriptorSet.pTexelBufferView = nullptr;
+
+        // Binding 1 is the previous frame object buffer
+        VkDescriptorBufferInfo previousFrameObjectBufferInfo{};
+        previousFrameObjectBufferInfo.buffer = frameData.previousFrameObjectBuffers[i]->getHandle();
+        previousFrameObjectBufferInfo.offset = 0;
+        previousFrameObjectBufferInfo.range = sizeof(ObjInstance) * MAX_OBJECT_COUNT;
+        std::array<VkDescriptorBufferInfo, 1> taaStorageImageInfos{ previousFrameObjectBufferInfo };
+
+        VkWriteDescriptorSet writeTaaStorageBufferDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        writeTaaStorageBufferDescriptorSet.dstSet = frameData.taaDescriptorSets[i]->getHandle();
+        writeTaaStorageBufferDescriptorSet.dstBinding = 1;
+        writeTaaStorageBufferDescriptorSet.dstArrayElement = 0;
+        writeTaaStorageBufferDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        writeTaaStorageBufferDescriptorSet.descriptorCount = taaStorageImageInfos.size();
+        writeTaaStorageBufferDescriptorSet.pBufferInfo = taaStorageImageInfos.data();
+        writeTaaStorageBufferDescriptorSet.pImageInfo = nullptr;
+        writeTaaStorageBufferDescriptorSet.pTexelBufferView = nullptr;
+
         // Write descriptor sets
-        std::array<VkWriteDescriptorSet, 5> writeDescriptorSets {
+        std::array<VkWriteDescriptorSet, 7> writeDescriptorSets {
             writeGlobalDescriptorSet,
             writeObjectDescriptorSet,
+
             writePostProcessingUniformBufferDescriptorSet,
             writePostProcessingStorageBufferDescriptorSet,
-            writePostProcessingStorageImageDescriptorSet
+            writePostProcessingStorageImageDescriptorSet,
+
+            writeTaaUniformBufferDescriptorSet,
+            writeTaaStorageBufferDescriptorSet
         };
         vkUpdateDescriptorSets(device->getHandle(), to_u32(writeDescriptorSets.size()), writeDescriptorSets.data(), 0, nullptr);
     }
@@ -1853,7 +1971,7 @@ void MainApp::createSceneLights()
 
 void MainApp::loadModels()
 {
-    loadModel("monkey_smooth.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 0)));
+    loadModel("monkey_smooth.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 3)));
     loadModel("plane.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(0, 0, 0)));
     loadModel("Medieval_building.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ 5, 0,0 }));
     //loadModel("lost_empire.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ 5,-10,0 }));
@@ -1996,7 +2114,7 @@ void MainApp::updateTaaState()
     taaPushConstant.frameSinceViewChange += 1;
 }
 
-void MainApp::createOutputAndHistoryImagesAndImageViews()
+void MainApp::createImageResourcesForFrames()
 {
     VkExtent3D extent{ swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, 1 };
     VkImageSubresourceRange subresourceRange = {};
@@ -2012,16 +2130,21 @@ void MainApp::createOutputAndHistoryImagesAndImageViews()
         frameData.outputImageViews[i] = std::make_unique<ImageView>(*(frameData.outputImages[i]), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, frameData.outputImages[i]->getFormat());
         frameData.historyImages[i] = std::make_unique<Image>(*device, swapchain->getProperties().surfaceFormat.format, extent, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
         frameData.historyImageViews[i] = std::make_unique<ImageView>(*(frameData.historyImages[i]), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, frameData.historyImages[i]->getFormat());
+        frameData.velocityImages[i] = std::make_unique<Image>(*device, swapchain->getProperties().surfaceFormat.format, extent, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+        frameData.velocityImageViews[i] = std::make_unique<ImageView>(*(frameData.velocityImages[i]), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, frameData.velocityImages[i]->getFormat());
 
         setDebugUtilsObjectName(device->getHandle(), frameData.outputImages[i]->getHandle(), "outputImage for frame #" + std::to_string(i));
         setDebugUtilsObjectName(device->getHandle(), frameData.outputImageViews[i]->getHandle(), "outputImageView for frame #" + std::to_string(i));
         setDebugUtilsObjectName(device->getHandle(), frameData.historyImages[i]->getHandle(), "historyImage for frame #" + std::to_string(i));
         setDebugUtilsObjectName(device->getHandle(), frameData.historyImageViews[i]->getHandle(), "historyImageView for frame #" + std::to_string(i));
+        setDebugUtilsObjectName(device->getHandle(), frameData.velocityImages[i]->getHandle(), "velocityImage for frame #" + std::to_string(i));
+        setDebugUtilsObjectName(device->getHandle(), frameData.velocityImageViews[i]->getHandle(), "velocityImageView for frame #" + std::to_string(i));
 
         std::unique_ptr<CommandBuffer> commandBuffer = std::make_unique<CommandBuffer>(*frameData.commandPools[currentFrame], VK_COMMAND_BUFFER_LEVEL_PRIMARY);
         commandBuffer->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
         frameData.outputImages[i]->transitionImageLayout(*commandBuffer, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresourceRange);
         frameData.historyImages[i]->transitionImageLayout(*commandBuffer, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresourceRange);
+        frameData.velocityImages[i]->transitionImageLayout(*commandBuffer, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresourceRange);
         commandBuffer->end();
 
         VkSubmitInfo submitInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
@@ -2809,11 +2932,11 @@ void MainApp::createRtShaderBindingTable()
 //--------------------------------------------------------------------------------------------------
 // Ray Tracing the scene
 //
-void MainApp::raytrace(const uint32_t &swapchainImageIndex)
+void MainApp::raytrace()
 {
     debugUtilBeginLabel(frameData.commandBuffers[currentFrame][0]->getHandle(), "Raytrace");
 
-    std::vector<VkDescriptorSet> descSets{
+    std::array<VkDescriptorSet, 4> descSets {
         frameData.rtDescriptorSets[currentFrame]->getHandle(), 
         frameData.globalDescriptorSets[currentFrame]->getHandle(),
         frameData.objectDescriptorSets[currentFrame]->getHandle(),
