@@ -109,13 +109,15 @@ struct ObjInstance
 // TODO check these alignments
 struct LightData
 {
-    alignas(16) glm::vec3 lightPosition{ 10.0f, 13.0f, 4.5f };
-    alignas(4) float lightIntensity{ 100.0f };
+    alignas(16) glm::vec3 lightPosition{ 10.0f, 4.3f, 7.1f };
+    alignas(4) float lightIntensity{ 140.0f };
     alignas(4) int lightType{ 0 }; // 0: point, 1: directional (infinite)
 };
 
 struct ObjModel
 {
+    std::string objFileName;
+    uint64_t txtOffset;
     uint32_t verticesCount;
     uint32_t indicesCount;
     std::unique_ptr<Buffer> vertexBuffer;
@@ -134,13 +136,6 @@ struct Texture
 {
     std::unique_ptr<Image> image;
     std::unique_ptr<ImageView> imageview;
-};
-
-struct RenderObject
-{
-    std::shared_ptr<ObjModel> objModel;
-
-    std::shared_ptr<PipelineData> pipelineData;
 };
 
 // Inputs used to build Bottom-level acceleration structure.
@@ -320,24 +315,23 @@ private:
     std::unique_ptr<DescriptorSet> textureDescriptorSet;
     size_t currentFrame{ 0 };
 
-    std::vector<RenderObject> renderables;
     std::unordered_map<std::string, std::shared_ptr<PipelineData>> pipelineDataMap;
-    std::unordered_map<std::string, std::shared_ptr<ObjModel>> objModels;
+    std::vector<std::shared_ptr<ObjModel>> objModels;
     std::vector<Texture> textures;
     std::vector<ObjInstance> objInstances;
 
     // Note that any modifications to push constants must be matched in the shaders and offsets must be set appropriately
     struct RasterizationPushConstant
     {
-        glm::vec3 lightPosition{ 10.0f, 13.0f, 4.5f };
-        float lightIntensity{ 100.0f };
+        glm::vec3 lightPosition{ 10.0f, 4.3f, 7.1f };
+        float lightIntensity{ 140.0f };
         int lightType{ 0 }; // 0: point, 1: directional (infinite)
     } rasterizationPushConstant;
 
     struct RaytracingPushConstant
     {
-        glm::vec3 lightPosition{ 10.0f, 13.0f, 4.5f };
-        float lightIntensity{ 100.0f };
+        glm::vec3 lightPosition{ 10.0f, 4.3f, 7.1f };
+        float lightIntensity{ 140.0f };
         int lightType{ 0 }; // 0: point, 1: directional (infinite)
         int frameSinceViewChange{ -1 }; // Used for temporal anti-aliasing 
     } raytracingPushConstant;
@@ -389,7 +383,8 @@ private:
     void createDescriptorPool();
     void createDescriptorSets();
     void createSceneLights();
-    void loadModel(const std::string &objFileName, glm::mat4 transform);
+    void loadModel(const std::string &objFileName);
+    void createInstance(const std::string &objFileName, glm::mat4 transform);
     void loadModels();
     void createScene();
     void createSemaphoreAndFencePools();
@@ -402,10 +397,10 @@ private:
     void updateTaaState();
 
     std::shared_ptr<PipelineData> getPipelineData(const std::string &name);
-    std::shared_ptr<ObjModel> getObjModel(const std::string &name);
+    uint32_t getObjModelIndex(const std::string &name);
 
     // Raytracing TODO: cleanup this section
-    BlasInput objectToVkGeometryKHR(size_t renderableIndex);
+    BlasInput objectToVkGeometryKHR(size_t obInstanceIndex);
     void createBottomLevelAS();
     std::unique_ptr<AccelKHR> createAcceleration(VkAccelerationStructureCreateInfoKHR &accel);
     void buildBlas(const std::vector<BlasInput> &input, VkBuildAccelerationStructureFlagsKHR flags);

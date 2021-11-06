@@ -47,12 +47,13 @@ MainApp::~MainApp()
 
     for (auto &it : objModels)
     {
-        it.second->indexBuffer.reset();
-        it.second->vertexBuffer.reset();
-        it.second->materialsBuffer.reset();
-        it.second->materialsIndexBuffer.reset();
+        it->indexBuffer.reset();
+        it->vertexBuffer.reset();
+        it->materialsBuffer.reset();
+        it->materialsIndexBuffer.reset();
     }
     objModels.clear();
+    objInstances.clear();
 
     for (auto &it : textures)
     {
@@ -116,7 +117,6 @@ void MainApp::cleanupSwapchain()
         it.second->pipelineState.reset();
     }
     pipelineDataMap.clear();
-    renderables.clear();
 
     mainRenderPass.renderPass.reset();
     mainRenderPass.subpasses.clear();
@@ -619,52 +619,42 @@ void MainApp::updateBuffersPerFrame()
 void MainApp::rasterize()
 {
     debugUtilBeginLabel(frameData.commandBuffers[currentFrame][0]->getHandle(), "Rasterize");
-    // Draw renderables
-    std::shared_ptr<ObjModel> lastObjModel = nullptr;
-    std::shared_ptr<PipelineData> lastPipeline = nullptr;
-    for (int index = 0; index < renderables.size(); index++)
+    int32_t lastObjIndex{ -1 };
+    for (int index = 0; index < objInstances.size(); index++)
     {
-        RenderObject object = renderables[index];
+        std::shared_ptr<PipelineData> pipelineData = getPipelineData("texturedmesh");
 
         // Bind the pipeline if it doesn't match with the already bound one TODO: this will always be the same so refactor away this check
-        if (object.pipelineData != lastPipeline)
-        {
+        vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineData->pipeline->getHandle());
 
-            vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, object.pipelineData->pipeline->getHandle());
-            lastPipeline = object.pipelineData;
+        // Global data descriptor
+        vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineData->pipelineState->getPipelineLayout().getHandle(), 0, 1, &frameData.globalDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
 
-            // Global data descriptor
-            vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, object.pipelineData->pipelineState->getPipelineLayout().getHandle(), 0, 1, &frameData.globalDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
+        // Object data descriptor
+        vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineData->pipelineState->getPipelineLayout().getHandle(), 1, 1, &frameData.objectDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
 
-            // Object data descriptor
-            vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, object.pipelineData->pipelineState->getPipelineLayout().getHandle(), 1, 1, &frameData.objectDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
+        // TODO we only need to bind this once so we should move it out of this method
+        // Texture descriptor
+        vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineData->pipelineState->getPipelineLayout().getHandle(), 2, 1, &textureDescriptorSet->getHandle(), 0, nullptr);
 
-            // TODO remove this if condition since it should always be true
-            if (object.pipelineData == getPipelineData("texturedmesh"))
-            {
-                // TODO we only need to bind this once so we should move it out of this method
-                // Texture descriptor
-                vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, object.pipelineData->pipelineState->getPipelineLayout().getHandle(), 2, 1, &textureDescriptorSet->getHandle(), 0, nullptr);
-            }
+        // Taa data descriptor
+        vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineData->pipelineState->getPipelineLayout().getHandle(), 3, 1, &frameData.taaDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
 
-            // Taa data descriptor
-            vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, object.pipelineData->pipelineState->getPipelineLayout().getHandle(), 3, 1, &frameData.taaDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
-        }
-
+        std::shared_ptr<ObjModel> objModel = objModels[objInstances[index].objIndex];
         // Bind the objModel if it's a different one from last one
-        if (object.objModel != lastObjModel)
+        if (objInstances[index].objIndex != lastObjIndex)
         {
-            VkBuffer vertexBuffers[] = { object.objModel->vertexBuffer->getHandle() };
+            VkBuffer vertexBuffers[] = { objModel->vertexBuffer->getHandle() };
             VkDeviceSize offsets[] = { 0 };
             vkCmdBindVertexBuffers(frameData.commandBuffers[currentFrame][0]->getHandle(), 0, 1, vertexBuffers, offsets);
-            vkCmdBindIndexBuffer(frameData.commandBuffers[currentFrame][0]->getHandle(), object.objModel->indexBuffer->getHandle(), 0, VK_INDEX_TYPE_UINT32);
+            vkCmdBindIndexBuffer(frameData.commandBuffers[currentFrame][0]->getHandle(), objModel->indexBuffer->getHandle(), 0, VK_INDEX_TYPE_UINT32);
 
-            lastObjModel = object.objModel;
+            lastObjIndex = objInstances[index].objIndex;
         }
 
-        vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), object.pipelineData->pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(TaaPushConstant), &taaPushConstant);
-        vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), object.pipelineData->pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(TaaPushConstant), sizeof(RasterizationPushConstant), &rasterizationPushConstant);
-        vkCmdDrawIndexed(frameData.commandBuffers[currentFrame][0]->getHandle(), to_u32(object.objModel->indicesCount), 1, 0, 0, index);
+        vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData->pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(TaaPushConstant), &taaPushConstant);
+        vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData->pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(TaaPushConstant), sizeof(RasterizationPushConstant), &rasterizationPushConstant);
+        vkCmdDrawIndexed(frameData.commandBuffers[currentFrame][0]->getHandle(), to_u32(objModel->indicesCount), 1, 0, 0, index);
     }
     
     debugUtilEndLabel(frameData.commandBuffers[currentFrame][0]->getHandle());
@@ -673,11 +663,11 @@ void MainApp::rasterize()
 void MainApp::drawPost()
 {
     debugUtilBeginLabel(frameData.commandBuffers[currentFrame][1]->getHandle(), "Post");
-    // Draw renderables
-    std::shared_ptr<ObjModel> lastObjModel = nullptr;
-    for (int index = 0; index < renderables.size(); index++)
+
+    int32_t lastObjIndex{ -1 };
+    for (int index = 0; index < objInstances.size(); index++)
     {
-        RenderObject object = renderables[index];
+        std::shared_ptr<ObjModel> objModel = objModels[objInstances[index].objIndex];
 
         vkCmdBindPipeline(frameData.commandBuffers[currentFrame][1]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, getPipelineData("postprocess")->pipeline->getHandle());
 
@@ -685,14 +675,14 @@ void MainApp::drawPost()
         vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][1]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, getPipelineData("postprocess")->pipelineState->getPipelineLayout().getHandle(), 0, 1, &frameData.postProcessingDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
 
         // Bind the objModel if it's a different one from last one
-        if (object.objModel != lastObjModel)
+        if (objInstances[index].objIndex != lastObjIndex)
         {
-            VkBuffer vertexBuffers[] = { object.objModel->vertexBuffer->getHandle() };
+            VkBuffer vertexBuffers[] = { objModel->vertexBuffer->getHandle() };
             VkDeviceSize offsets[] = { 0 };
             vkCmdBindVertexBuffers(frameData.commandBuffers[currentFrame][1]->getHandle(), 0, 1, vertexBuffers, offsets);
-            vkCmdBindIndexBuffer(frameData.commandBuffers[currentFrame][1]->getHandle(), object.objModel->indexBuffer->getHandle(), 0, VK_INDEX_TYPE_UINT32);
+            vkCmdBindIndexBuffer(frameData.commandBuffers[currentFrame][1]->getHandle(), objModel->indexBuffer->getHandle(), 0, VK_INDEX_TYPE_UINT32);
 
-            lastObjModel = object.objModel;
+            lastObjIndex = objInstances[index].objIndex;
         }
 
         // TODO check if this jitter value is correct
@@ -711,7 +701,7 @@ void MainApp::drawPost()
 
         float blendConstants[4] = { blendFactor, blendFactor, blendFactor, blendFactor };
         vkCmdSetBlendConstants(frameData.commandBuffers[currentFrame][1]->getHandle(), blendConstants);
-        vkCmdDrawIndexed(frameData.commandBuffers[currentFrame][1]->getHandle(), to_u32(object.objModel->indicesCount), 1, 0, 0, index);
+        vkCmdDrawIndexed(frameData.commandBuffers[currentFrame][1]->getHandle(), to_u32(objModel->indicesCount), 1, 0, 0, index);
     }
 
     debugUtilEndLabel(frameData.commandBuffers[currentFrame][1]->getHandle());
@@ -1905,7 +1895,7 @@ void MainApp::setupSynchronizationObjects()
     }
 }
 
-void MainApp::loadModel(const std::string &objFileName, glm::mat4 transform)
+void MainApp::loadModel(const std::string &objFileName)
 {
     const std::string modelPath = "../../assets/models/";
     const std::string filePath = modelPath + objFileName;
@@ -1936,14 +1926,23 @@ void MainApp::loadModel(const std::string &objFileName, glm::mat4 transform)
     setDebugUtilsObjectName(device->getHandle(), objModel->materialsBuffer->getHandle(), (std::string("mat_" + objNb).c_str()));
     setDebugUtilsObjectName(device->getHandle(), objModel->materialsIndexBuffer->getHandle(), (std::string("matIdx_" + objNb).c_str()));
 
-    uint64_t txtOffset = static_cast<uint64_t>(textures.size());
+    objModel->objFileName = objFileName;
+    objModel->txtOffset = static_cast<uint64_t>(textures.size());
     loadTextureImages(objLoader.textures);
+
+    objModels.push_back(objModel);
+}
+
+void MainApp::createInstance(const std::string &objFileName, glm::mat4 transform)
+{
+    uint32_t objModelIndex = getObjModelIndex(objFileName);
+    std::shared_ptr<ObjModel> objModel = objModels[objModelIndex];
 
     ObjInstance instance;
     instance.transform = transform;
     instance.transformIT = glm::transpose(glm::inverse(transform));
-    instance.objIndex = static_cast<uint64_t>(objModels.size());
-    instance.textureOffset = txtOffset;
+    instance.objIndex = objModelIndex;
+    instance.textureOffset = objModel->txtOffset;
 
     VkBufferDeviceAddressInfo bufferDeviceAddressInfo = { VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO_KHR };
     bufferDeviceAddressInfo.buffer = objModel->vertexBuffer->getHandle();
@@ -1956,7 +1955,6 @@ void MainApp::loadModel(const std::string &objFileName, glm::mat4 transform)
     instance.materialIndices = vkGetBufferDeviceAddress(device->getHandle(), &bufferDeviceAddressInfo);
 
     objInstances.push_back(instance);
-    objModels[objFileName] = objModel;
 }
 
 void MainApp::createSceneLights()
@@ -1971,33 +1969,32 @@ void MainApp::createSceneLights()
 
 void MainApp::loadModels()
 {
-    loadModel("monkey_smooth.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 3)));
-    loadModel("plane.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(0, 0, 0)));
-    loadModel("Medieval_building.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ 5, 0,0 }));
-    //loadModel("lost_empire.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ 5,-10,0 }));
+    //loadModel("monkey_smooth.obj");
+    loadModel("plane.obj");
+    loadModel("Medieval_building.obj");
+    loadModel("wuson.obj");
+    //loadModel("lost_empire.obj");
+
+    // Validate that models are only loaded once
+    std::set<std::string> existingModels;
+    for (int i = 0; i < objModels.size(); ++i)
+    {
+        if (existingModels.count(objModels[i]->objFileName) != 0)
+        {
+            LOGEANDABORT("Duplicate models have been loaded!");
+        }
+        existingModels.insert(objModels[i]->objFileName);
+    }
 }
 
 void MainApp::createScene()
 {
-    RenderObject monkey;
-    monkey.objModel = getObjModel("monkey_smooth.obj");
-    monkey.pipelineData = getPipelineData("texturedmesh");
-    renderables.push_back(monkey);
-
-    RenderObject plane;
-    plane.objModel = getObjModel("plane.obj");
-    plane.pipelineData = getPipelineData("texturedmesh");
-    renderables.push_back(plane);
-
-    RenderObject building;
-    building.objModel = getObjModel("Medieval_building.obj");
-    building.pipelineData = getPipelineData("texturedmesh");
-    renderables.push_back(building);
-
-    RenderObject empire;
-    empire.objModel = getObjModel("lost_empire.obj");
-    empire.pipelineData = getPipelineData("texturedmesh");
-    //renderables.push_back(empire);
+    //createInstance("monkey_smooth.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 3)));
+    createInstance("plane.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(0, 0, 0)));
+    createInstance("Medieval_building.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ 5, 0,0 }));
+    createInstance("wuson.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 3)));
+    createInstance("wuson.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 7)));
+    //createInstance("lost_empire.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ 5,-10,0 }));
 }
 
 std::shared_ptr<PipelineData> MainApp::getPipelineData(const std::string &name)
@@ -2011,15 +2008,14 @@ std::shared_ptr<PipelineData> MainApp::getPipelineData(const std::string &name)
     return it->second;
 }
 
-std::shared_ptr<ObjModel> MainApp::getObjModel(const std::string &name)
+uint32_t MainApp::getObjModelIndex(const std::string &name)
 {
-    auto it = objModels.find(name);
-    if (it == objModels.end())
+    for (int i = 0; i < objModels.size(); ++i)
     {
-        return nullptr;
+        if (objModels[i]->objFileName.compare(name) == 0) return i;
     }
 
-    return it->second;
+    LOGEANDABORT("Object model {} not found", name);
 }
 
 void MainApp::initializeImGui()
@@ -2158,16 +2154,16 @@ void MainApp::createImageResourcesForFrames()
 //--------------------------------------------------------------------------------------------------
 // Convert an OBJ model into the ray tracing geometry used to build the BLAS
 //
-BlasInput MainApp::objectToVkGeometryKHR(size_t renderableIndex)
+BlasInput MainApp::objectToVkGeometryKHR(size_t objInstanceIndex)
 {
     VkBufferDeviceAddressInfo bufferDeviceAddressInfo = { VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO };
-    bufferDeviceAddressInfo.buffer = renderables[renderableIndex].objModel->vertexBuffer->getHandle();
+    bufferDeviceAddressInfo.buffer = objModels[objInstances[objInstanceIndex].objIndex]->vertexBuffer->getHandle();
     // We can take advantage of the fact that position is the first member of Vertex
     VkDeviceAddress vertexAddress = vkGetBufferDeviceAddress(device->getHandle(), &bufferDeviceAddressInfo);
-    bufferDeviceAddressInfo.buffer = renderables[renderableIndex].objModel->indexBuffer->getHandle();
+    bufferDeviceAddressInfo.buffer = objModels[objInstances[objInstanceIndex].objIndex]->indexBuffer->getHandle();
     VkDeviceAddress indexAddress = vkGetBufferDeviceAddress(device->getHandle(), &bufferDeviceAddressInfo);
 
-    uint32_t maxPrimitiveCount = renderables[renderableIndex].objModel->indicesCount / 3;
+    uint32_t maxPrimitiveCount = objModels[objInstances[objInstanceIndex].objIndex]->indicesCount / 3;
 
     // Describe buffer as array of VertexObj.
     VkAccelerationStructureGeometryTrianglesDataKHR triangles{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR };
@@ -2179,7 +2175,7 @@ BlasInput MainApp::objectToVkGeometryKHR(size_t renderableIndex)
     triangles.indexData.deviceAddress = indexAddress;
     // Indicate identity transform by setting transformData to null device pointer.
     //triangles.transformData = {};
-    triangles.maxVertex = renderables[renderableIndex].objModel->verticesCount;
+    triangles.maxVertex = objModels[objInstances[objInstanceIndex].objIndex]->verticesCount;
 
     // Identify the above data as containing opaque triangles.
     VkAccelerationStructureGeometryKHR asGeometry{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR };
@@ -2206,8 +2202,8 @@ void MainApp::createBottomLevelAS()
 {
     // BLAS - Storing each primitive in a geometry
     std::vector<BlasInput> allBlas;
-    allBlas.reserve(renderables.size());
-    for (uint32_t i = 0; i < renderables.size(); ++i)
+    allBlas.reserve(objInstances.size());
+    for (uint32_t i = 0; i < objInstances.size(); ++i)
     {
         auto blas = objectToVkGeometryKHR(i);
 
