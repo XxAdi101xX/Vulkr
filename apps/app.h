@@ -304,7 +304,11 @@ private:
     std::unique_ptr<DescriptorSet> textureDescriptorSet;
     size_t currentFrame{ 0 };
 
-    std::unordered_map<std::string, std::shared_ptr<PipelineData>> pipelineDataMap;
+    struct Pipelines
+    {
+        PipelineData offscreen;
+        PipelineData postProcess;
+    } pipelines;
     std::vector<std::shared_ptr<ObjModel>> objModels;
     std::vector<Texture> textures;
     std::vector<ObjInstance> objInstances;
@@ -351,7 +355,6 @@ private:
     void createMainRenderPass();
     void createPostRenderPass();
     void createDescriptorSetLayouts();
-    std::shared_ptr<PipelineData> createPipelineData(std::shared_ptr<GraphicsPipeline> pipeline, std::shared_ptr<PipelineState> pipelineState, const std::string &name);
     void createMainRasterizationPipeline();
     void createPostProcessingPipeline();
     void createFramebuffers();
@@ -386,7 +389,6 @@ private:
     void resetFrameSinceViewChange();
     void updateTaaState();
 
-    std::shared_ptr<PipelineData> getPipelineData(const std::string &name);
     uint32_t getObjModelIndex(const std::string &name);
 
     // Raytracing TODO: cleanup this section

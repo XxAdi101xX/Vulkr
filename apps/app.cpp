@@ -120,12 +120,10 @@ void MainApp::cleanupSwapchain()
         frameData.postProcessFramebuffers[i].reset();
     }
 
-    for (auto &it : pipelineDataMap)
-    {
-        it.second->pipeline.reset();
-        it.second->pipelineState.reset();
-    }
-    pipelineDataMap.clear();
+    pipelines.offscreen.pipeline.reset();
+    pipelines.offscreen.pipelineState.reset();
+    pipelines.postProcess.pipeline.reset();
+    pipelines.postProcess.pipelineState.reset();
 
     mainRenderPass.renderPass.reset();
     mainRenderPass.subpasses.clear();
@@ -643,26 +641,26 @@ void MainApp::updateBuffersPerFrame()
 void MainApp::rasterize()
 {
     debugUtilBeginLabel(frameData.commandBuffers[currentFrame][0]->getHandle(), "Rasterize");
+    
     int32_t lastObjIndex{ -1 };
+    PipelineData &pipelineData = pipelines.offscreen;
     for (int index = 0; index < objInstances.size(); index++)
     {
-        std::shared_ptr<PipelineData> pipelineData = getPipelineData("texturedmesh");
-
         // Bind the pipeline if it doesn't match with the already bound one TODO: this will always be the same so refactor away this check
-        vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineData->pipeline->getHandle());
+        vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineData.pipeline->getHandle());
 
         // Global data descriptor
-        vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineData->pipelineState->getPipelineLayout().getHandle(), 0, 1, &frameData.globalDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
+        vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineData.pipelineState->getPipelineLayout().getHandle(), 0, 1, &frameData.globalDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
 
         // Object data descriptor
-        vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineData->pipelineState->getPipelineLayout().getHandle(), 1, 1, &frameData.objectDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
+        vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineData.pipelineState->getPipelineLayout().getHandle(), 1, 1, &frameData.objectDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
 
         // TODO we only need to bind this once so we should move it out of this method
         // Texture descriptor
-        vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineData->pipelineState->getPipelineLayout().getHandle(), 2, 1, &textureDescriptorSet->getHandle(), 0, nullptr);
+        vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineData.pipelineState->getPipelineLayout().getHandle(), 2, 1, &textureDescriptorSet->getHandle(), 0, nullptr);
 
         // Taa data descriptor
-        vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineData->pipelineState->getPipelineLayout().getHandle(), 3, 1, &frameData.taaDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
+        vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineData.pipelineState->getPipelineLayout().getHandle(), 3, 1, &frameData.taaDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
 
         std::shared_ptr<ObjModel> objModel = objModels[objInstances[index].objIndex];
         // Bind the objModel if it's a different one from last one
@@ -676,8 +674,8 @@ void MainApp::rasterize()
             lastObjIndex = objInstances[index].objIndex;
         }
 
-        vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData->pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(TaaPushConstant), &taaPushConstant);
-        vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData->pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(TaaPushConstant), sizeof(RasterizationPushConstant), &rasterizationPushConstant);
+        vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(TaaPushConstant), &taaPushConstant);
+        vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(TaaPushConstant), sizeof(RasterizationPushConstant), &rasterizationPushConstant);
         vkCmdDrawIndexed(frameData.commandBuffers[currentFrame][0]->getHandle(), to_u32(objModel->indicesCount), 1, 0, 0, index);
     }
     
@@ -689,14 +687,15 @@ void MainApp::drawPost()
     debugUtilBeginLabel(frameData.commandBuffers[currentFrame][1]->getHandle(), "Post");
 
     int32_t lastObjIndex{ -1 };
+    PipelineData &pipelineData = pipelines.postProcess;
     for (int index = 0; index < objInstances.size(); index++)
     {
         std::shared_ptr<ObjModel> objModel = objModels[objInstances[index].objIndex];
 
-        vkCmdBindPipeline(frameData.commandBuffers[currentFrame][1]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, getPipelineData("postprocess")->pipeline->getHandle());
+        vkCmdBindPipeline(frameData.commandBuffers[currentFrame][1]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineData.pipeline->getHandle());
 
         // Post processing descriptor
-        vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][1]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, getPipelineData("postprocess")->pipelineState->getPipelineLayout().getHandle(), 0, 1, &frameData.postProcessingDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
+        vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][1]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineData.pipelineState->getPipelineLayout().getHandle(), 0, 1, &frameData.postProcessingDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
 
         // Bind the objModel if it's a different one from last one
         if (objInstances[index].objIndex != lastObjIndex)
@@ -1061,15 +1060,6 @@ void MainApp::createDescriptorSetLayouts()
     textureDescriptorSetLayout = std::make_unique<DescriptorSetLayout>(*device, textureDescriptorSetLayoutBindings);
 }
 
-std::shared_ptr<PipelineData> MainApp::createPipelineData(std::shared_ptr<GraphicsPipeline> pipeline, std::shared_ptr<PipelineState> pipelineState, const std::string &name)
-{
-    std::shared_ptr<PipelineData> pipelineData = std::make_shared<PipelineData>();
-    pipelineData->pipeline = pipeline;
-    pipelineData->pipelineState = pipelineState;
-    pipelineDataMap[name] = pipelineData;
-    return pipelineData;
-}
-
 void MainApp::createMainRasterizationPipeline()
 {
     VertexInputState vertexInputState{};
@@ -1192,10 +1182,10 @@ void MainApp::createMainRasterizationPipeline()
         colorBlendState,
         dynamicStates
     );
-
     std::shared_ptr<GraphicsPipeline> mainRasterizationPipeline = std::make_shared<GraphicsPipeline>(*device, *mainRasterizationPipelineState, nullptr);
 
-    createPipelineData(mainRasterizationPipeline, mainRasterizationPipelineState, "texturedmesh");
+    pipelines.offscreen.pipeline = mainRasterizationPipeline;
+    pipelines.offscreen.pipelineState = mainRasterizationPipelineState;
 }
 
 void MainApp::createPostProcessingPipeline()
@@ -1315,10 +1305,10 @@ void MainApp::createPostProcessingPipeline()
         colorBlendState,
         dynamicStates
     );
-
     std::shared_ptr<GraphicsPipeline> postProcessingPipeline = std::make_shared<GraphicsPipeline>(*device, *postProcessingPipelineState, nullptr);
 
-    createPipelineData(postProcessingPipeline, postProcessingPipelineState, "postprocess");
+    pipelines.postProcess.pipeline = postProcessingPipeline;
+    pipelines.postProcess.pipelineState = postProcessingPipelineState;
 }
 
 void MainApp::createFramebuffers()
@@ -2019,17 +2009,6 @@ void MainApp::createScene()
     createInstance("wuson.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 3)));
     createInstance("wuson.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 7)));
     //createInstance("lost_empire.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ 5,-10,0 }));
-}
-
-std::shared_ptr<PipelineData> MainApp::getPipelineData(const std::string &name)
-{
-    auto it = pipelineDataMap.find(name);
-    if (it == pipelineDataMap.end())
-    {
-        return nullptr;
-    }
-
-    return it->second;
 }
 
 uint32_t MainApp::getObjModelIndex(const std::string &name)

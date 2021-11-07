@@ -146,7 +146,7 @@ void ObjLoader::loadModel(const char *filename)
     {
         if (mi < 0 || mi > materials.size())
         {
-            LOGW("Material indices had to be readjusted, please double check the loaded files");
+            LOGW("Material indices had to be readjusted to 0");
             mi = 0;
         }
     }

@@ -78,7 +78,7 @@ Swapchain::Swapchain(
     vkGetPhysicalDeviceFormatProperties(this->device.getPhysicalDevice().getHandle(), properties.surfaceFormat.format, &formatProperties);
     properties.imageUsage = chooseImageUsage(imageUsageFlags, surfaceCapabilities.supportedUsageFlags, formatProperties.optimalTilingFeatures);
     properties.preTransform = choosePreTransform(transform, surfaceCapabilities.supportedTransforms, surfaceCapabilities.currentTransform);
-    properties.compositeAlpha = chooseCompositeAlpha(VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR, surfaceCapabilities.supportedCompositeAlpha);
+    properties.compositeAlpha = chooseCompositeAlpha(VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR, surfaceCapabilities.supportedCompositeAlpha);
     properties.presentMode = choosePresentMode(presentMode);
     properties.clipped = VK_TRUE;
 
