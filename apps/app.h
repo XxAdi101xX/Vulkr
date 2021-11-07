@@ -186,17 +186,6 @@ struct BlasEntry
     }
 };
 
-// This is an instance of a BLAS
-struct BlasInstance
-{
-    uint32_t                   blasId{ 0 };            // Index of the BLAS in m_blas
-    uint32_t                   instanceCustomId{ 0 };  // Instance Index (gl_InstanceCustomIndexEXT)
-    uint32_t                   hitGroupId{ 0 };        // Hit group index in the SBT
-    uint32_t                   mask{ 0xFF };           // Visibility mask, will be AND-ed with ray mask
-    VkGeometryInstanceFlagsKHR flags{ VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR }; // Geometry instance flags
-    glm::mat4                  transform{ glm::mat4(1) };  // Identity
-};
-
 struct Tlas
 {
     std::unique_ptr<AccelKHR> as;
@@ -349,6 +338,7 @@ private:
 
     // Subroutines
     void drawImGuiInterface();
+    void animateInstances();
     void updateBuffersPerFrame();
     void rasterize();
     void drawPost();
@@ -400,7 +390,7 @@ private:
     uint32_t getObjModelIndex(const std::string &name);
 
     // Raytracing TODO: cleanup this section
-    BlasInput objectToVkGeometryKHR(size_t obInstanceIndex);
+    BlasInput objectToVkGeometryKHR(size_t objModelIndex);
     void createBottomLevelAS();
     std::unique_ptr<AccelKHR> createAcceleration(VkAccelerationStructureCreateInfoKHR &accel);
     void buildBlas(const std::vector<BlasInput> &input, VkBuildAccelerationStructureFlagsKHR flags);
@@ -408,14 +398,12 @@ private:
     std::vector<BlasEntry> m_blas;
 
     void createTopLevelAS();
-    void buildTlas(
-        const std::vector<BlasInstance> &instances,
-        VkBuildAccelerationStructureFlagsKHR flags,
-        bool update = false
-    );
+    void buildTlas(bool update);
     // Top-level acceleration structure
     std::unique_ptr<Tlas> m_tlas;
-    VkAccelerationStructureInstanceKHR instanceToVkGeometryInstanceKHR(const BlasInstance &instance);
+    std::vector<VkAccelerationStructureInstanceKHR> accelerationStructureInstances;
+    VkBuildAccelerationStructureFlagsKHR rtFlags;
+    VkDeviceAddress getBlasDeviceAddress(uint32_t blasId);
     // Instance buffer containing the matrices and BLAS ids
     std::unique_ptr<Buffer> m_instBuffer;
 

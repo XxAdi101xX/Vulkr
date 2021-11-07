@@ -23,6 +23,15 @@
 #include "app.h"
 #include "platform/platform.h"
 
+// TODO move this into raytracing helpers file when it's created
+VkTransformMatrixKHR toTransformMatrixKHR(glm::mat4 matrix)
+{
+    glm::mat4 temp = glm::transpose(matrix);
+    VkTransformMatrixKHR outMatrix;
+    memcpy(&outMatrix, &temp, sizeof(VkTransformMatrixKHR));
+    return outMatrix;
+}
+
 namespace vulkr
 {
 
@@ -282,6 +291,7 @@ void MainApp::update()
     }
     imagesInFlight[swapchainImageIndex] = frameData.inFlightFences[currentFrame];
 
+    animateInstances();
     updateBuffersPerFrame();
     drawImGuiInterface();
     updateTaaState(); // must be called after drawingImGui
@@ -572,6 +582,25 @@ void MainApp::drawImGuiInterface()
     // ImGui::ShowDemoWindow();
 }
 
+void MainApp::animateInstances()
+{
+    float time = std::chrono::duration<float, std::chrono::seconds::period>(drawingTimer->elapsed()).count();
+    const int32_t nbWuson{ 2 };
+    const float   deltaAngle = 6.28318530718f / static_cast<float>(nbWuson);
+    const float   wusonLength = 3.f;
+    const float   radius = wusonLength / (2.f * sin(deltaAngle / 2.0f));
+    const float   offset = time * 0.5f;
+
+    for (int i = 2; i < 2 + nbWuson; i++)
+    {
+        objInstances[i].transform = glm::rotate(glm::mat4(1.0f), i * deltaAngle + offset, glm::vec3(0.0f, 1.0f, 0.0f)) * glm::translate(glm::mat4{ 1.0 }, glm::vec3(radius, 0.f, 0.f));
+        objInstances[i].transformIT = glm::transpose(glm::inverse(objInstances[i].transform));
+
+        accelerationStructureInstances[i].transform = toTransformMatrixKHR(objInstances[i].transform);
+    }
+    buildTlas(true);
+}
+
 void MainApp::updateBuffersPerFrame()
 {
     // Update the camera buffer
@@ -587,11 +616,6 @@ void MainApp::updateBuffersPerFrame()
     mappedData = frameData.lightBuffers[currentFrame]->map();
     memcpy(mappedData, sceneLights.data(), sizeof(LightData) * sceneLights.size());
     frameData.lightBuffers[currentFrame]->unmap();
-
-    // TODO: remove this, this won't work for raytracing since you have to recreated TLAS
-    //float time = std::chrono::duration<float, std::chrono::seconds::period>(drawingTimer->elapsed()).count();
-    //objInstances[2].transform = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-    //objInstances[2].transformIT = glm::transpose(glm::inverse(objInstances[2].transform));
 
     // Update the object buffer
     mappedData = frameData.objectBuffers[currentFrame]->map();
@@ -2154,16 +2178,16 @@ void MainApp::createImageResourcesForFrames()
 //--------------------------------------------------------------------------------------------------
 // Convert an OBJ model into the ray tracing geometry used to build the BLAS
 //
-BlasInput MainApp::objectToVkGeometryKHR(size_t objInstanceIndex)
+BlasInput MainApp::objectToVkGeometryKHR(size_t objModelIndex)
 {
     VkBufferDeviceAddressInfo bufferDeviceAddressInfo = { VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO };
-    bufferDeviceAddressInfo.buffer = objModels[objInstances[objInstanceIndex].objIndex]->vertexBuffer->getHandle();
+    bufferDeviceAddressInfo.buffer = objModels[objModelIndex]->vertexBuffer->getHandle();
     // We can take advantage of the fact that position is the first member of Vertex
     VkDeviceAddress vertexAddress = vkGetBufferDeviceAddress(device->getHandle(), &bufferDeviceAddressInfo);
-    bufferDeviceAddressInfo.buffer = objModels[objInstances[objInstanceIndex].objIndex]->indexBuffer->getHandle();
+    bufferDeviceAddressInfo.buffer = objModels[objModelIndex]->indexBuffer->getHandle();
     VkDeviceAddress indexAddress = vkGetBufferDeviceAddress(device->getHandle(), &bufferDeviceAddressInfo);
 
-    uint32_t maxPrimitiveCount = objModels[objInstances[objInstanceIndex].objIndex]->indicesCount / 3;
+    uint32_t maxPrimitiveCount = objModels[objModelIndex]->indicesCount / 3;
 
     // Describe buffer as array of VertexObj.
     VkAccelerationStructureGeometryTrianglesDataKHR triangles{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR };
@@ -2175,7 +2199,7 @@ BlasInput MainApp::objectToVkGeometryKHR(size_t objInstanceIndex)
     triangles.indexData.deviceAddress = indexAddress;
     // Indicate identity transform by setting transformData to null device pointer.
     //triangles.transformData = {};
-    triangles.maxVertex = objModels[objInstances[objInstanceIndex].objIndex]->verticesCount;
+    triangles.maxVertex = objModels[objModelIndex]->verticesCount;
 
     // Identify the above data as containing opaque triangles.
     VkAccelerationStructureGeometryKHR asGeometry{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR };
@@ -2200,10 +2224,10 @@ BlasInput MainApp::objectToVkGeometryKHR(size_t objInstanceIndex)
 
 void MainApp::createBottomLevelAS()
 {
-    // BLAS - Storing each primitive in a geometry
+    // BLAS - Storing each model in a geometry
     std::vector<BlasInput> allBlas;
-    allBlas.reserve(objInstances.size());
-    for (uint32_t i = 0; i < objInstances.size(); ++i)
+    allBlas.reserve(objModels.size());
+    for (uint32_t i = 0; i < objModels.size(); ++i)
     {
         auto blas = objectToVkGeometryKHR(i);
 
@@ -2447,26 +2471,24 @@ void MainApp::buildBlas(const std::vector<BlasInput> &input, VkBuildAcceleration
 
 void MainApp::createTopLevelAS()
 {
-    std::vector<BlasInstance> tlas;
-    tlas.reserve(objInstances.size());
+    accelerationStructureInstances.reserve(objInstances.size());
     for (uint32_t i = 0; i < to_u32(objInstances.size()); i++)
     {
-        BlasInstance rayInst;
-        rayInst.transform = objInstances[i].transform;  // Position of the instance
-        rayInst.instanceCustomId = i;                           // gl_InstanceCustomIndexEXT
-        rayInst.blasId = i; // TODO: is this correct
-        rayInst.hitGroupId = 0;  // We will use the same hit group for all objects
+        VkAccelerationStructureInstanceKHR rayInst;
+        rayInst.transform = toTransformMatrixKHR(objInstances[i].transform);  // Position of the instance
+        rayInst.instanceCustomIndex = objInstances[i].objIndex;                           // gl_InstanceCustomIndexEXT
+        rayInst.mask = 0xFF;
+        rayInst.instanceShaderBindingTableRecordOffset = 0;  // We will use the same hit group for all objects
         rayInst.flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
-        tlas.emplace_back(rayInst);
+        rayInst.accelerationStructureReference = getBlasDeviceAddress(objInstances[i].objIndex);
+        accelerationStructureInstances.emplace_back(rayInst);
     }
-    buildTlas(tlas, VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR);
+    rtFlags = VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR | VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
+    buildTlas(false);
 }
 
-void MainApp::buildTlas(
-    const std::vector<BlasInstance> &instances,
-    VkBuildAccelerationStructureFlagsKHR flags,
-    bool update
-) {
+void MainApp::buildTlas(bool update)
+{
     // Cannot call buildTlas twice except to update.
     if (m_tlas != nullptr && !update)
     {
@@ -2482,18 +2504,10 @@ void MainApp::buildTlas(
     std::shared_ptr<CommandBuffer> cmdBuf = std::make_shared<CommandBuffer>(asCommandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
     cmdBuf->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
 
-    m_tlas->flags = flags;
-
-    // Convert array of our Instances to an array native Vulkan instances.
-    std::vector<VkAccelerationStructureInstanceKHR> geometryInstances;
-    geometryInstances.reserve(instances.size());
-    for (const auto &inst : instances)
-    {
-        geometryInstances.push_back(instanceToVkGeometryInstanceKHR(inst));
-    }
+    m_tlas->flags = rtFlags;
 
     // Create a buffer holding the actual instance data (matrices++) for use by the AS builder
-    VkDeviceSize instanceDescsSizeInBytes = instances.size() * sizeof(VkAccelerationStructureInstanceKHR);
+    VkDeviceSize instanceDescsSizeInBytes{ accelerationStructureInstances.size() * sizeof(VkAccelerationStructureInstanceKHR) };
 
     // Allocate the instance buffer and copy its contents from host to device memory
     if (update)
@@ -2501,7 +2515,7 @@ void MainApp::buildTlas(
         m_instBuffer.reset();
     }
 
-    VkDeviceSize bufferSize{ sizeof(VkAccelerationStructureInstanceKHR) * geometryInstances.size() };
+    VkDeviceSize bufferSize{ sizeof(VkAccelerationStructureInstanceKHR) * accelerationStructureInstances.size() };
     VkBufferCreateInfo bufferInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
     bufferInfo.size = bufferSize;
     bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
@@ -2516,7 +2530,7 @@ void MainApp::buildTlas(
     m_instBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
 
     void *mappedData = stagingBuffer->map();
-    memcpy(mappedData, geometryInstances.data(), static_cast<size_t>(bufferSize));
+    memcpy(mappedData, accelerationStructureInstances.data(), static_cast<size_t>(bufferSize));
     stagingBuffer->unmap();
     copyBufferToBuffer(*stagingBuffer, *m_instBuffer, bufferSize);
     setDebugUtilsObjectName(device->getHandle(), m_instBuffer->getHandle(), "Instance Buffer");
@@ -2531,7 +2545,6 @@ void MainApp::buildTlas(
     barrier.dstAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
     vkCmdPipelineBarrier(cmdBuf->getHandle(), VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
         0, 1, &barrier, 0, nullptr, 0, nullptr);
-
 
     //--------------------------------------------------------------------------------------------------
 
@@ -2549,26 +2562,25 @@ void MainApp::buildTlas(
 
     // Find sizes
     VkAccelerationStructureBuildGeometryInfoKHR buildInfo{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR };
-    buildInfo.flags = flags;
+    buildInfo.flags = rtFlags;
     buildInfo.geometryCount = 1;
     buildInfo.pGeometries = &topASGeometry;
     buildInfo.mode = update ? VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR : VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
     buildInfo.type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
     buildInfo.srcAccelerationStructure = VK_NULL_HANDLE;
 
-    uint32_t                                 count = (uint32_t)instances.size();
+    uint32_t instancesCount = to_u32(accelerationStructureInstances.size());
     VkAccelerationStructureBuildSizesInfoKHR sizeInfo{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR };
-    vkGetAccelerationStructureBuildSizesKHR(device->getHandle(), VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &buildInfo, &count, &sizeInfo);
-
+    vkGetAccelerationStructureBuildSizesKHR(device->getHandle(), VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &buildInfo, &instancesCount, &sizeInfo);
 
     // Create TLAS
     if (update == false)
     {
-        VkAccelerationStructureCreateInfoKHR accellerationStructureCreateInfo{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR };
-        accellerationStructureCreateInfo.type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
-        accellerationStructureCreateInfo.size = sizeInfo.accelerationStructureSize;
+        VkAccelerationStructureCreateInfoKHR accelerationStructureCreateInfo{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR };
+        accelerationStructureCreateInfo.type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
+        accelerationStructureCreateInfo.size = sizeInfo.accelerationStructureSize;
 
-        m_tlas->as = createAcceleration(accellerationStructureCreateInfo);
+        m_tlas->as = createAcceleration(accelerationStructureCreateInfo);
         setDebugUtilsObjectName(device->getHandle(), m_tlas->as->accel, "TLAS");
     }
 
@@ -2578,7 +2590,6 @@ void MainApp::buildTlas(
     bufferCreateInfo.usage = VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
     bufferCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-    //VmaAllocationCreateInfo memoryInfo{};
     memoryInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 
     std::unique_ptr<Buffer> scratchBuffer = std::make_unique<Buffer>(*device, bufferCreateInfo, memoryInfo);
@@ -2590,9 +2601,8 @@ void MainApp::buildTlas(
     buildInfo.dstAccelerationStructure = m_tlas->as->accel;
     buildInfo.scratchData.deviceAddress = scratchAddress;
 
-
     // Build Offsets info: n instances
-    VkAccelerationStructureBuildRangeInfoKHR        buildOffsetInfo{ static_cast<uint32_t>(instances.size()), 0, 0, 0 };
+    VkAccelerationStructureBuildRangeInfoKHR        buildOffsetInfo{ instancesCount, 0, 0, 0 };
     const VkAccelerationStructureBuildRangeInfoKHR *pBuildOffsetInfo = &buildOffsetInfo;
 
     // Build the TLAS
@@ -2607,30 +2617,12 @@ void MainApp::buildTlas(
     vkQueueWaitIdle(graphicsQueue->getHandle());
 }
 
-VkAccelerationStructureInstanceKHR MainApp::instanceToVkGeometryInstanceKHR(const BlasInstance &instance)
+VkDeviceAddress MainApp::getBlasDeviceAddress(uint32_t blasId)
 {
-    assert(size_t(instance.blasId) < m_blas.size());
-    BlasEntry &blas{ m_blas[instance.blasId] };
-
+    if (blasId >= objInstances.size()) LOGEANDABORT("Invalid blasId");
     VkAccelerationStructureDeviceAddressInfoKHR addressInfo{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR };
-    addressInfo.accelerationStructure = blas.as->accel;
-    VkDeviceAddress blasAddress = vkGetAccelerationStructureDeviceAddressKHR(device->getHandle(), &addressInfo);
-
-    VkAccelerationStructureInstanceKHR gInst{};
-    // The matrices for the instance transforms are row-major, instead of
-    // column-major in the rest of the application
-    glm::mat4 transp = glm::transpose(instance.transform);
-    // The gInst.transform value only contains 12 values, corresponding to a 4x3
-    // matrix, hence saving the last row that is anyway always (0,0,0,1). Since
-    // the matrix is row-major, we simply copy the first 12 values of the
-    // original 4x4 matrix
-    memcpy(&gInst.transform, &transp, sizeof(gInst.transform));
-    gInst.instanceCustomIndex = instance.instanceCustomId;
-    gInst.mask = instance.mask;
-    gInst.instanceShaderBindingTableRecordOffset = instance.hitGroupId;
-    gInst.flags = instance.flags;
-    gInst.accelerationStructureReference = blasAddress;
-    return gInst;
+    addressInfo.accelerationStructure = m_blas[blasId].as->accel;
+    return vkGetAccelerationStructureDeviceAddressKHR(device->getHandle(), &addressInfo);
 }
 
 void MainApp::createRtDescriptorPool()
