@@ -135,12 +135,29 @@ struct ColorBlendState
 	float blendConstants[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 };
 
-// TODO: create specialization constant class
-
 class PipelineState
 {
 public:
-	PipelineState (
+	virtual ~PipelineState() = 0;
+
+	PipelineState(const PipelineState &) = delete;
+	PipelineState(PipelineState &&) = delete;
+	PipelineState &operator=(const PipelineState &) = delete;
+	PipelineState &operator=(PipelineState &&) = delete;
+
+	const PipelineLayout &getPipelineLayout() const;
+protected:
+	PipelineState(std::unique_ptr<PipelineLayout> &&pipelineLayout);
+private:
+	std::unique_ptr<PipelineLayout> pipelineLayout{ nullptr };
+
+};
+
+// TODO: create specialization constant class
+class GraphicsPipelineState final : public PipelineState
+{
+public:
+	GraphicsPipelineState(
 		std::unique_ptr<PipelineLayout> &&pipelineLayout,
 		RenderPass& renderPass,
 		VertexInputState vertexInputState,
@@ -152,14 +169,12 @@ public:
 		ColorBlendState colorBlendState,
 		std::vector<VkDynamicState> dynamicStates
 	);
-	~PipelineState();
+	~GraphicsPipelineState() = default;
 
-	PipelineState(const PipelineState &) = delete;
-	PipelineState(PipelineState &&) = delete;
-	PipelineState &operator=(const PipelineState &) = delete;
-	PipelineState &operator=(PipelineState &&) = delete;
-
-	const PipelineLayout &getPipelineLayout() const;
+	GraphicsPipelineState(const GraphicsPipelineState &) = delete;
+	GraphicsPipelineState(GraphicsPipelineState &&) = delete;
+	GraphicsPipelineState &operator=(const GraphicsPipelineState &) = delete;
+	GraphicsPipelineState &operator=(GraphicsPipelineState &&) = delete;
 
 	const RenderPass &getRenderPass() const;
 
@@ -181,8 +196,6 @@ public:
 
 	uint32_t getSubpassIndex() const;
 private:
-	std::unique_ptr<PipelineLayout> pipelineLayout{ nullptr };
-
 	RenderPass &renderPass;
 
 	VertexInputState vertexInputState{};
@@ -202,6 +215,20 @@ private:
 	std::vector<VkDynamicState> dynamicStates;
 
 	uint32_t subpassIndex{ 0u }; // TODO do we need this, currently unused
+};
+
+class ComputePipelineState final : public PipelineState
+{
+public:
+	ComputePipelineState(
+		std::unique_ptr<PipelineLayout> &&pipelineLayout
+	);
+	~ComputePipelineState() = default;
+
+	ComputePipelineState(const ComputePipelineState &) = delete;
+	ComputePipelineState(ComputePipelineState &&) = delete;
+	ComputePipelineState &operator=(const ComputePipelineState &) = delete;
+	ComputePipelineState &operator=(ComputePipelineState &&) = delete;
 };
 
 } // namespace vulkr

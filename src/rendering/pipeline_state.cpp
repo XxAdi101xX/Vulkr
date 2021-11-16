@@ -26,29 +26,8 @@
 namespace vulkr
 {
 
-PipelineState::PipelineState(
-	std::unique_ptr<PipelineLayout> &&pipelineLayout,
-	RenderPass &renderPass,
-	VertexInputState vertexInputState,
-	InputAssemblyState inputAssemblyState,
-	ViewportState viewportState,
-	RasterizationState rasterizationState,
-	MultisampleState multisampleState,
-	DepthStencilState depthStencilState,
-	ColorBlendState colorBlendState,
-	std::vector<VkDynamicState> dynamicStates
-): 
-	pipelineLayout{ std::move(pipelineLayout)},
-	renderPass{ renderPass },
-	vertexInputState{ vertexInputState },
-	inputAssemblyState{ inputAssemblyState },
-	viewportState{ viewportState },
-	rasterizationState{ rasterizationState },
-	multisampleState{ multisampleState },
-	depthStencilState{ depthStencilState },
-	colorBlendState{ colorBlendState },
-	dynamicStates{ dynamicStates }
-{}
+/* Parent class methods */
+PipelineState::PipelineState(std::unique_ptr<PipelineLayout> &&pipelineLayout): pipelineLayout{ std::move(pipelineLayout) } {}
 
 PipelineState::~PipelineState()
 {
@@ -60,54 +39,82 @@ const PipelineLayout &PipelineState::getPipelineLayout() const
 	return *pipelineLayout;
 }
 
-const RenderPass &PipelineState::getRenderPass() const
+/* GraphicsPipelineState methods */
+GraphicsPipelineState::GraphicsPipelineState(
+	std::unique_ptr<PipelineLayout> &&pipelineLayout,
+	RenderPass &renderPass,
+	VertexInputState vertexInputState,
+	InputAssemblyState inputAssemblyState,
+	ViewportState viewportState,
+	RasterizationState rasterizationState,
+	MultisampleState multisampleState,
+	DepthStencilState depthStencilState,
+	ColorBlendState colorBlendState,
+	std::vector<VkDynamicState> dynamicStates
+): 
+	PipelineState{ std::move(pipelineLayout) },
+	renderPass{ renderPass },
+	vertexInputState{ vertexInputState },
+	inputAssemblyState{ inputAssemblyState },
+	viewportState{ viewportState },
+	rasterizationState{ rasterizationState },
+	multisampleState{ multisampleState },
+	depthStencilState{ depthStencilState },
+	colorBlendState{ colorBlendState },
+	dynamicStates{ dynamicStates }
+{}
+
+const RenderPass &GraphicsPipelineState::getRenderPass() const
 {
 	return renderPass;
 }
 
-const VertexInputState &PipelineState::getVertexInputState() const
+const VertexInputState &GraphicsPipelineState::getVertexInputState() const
 {
 	return vertexInputState;
 }
 
-const InputAssemblyState &PipelineState::getInputAssemblyState() const
+const InputAssemblyState &GraphicsPipelineState::getInputAssemblyState() const
 {
 	return inputAssemblyState;
 }
 
-const RasterizationState &PipelineState::getRasterizationState() const
+const RasterizationState &GraphicsPipelineState::getRasterizationState() const
 {
 	return rasterizationState;
 }
 
-const ViewportState &PipelineState::getViewportState() const
+const ViewportState &GraphicsPipelineState::getViewportState() const
 {
 	return viewportState;
 }
 
-const MultisampleState &PipelineState::getMultisampleState() const
+const MultisampleState &GraphicsPipelineState::getMultisampleState() const
 {
 	return multisampleState;
 }
 
-const DepthStencilState &PipelineState::getDepthStencilState() const
+const DepthStencilState &GraphicsPipelineState::getDepthStencilState() const
 {
 	return depthStencilState;
 }
 
-const ColorBlendState &PipelineState::getColorBlendState() const
+const ColorBlendState &GraphicsPipelineState::getColorBlendState() const
 {
 	return colorBlendState;
 }
 
-const std::vector<VkDynamicState>  &PipelineState::getDyanmicStates() const
+const std::vector<VkDynamicState>  &GraphicsPipelineState::getDyanmicStates() const
 {
 	return dynamicStates;
 }
 
-uint32_t PipelineState::getSubpassIndex() const
+uint32_t GraphicsPipelineState::getSubpassIndex() const
 {
 	return subpassIndex;
 }
+
+/* ComputePipelineState methods */
+ComputePipelineState::ComputePipelineState(std::unique_ptr<PipelineLayout> &&pipelineLayout) : PipelineState{ std::move(pipelineLayout) } {}
 
 } // namespace vulkr

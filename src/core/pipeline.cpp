@@ -33,7 +33,7 @@
 namespace vulkr
 {
 
-Pipeline::Pipeline(Device &device, PipelineState &pipelineState) : device{ device }, pipelineState{ pipelineState } {}
+Pipeline::Pipeline(Device &device, VkPipelineBindPoint bindPoint) : device{ device }, bindPoint{ bindPoint } {}
 
 Pipeline::~Pipeline()
 {
@@ -43,7 +43,7 @@ Pipeline::~Pipeline()
 Pipeline::Pipeline(Pipeline &&other) :
 	device{ other.device },
 	handle{ other.handle },
-	pipelineState{ other.pipelineState }
+	bindPoint{ other.bindPoint }
 {
 	other.handle = VK_NULL_HANDLE;
 }
@@ -53,7 +53,12 @@ VkPipeline Pipeline::getHandle() const
 	return handle;
 }
 
-GraphicsPipeline::GraphicsPipeline(Device &device, PipelineState &pipelineState, VkPipelineCache pipelineCache) : Pipeline{ device, pipelineState }
+VkPipelineBindPoint Pipeline::getBindPoint() const
+{
+	return bindPoint;
+}
+
+GraphicsPipeline::GraphicsPipeline(Device &device, GraphicsPipelineState &pipelineState, VkPipelineCache pipelineCache) : Pipeline{ device, VK_PIPELINE_BIND_POINT_GRAPHICS }, pipelineState{ pipelineState }
 {
 	std::vector<VkPipelineShaderStageCreateInfo> shaderStageCreateInfos;
 
@@ -173,6 +178,34 @@ GraphicsPipeline::GraphicsPipeline(Device &device, PipelineState &pipelineState,
 	{
 		vkDestroyShaderModule(device.getHandle(), shaderStageCreateInfo.module, nullptr);
 	}
+}
+
+ComputePipeline::ComputePipeline(Device &device, ComputePipelineState &pipelineState, VkPipelineCache pipelineCache): Pipeline{ device, VK_PIPELINE_BIND_POINT_COMPUTE }, pipelineState{ pipelineState }
+{
+	if (pipelineState.getPipelineLayout().getShaderModules().size() != 1)
+	{
+		LOGEANDABORT("Only one shader module is expected per compute pipeline");
+	}
+
+	VkComputePipelineCreateInfo computePipelineCreateInfo{ VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO };
+	computePipelineCreateInfo.layout = pipelineState.getPipelineLayout().getHandle();
+
+	const ShaderModule &shaderModule =  pipelineState.getPipelineLayout().getShaderModules()[0];
+	VkPipelineShaderStageCreateInfo shaderStageCreateInfo{ VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO };
+	shaderStageCreateInfo.stage = shaderModule.getStage();
+
+	VkShaderModuleCreateInfo shaderModuleCreateInfo{ VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO };
+	shaderModuleCreateInfo.codeSize = shaderModule.getShaderSource().getData().size();
+	shaderModuleCreateInfo.pCode = reinterpret_cast<const uint32_t *>(shaderModule.getShaderSource().getData().data());
+	VK_CHECK(vkCreateShaderModule(device.getHandle(), &shaderModuleCreateInfo, nullptr, &shaderStageCreateInfo.module));
+
+	shaderStageCreateInfo.pName = shaderModule.getEntryPoint().c_str();
+	shaderStageCreateInfo.pSpecializationInfo = nullptr; // Used for specifying shader constants
+	computePipelineCreateInfo.stage = shaderStageCreateInfo;
+
+	vkCreateComputePipelines(device.getHandle(), pipelineCache, 1, &computePipelineCreateInfo, nullptr, &handle);
+
+	vkDestroyShaderModule(device.getHandle(), shaderStageCreateInfo.module, nullptr);
 }
 
 } // namespace vulkr

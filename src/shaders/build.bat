@@ -7,3 +7,5 @@
 %VULKAN_SDK%/Bin/glslc.exe --target-env=vulkan1.2 raytrace.rmiss -o spv/raytrace.rmiss.spv -g
 %VULKAN_SDK%/Bin/glslc.exe --target-env=vulkan1.2 raytraceShadow.rmiss -o spv/raytraceShadow.rmiss.spv -g
 %VULKAN_SDK%/Bin/glslc.exe --target-env=vulkan1.2 raytrace.rchit -o spv/raytrace.rchit.spv -g
+
+%VULKAN_SDK%/Bin/glslc.exe --target-env=vulkan1.2 animate.comp -o spv/animate.comp.spv -g

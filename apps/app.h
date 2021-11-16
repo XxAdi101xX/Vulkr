@@ -63,6 +63,7 @@
 
 #include <iostream>
 #include <chrono>
+#include <algorithm>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
@@ -128,7 +129,7 @@ struct ObjModel
 
 struct PipelineData
 {
-    std::shared_ptr<GraphicsPipeline> pipeline;
+    std::shared_ptr<Pipeline> pipeline;
     std::shared_ptr<PipelineState> pipelineState;
 };
 
@@ -225,6 +226,7 @@ private:
     VkSurfaceKHR surface{ VK_NULL_HANDLE };
     std::unique_ptr<Device> device{ nullptr };
     Queue *graphicsQueue{ VK_NULL_HANDLE };
+    Queue *computeQueue{ VK_NULL_HANDLE };
     Queue *presentQueue{ VK_NULL_HANDLE };
     Queue *transferQueue{ VK_NULL_HANDLE }; // TODO: currently unused in code
 
@@ -308,8 +310,9 @@ private:
     {
         PipelineData offscreen;
         PipelineData postProcess;
+        PipelineData compute;
     } pipelines;
-    std::vector<std::shared_ptr<ObjModel>> objModels;
+    std::vector<ObjModel> objModels;
     std::vector<Texture> textures;
     std::vector<ObjInstance> objInstances;
 
@@ -336,6 +339,11 @@ private:
         int blank{ 0 }; // alignment
     } taaPushConstant;
 
+    struct ComputePushConstant
+    {
+        float time;
+    } computePushConstant;
+
     // TODO: current this is not used in shaders so they must be added in the future
     // TODO: if the type of struct is changed, ensure that you change lines where the size of the array is using sizeof(LightData)
     std::vector<LightData> sceneLights;
@@ -343,6 +351,7 @@ private:
     // Subroutines
     void drawImGuiInterface();
     void animateInstances();
+    void animateWithCompute();
     void updateBuffersPerFrame();
     void rasterize();
     void drawPost();
@@ -357,6 +366,7 @@ private:
     void createDescriptorSetLayouts();
     void createMainRasterizationPipeline();
     void createPostProcessingPipeline();
+    void createComputePipeline();
     void createFramebuffers();
     void createCommandPools();
     void createCommandBuffers();
@@ -367,14 +377,15 @@ private:
     void createTextureSampler();
     void loadTextureImages(const std::vector<std::string> &textureFiles);
     void copyBufferToBuffer(const Buffer &srcBuffer, const Buffer &dstBuffer, VkDeviceSize size);
-    void createVertexBuffer(std::shared_ptr<ObjModel> objModel, const ObjLoader &objLoader);
-    void createIndexBuffer(std::shared_ptr<ObjModel> objModel, const ObjLoader &objLoader);
-    void createMaterialBuffer(std::shared_ptr<ObjModel> objModel, const ObjLoader &objLoader);
-    void createMaterialIndicesBuffer(std::shared_ptr<ObjModel> objModel, const ObjLoader &objLoader);
+    void createVertexBuffer(ObjModel &objModel, const ObjLoader &objLoader);
+    void createIndexBuffer(ObjModel &objModel, const ObjLoader &objLoader);
+    void createMaterialBuffer(ObjModel &objModel, const ObjLoader &objLoader);
+    void createMaterialIndicesBuffer(ObjModel &objModel, const ObjLoader &objLoader);
     void createUniformBuffers();
     void createSSBOs();
     void createDescriptorPool();
     void createDescriptorSets();
+    void updateComputeDescriptorSet();
     void createSceneLights();
     void loadModel(const std::string &objFileName);
     void createInstance(const std::string &objFileName, glm::mat4 transform);
@@ -389,7 +400,7 @@ private:
     void resetFrameSinceViewChange();
     void updateTaaState();
 
-    uint32_t getObjModelIndex(const std::string &name);
+    uint64_t getObjModelIndex(const std::string &name);
 
     // Raytracing TODO: cleanup this section
     BlasInput objectToVkGeometryKHR(size_t objModelIndex);

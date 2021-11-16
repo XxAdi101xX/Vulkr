@@ -56,10 +56,10 @@ MainApp::~MainApp()
 
     for (auto &it : objModels)
     {
-        it->indexBuffer.reset();
-        it->vertexBuffer.reset();
-        it->materialsBuffer.reset();
-        it->materialsIndexBuffer.reset();
+        it.indexBuffer.reset();
+        it.vertexBuffer.reset();
+        it.materialsBuffer.reset();
+        it.materialsIndexBuffer.reset();
     }
     objModels.clear();
     objInstances.clear();
@@ -124,6 +124,8 @@ void MainApp::cleanupSwapchain()
     pipelines.offscreen.pipelineState.reset();
     pipelines.postProcess.pipeline.reset();
     pipelines.postProcess.pipelineState.reset();
+    pipelines.compute.pipeline.reset();
+    pipelines.compute.pipelineState.reset();
 
     mainRenderPass.renderPass.reset();
     mainRenderPass.subpasses.clear();
@@ -179,20 +181,21 @@ void MainApp::prepare()
     createSurface();
     createDevice();
 
-    // For simplicity, we will try to get a queue that supports graphics, transfer and present
-    int32_t desiredQueueFamilyIndex = device->getQueueFamilyIndexByFlags(VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_TRANSFER_BIT, true);
+    // For simplicity, we will try to get a queue that supports graphics, compute, transfer and present
+    int32_t desiredQueueFamilyIndex = device->getQueueFamilyIndexByFlags(VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT | VK_QUEUE_TRANSFER_BIT, true);
 
     // TODO: check if ray tracing requires a compute queue, currently it is just using the graphics queue and not checking for compute capabilities
     if (desiredQueueFamilyIndex >= 0)
     {
         graphicsQueue = device->getQueue(to_u32(desiredQueueFamilyIndex), 0u);
+        computeQueue = device->getQueue(to_u32(desiredQueueFamilyIndex), 0u);
         presentQueue = device->getQueue(to_u32(desiredQueueFamilyIndex), 0u);
         transferQueue = device->getQueue(to_u32(desiredQueueFamilyIndex), 0u);
     }
     else
     {
         // TODO: add concurrency with separate transfer queues
-        LOGEANDABORT("TODO: Cases when transfer and graphics queues are not unified are not supported yet");
+        LOGEANDABORT("TODO: Devices where a queue supporting graphics, compute and transfer do not exist are not supported yet");
 
         // Find a queue that supports graphics and present operations
         int32_t desiredGraphicsQueueFamilyIndex = device->getQueueFamilyIndexByFlags(VK_QUEUE_GRAPHICS_BIT, true);
@@ -237,6 +240,7 @@ void MainApp::prepare()
 
     createDescriptorSetLayouts();
     createMainRasterizationPipeline();
+    createComputePipeline();
     createPostProcessingPipeline();
     createTextureSampler();
     createUniformBuffers();
@@ -290,6 +294,7 @@ void MainApp::update()
     imagesInFlight[swapchainImageIndex] = frameData.inFlightFences[currentFrame];
 
     animateInstances();
+    updateComputeDescriptorSet();
     updateBuffersPerFrame();
     drawImGuiInterface();
     updateTaaState(); // must be called after drawingImGui
@@ -297,7 +302,9 @@ void MainApp::update()
     // Begin command buffer for offscreen pass
     frameData.commandBuffers[currentFrame][0]->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
 
-    // Main offscreen pass
+    //animateWithCompute(); // Compute vertices with compute shader TODO: fix the validation errors that happen when this is enabled, might be due to incorrect sytnax with obj buffer
+    // in animate.comp or the fact that the objBuffer is readonly? Not totally sure.
+    // TODO: We need to add a memory barrier to prevent the offscreen pass from consuming the vertices before the compute shader is done with them!!!!
     if (raytracingEnabled)
     {
         raytrace();
@@ -461,6 +468,7 @@ void MainApp::recreateSwapchain()
     createPostRenderPass();
     createMainRasterizationPipeline();
     createPostProcessingPipeline();
+    createComputePipeline();
     createDepthResources();
     createFramebuffers();
     createCommandBuffers();
@@ -582,14 +590,22 @@ void MainApp::drawImGuiInterface()
 
 void MainApp::animateInstances()
 {
-    float time = std::chrono::duration<float, std::chrono::seconds::period>(drawingTimer->elapsed()).count();
-    const int32_t nbWuson{ 2 };
-    const float   deltaAngle = 6.28318530718f / static_cast<float>(nbWuson);
-    const float   wusonLength = 3.f;
-    const float   radius = wusonLength / (2.f * sin(deltaAngle / 2.0f));
-    const float   offset = time * 0.5f;
+    const int64_t wusonInstanceCount{
+        std::count_if(objInstances.begin(), objInstances.end(), [this](ObjInstance i) { return i.objIndex == getObjModelIndex("wuson.obj"); })
+    };
+    if (wusonInstanceCount == 0)
+    {
+        LOGW("No wuson instances found");
+        return;
+    }
 
-    for (int i = 2; i < 2 + nbWuson; i++)
+    const float deltaAngle = 6.28318530718f / static_cast<float>(wusonInstanceCount);
+    const float wusonLength = 3.f;
+    const float radius = wusonLength / (2.f * sin(deltaAngle / 2.0f));
+    const float time = std::chrono::duration<float, std::chrono::seconds::period>(drawingTimer->elapsed()).count();
+    const float offset = time * 0.5f;
+
+    for (int i = 2; i < 2 + wusonInstanceCount; i++)
     {
         objInstances[i].transform = glm::rotate(glm::mat4(1.0f), i * deltaAngle + offset, glm::vec3(0.0f, 1.0f, 0.0f)) * glm::translate(glm::mat4{ 1.0 }, glm::vec3(radius, 0.f, 0.f));
         objInstances[i].transformIT = glm::transpose(glm::inverse(objInstances[i].transform));
@@ -597,6 +613,19 @@ void MainApp::animateInstances()
         accelerationStructureInstances[i].transform = toTransformMatrixKHR(objInstances[i].transform);
     }
     buildTlas(true);
+}
+
+void MainApp::animateWithCompute()
+{
+    const uint64_t wusonModelIndex{ getObjModelIndex("wuson.obj") };
+
+    computePushConstant.time = std::chrono::duration<float, std::chrono::seconds::period>(drawingTimer->elapsed()).count();
+
+    PipelineData &pipelineData = pipelines.compute;
+    vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipeline->getHandle());
+    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipelineState->getPipelineLayout().getHandle(), 0, 1, &frameData.objectDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
+    vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstant), &computePushConstant);
+    vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), objModels[wusonModelIndex].indicesCount, 1, 1);
 }
 
 void MainApp::updateBuffersPerFrame()
@@ -647,36 +676,36 @@ void MainApp::rasterize()
     for (int index = 0; index < objInstances.size(); index++)
     {
         // Bind the pipeline if it doesn't match with the already bound one TODO: this will always be the same so refactor away this check
-        vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineData.pipeline->getHandle());
+        vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipeline->getHandle());
 
         // Global data descriptor
-        vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineData.pipelineState->getPipelineLayout().getHandle(), 0, 1, &frameData.globalDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
+        vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipelineState->getPipelineLayout().getHandle(), 0, 1, &frameData.globalDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
 
         // Object data descriptor
-        vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineData.pipelineState->getPipelineLayout().getHandle(), 1, 1, &frameData.objectDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
+        vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipelineState->getPipelineLayout().getHandle(), 1, 1, &frameData.objectDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
 
         // TODO we only need to bind this once so we should move it out of this method
         // Texture descriptor
-        vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineData.pipelineState->getPipelineLayout().getHandle(), 2, 1, &textureDescriptorSet->getHandle(), 0, nullptr);
+        vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipelineState->getPipelineLayout().getHandle(), 2, 1, &textureDescriptorSet->getHandle(), 0, nullptr);
 
         // Taa data descriptor
-        vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineData.pipelineState->getPipelineLayout().getHandle(), 3, 1, &frameData.taaDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
+        vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipelineState->getPipelineLayout().getHandle(), 3, 1, &frameData.taaDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
 
-        std::shared_ptr<ObjModel> objModel = objModels[objInstances[index].objIndex];
+        ObjModel &objModel = objModels[objInstances[index].objIndex];
         // Bind the objModel if it's a different one from last one
         if (objInstances[index].objIndex != lastObjIndex)
         {
-            VkBuffer vertexBuffers[] = { objModel->vertexBuffer->getHandle() };
+            VkBuffer vertexBuffers[] = { objModel.vertexBuffer->getHandle() };
             VkDeviceSize offsets[] = { 0 };
             vkCmdBindVertexBuffers(frameData.commandBuffers[currentFrame][0]->getHandle(), 0, 1, vertexBuffers, offsets);
-            vkCmdBindIndexBuffer(frameData.commandBuffers[currentFrame][0]->getHandle(), objModel->indexBuffer->getHandle(), 0, VK_INDEX_TYPE_UINT32);
+            vkCmdBindIndexBuffer(frameData.commandBuffers[currentFrame][0]->getHandle(), objModel.indexBuffer->getHandle(), 0, VK_INDEX_TYPE_UINT32);
 
             lastObjIndex = objInstances[index].objIndex;
         }
 
         vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(TaaPushConstant), &taaPushConstant);
         vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(TaaPushConstant), sizeof(RasterizationPushConstant), &rasterizationPushConstant);
-        vkCmdDrawIndexed(frameData.commandBuffers[currentFrame][0]->getHandle(), to_u32(objModel->indicesCount), 1, 0, 0, index);
+        vkCmdDrawIndexed(frameData.commandBuffers[currentFrame][0]->getHandle(), to_u32(objModel.indicesCount), 1, 0, 0, index);
     }
     
     debugUtilEndLabel(frameData.commandBuffers[currentFrame][0]->getHandle());
@@ -690,20 +719,20 @@ void MainApp::drawPost()
     PipelineData &pipelineData = pipelines.postProcess;
     for (int index = 0; index < objInstances.size(); index++)
     {
-        std::shared_ptr<ObjModel> objModel = objModels[objInstances[index].objIndex];
+        ObjModel &objModel = objModels[objInstances[index].objIndex];
 
-        vkCmdBindPipeline(frameData.commandBuffers[currentFrame][1]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineData.pipeline->getHandle());
+        vkCmdBindPipeline(frameData.commandBuffers[currentFrame][1]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipeline->getHandle());
 
         // Post processing descriptor
-        vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][1]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineData.pipelineState->getPipelineLayout().getHandle(), 0, 1, &frameData.postProcessingDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
+        vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][1]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipelineState->getPipelineLayout().getHandle(), 0, 1, &frameData.postProcessingDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
 
         // Bind the objModel if it's a different one from last one
         if (objInstances[index].objIndex != lastObjIndex)
         {
-            VkBuffer vertexBuffers[] = { objModel->vertexBuffer->getHandle() };
+            VkBuffer vertexBuffers[] = { objModel.vertexBuffer->getHandle() };
             VkDeviceSize offsets[] = { 0 };
             vkCmdBindVertexBuffers(frameData.commandBuffers[currentFrame][1]->getHandle(), 0, 1, vertexBuffers, offsets);
-            vkCmdBindIndexBuffer(frameData.commandBuffers[currentFrame][1]->getHandle(), objModel->indexBuffer->getHandle(), 0, VK_INDEX_TYPE_UINT32);
+            vkCmdBindIndexBuffer(frameData.commandBuffers[currentFrame][1]->getHandle(), objModel.indexBuffer->getHandle(), 0, VK_INDEX_TYPE_UINT32);
 
             lastObjIndex = objInstances[index].objIndex;
         }
@@ -724,7 +753,7 @@ void MainApp::drawPost()
 
         float blendConstants[4] = { blendFactor, blendFactor, blendFactor, blendFactor };
         vkCmdSetBlendConstants(frameData.commandBuffers[currentFrame][1]->getHandle(), blendConstants);
-        vkCmdDrawIndexed(frameData.commandBuffers[currentFrame][1]->getHandle(), to_u32(objModel->indicesCount), 1, 0, 0, index);
+        vkCmdDrawIndexed(frameData.commandBuffers[currentFrame][1]->getHandle(), to_u32(objModel.indicesCount), 1, 0, 0, index);
     }
 
     debugUtilEndLabel(frameData.commandBuffers[currentFrame][1]->getHandle());
@@ -988,7 +1017,7 @@ void MainApp::createDescriptorSetLayouts()
     objectBufferLayoutBinding.binding = 0;
     objectBufferLayoutBinding.descriptorCount = 1;
     objectBufferLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    objectBufferLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
+    objectBufferLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT;
     objectBufferLayoutBinding.pImmutableSamplers = nullptr;
 
     std::vector<VkDescriptorSetLayoutBinding> objectDescriptorSetLayoutBindings{ objectBufferLayoutBinding };
@@ -1170,7 +1199,7 @@ void MainApp::createMainRasterizationPipeline()
     VkPushConstantRange rasterizationPushConstantRange{ VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(TaaPushConstant), sizeof(RasterizationPushConstant) };
     pushConstantRangeHandles.push_back(rasterizationPushConstantRange);
 
-    std::shared_ptr<PipelineState> mainRasterizationPipelineState = std::make_shared<PipelineState>(
+    std::shared_ptr<GraphicsPipelineState> mainRasterizationPipelineState = std::make_shared<GraphicsPipelineState>(
         std::make_unique<PipelineLayout>(*device, shaderModules, descriptorSetLayoutHandles, pushConstantRangeHandles),
         *mainRenderPass.renderPass,
         vertexInputState,
@@ -1184,8 +1213,8 @@ void MainApp::createMainRasterizationPipeline()
     );
     std::shared_ptr<GraphicsPipeline> mainRasterizationPipeline = std::make_shared<GraphicsPipeline>(*device, *mainRasterizationPipelineState, nullptr);
 
-    pipelines.offscreen.pipeline = mainRasterizationPipeline;
     pipelines.offscreen.pipelineState = mainRasterizationPipelineState;
+    pipelines.offscreen.pipeline = mainRasterizationPipeline;
 }
 
 void MainApp::createPostProcessingPipeline()
@@ -1283,17 +1312,15 @@ void MainApp::createPostProcessingPipeline()
 
     std::shared_ptr<ShaderSource> postProcessVertexShader = std::make_shared<ShaderSource>("postProcess.vert.spv");
     std::shared_ptr<ShaderSource> postProcessFragmentShader = std::make_shared<ShaderSource>("postProcess.frag.spv");
-
     std::vector<ShaderModule> shaderModules;
-    std::vector<VkDescriptorSetLayout> descriptorSetLayoutHandles;
-    std::vector<VkPushConstantRange> pushConstantRangeHandles;
-
     shaderModules.emplace_back(*device, VK_SHADER_STAGE_VERTEX_BIT, postProcessVertexShader);
     shaderModules.emplace_back(*device, VK_SHADER_STAGE_FRAGMENT_BIT, postProcessFragmentShader);
 
-    descriptorSetLayoutHandles.push_back(postProcessingDescriptorSetLayout->getHandle());
+    std::vector<VkDescriptorSetLayout> descriptorSetLayoutHandles{ postProcessingDescriptorSetLayout->getHandle() };
 
-    std::shared_ptr<PipelineState> postProcessingPipelineState = std::make_shared<PipelineState>(
+    std::vector<VkPushConstantRange> pushConstantRangeHandles;
+
+    std::shared_ptr<GraphicsPipelineState> postProcessingPipelineState = std::make_shared<GraphicsPipelineState>(
         std::make_unique<PipelineLayout>(*device, shaderModules, descriptorSetLayoutHandles, pushConstantRangeHandles),
         *postRenderPass.renderPass,
         vertexInputState,
@@ -1307,8 +1334,29 @@ void MainApp::createPostProcessingPipeline()
     );
     std::shared_ptr<GraphicsPipeline> postProcessingPipeline = std::make_shared<GraphicsPipeline>(*device, *postProcessingPipelineState, nullptr);
 
-    pipelines.postProcess.pipeline = postProcessingPipeline;
     pipelines.postProcess.pipelineState = postProcessingPipelineState;
+    pipelines.postProcess.pipeline = postProcessingPipeline;
+}
+
+void MainApp::createComputePipeline()
+{
+    std::shared_ptr<ShaderSource> animationComputeShader = std::make_shared<ShaderSource>("animate.comp.spv");
+    std::vector<ShaderModule> shaderModules;
+    shaderModules.emplace_back(*device, VK_SHADER_STAGE_COMPUTE_BIT, animationComputeShader);
+
+    std::vector<VkDescriptorSetLayout> descriptorSetLayoutHandles{ objectDescriptorSetLayout->getHandle() };
+
+    std::vector<VkPushConstantRange> pushConstantRangeHandles;
+    VkPushConstantRange computePushConstantRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstant) };
+    pushConstantRangeHandles.push_back(computePushConstantRange);
+
+    std::shared_ptr<ComputePipelineState> animationComputePipelineState = std::make_shared<ComputePipelineState>(
+        std::make_unique<PipelineLayout>(*device, shaderModules, descriptorSetLayoutHandles, pushConstantRangeHandles)
+    );
+    std::shared_ptr<ComputePipeline> animationComputePipeline = std::make_shared<ComputePipeline>(*device, *animationComputePipelineState, nullptr);
+
+    pipelines.compute.pipelineState = animationComputePipelineState;
+    pipelines.compute.pipeline = animationComputePipeline;
 }
 
 void MainApp::createFramebuffers()
@@ -1511,7 +1559,7 @@ void MainApp::copyBufferToBuffer(const Buffer &srcBuffer, const Buffer &dstBuffe
     vkQueueWaitIdle(graphicsQueue->getHandle());
 }
 
-void MainApp::createVertexBuffer(std::shared_ptr<ObjModel> objModel, const ObjLoader &objLoader)
+void MainApp::createVertexBuffer(ObjModel &objModel, const ObjLoader &objLoader)
 {
     VkDeviceSize bufferSize{ sizeof(objLoader.vertices[0]) * objLoader.vertices.size() };
 
@@ -1526,15 +1574,15 @@ void MainApp::createVertexBuffer(std::shared_ptr<ObjModel> objModel, const ObjLo
     bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | rayTracingFlags;
     memoryInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 
-    objModel->vertexBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
+    objModel.vertexBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
 
     void *mappedData = stagingBuffer->map();
     memcpy(mappedData, objLoader.vertices.data(), static_cast<size_t>(bufferSize));
     stagingBuffer->unmap();
-    copyBufferToBuffer(*stagingBuffer, *(objModel->vertexBuffer), bufferSize);
+    copyBufferToBuffer(*stagingBuffer, *(objModel.vertexBuffer), bufferSize);
 }
 
-void MainApp::createIndexBuffer(std::shared_ptr<ObjModel> objModel, const ObjLoader &objLoader)
+void MainApp::createIndexBuffer(ObjModel &objModel, const ObjLoader &objLoader)
 {
     VkDeviceSize bufferSize{ sizeof(objLoader.indices[0]) * objLoader.indices.size() };
 
@@ -1551,15 +1599,15 @@ void MainApp::createIndexBuffer(std::shared_ptr<ObjModel> objModel, const ObjLoa
     bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT | rayTracingFlags;
     memoryInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 
-    objModel->indexBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
+    objModel.indexBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
 
     void *mappedData = stagingBuffer->map();
     memcpy(mappedData, objLoader.indices.data(), static_cast<size_t>(bufferSize));
     stagingBuffer->unmap();
-    copyBufferToBuffer(*stagingBuffer, *(objModel->indexBuffer), bufferSize);
+    copyBufferToBuffer(*stagingBuffer, *(objModel.indexBuffer), bufferSize);
 }
 
-void MainApp::createMaterialBuffer(std::shared_ptr<ObjModel> objModel, const ObjLoader &objLoader)
+void MainApp::createMaterialBuffer(ObjModel& objModel, const ObjLoader &objLoader)
 {
     VkDeviceSize bufferSize{ sizeof(objLoader.materials[0]) * objLoader.materials.size() };
 
@@ -1576,15 +1624,15 @@ void MainApp::createMaterialBuffer(std::shared_ptr<ObjModel> objModel, const Obj
     bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | rayTracingFlags;
     memoryInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 
-    objModel->materialsBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
+    objModel.materialsBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
 
     void *mappedData = stagingBuffer->map();
     memcpy(mappedData, objLoader.materials.data(), static_cast<size_t>(bufferSize));
     stagingBuffer->unmap();
-    copyBufferToBuffer(*stagingBuffer, *(objModel->materialsBuffer), bufferSize);
+    copyBufferToBuffer(*stagingBuffer, *(objModel.materialsBuffer), bufferSize);
 }
 
-void MainApp::createMaterialIndicesBuffer(std::shared_ptr<ObjModel> objModel, const ObjLoader &objLoader)
+void MainApp::createMaterialIndicesBuffer(ObjModel &objModel, const ObjLoader& objLoader)
 {
     VkDeviceSize bufferSize{ sizeof(objLoader.materialIndices[0]) * objLoader.materialIndices.size() };
 
@@ -1601,12 +1649,12 @@ void MainApp::createMaterialIndicesBuffer(std::shared_ptr<ObjModel> objModel, co
     bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | rayTracingFlags;
     memoryInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 
-    objModel->materialsIndexBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
+    objModel.materialsIndexBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
 
     void *mappedData = stagingBuffer->map();
     memcpy(mappedData, objLoader.materialIndices.data(), static_cast<size_t>(bufferSize));
     stagingBuffer->unmap();
-    copyBufferToBuffer(*stagingBuffer, *(objModel->materialsIndexBuffer), bufferSize);
+    copyBufferToBuffer(*stagingBuffer, *(objModel.materialsIndexBuffer), bufferSize);
 }
 
 void MainApp::createUniformBuffers()
@@ -1675,7 +1723,7 @@ void MainApp::createDescriptorPool()
     poolSizes[3].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     poolSizes[3].descriptorCount = 1;
 
-    descriptorPool = std::make_unique<DescriptorPool>(*device, poolSizes, 10u, 0);
+    descriptorPool = std::make_unique<DescriptorPool>(*device, poolSizes, 11u, 0);
 }
 
 void MainApp::createDescriptorSets()
@@ -1876,6 +1924,28 @@ void MainApp::createDescriptorSets()
     vkUpdateDescriptorSets(device->getHandle(), to_u32(writeToDescriptorSets.size()), writeToDescriptorSets.data(), 0, nullptr);
 }
 
+void MainApp::updateComputeDescriptorSet()
+{
+    VkDescriptorBufferInfo currentFrameObjectBufferInfo{};
+    currentFrameObjectBufferInfo.buffer = frameData.objectBuffers[currentFrame]->getHandle();
+    currentFrameObjectBufferInfo.offset = 0;
+    currentFrameObjectBufferInfo.range = sizeof(ObjInstance) * MAX_OBJECT_COUNT;
+    std::array<VkDescriptorBufferInfo, 1> storageImageInfos{ currentFrameObjectBufferInfo };
+
+    VkWriteDescriptorSet writeObjectDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+    writeObjectDescriptorSet.dstSet = frameData.objectDescriptorSets[currentFrame]->getHandle();
+    writeObjectDescriptorSet.dstBinding = 0;
+    writeObjectDescriptorSet.dstArrayElement = 0;
+    writeObjectDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    writeObjectDescriptorSet.descriptorCount = storageImageInfos.size();
+    writeObjectDescriptorSet.pBufferInfo = storageImageInfos.data();
+    writeObjectDescriptorSet.pImageInfo = nullptr;
+    writeObjectDescriptorSet.pTexelBufferView = nullptr;
+
+    std::array<VkWriteDescriptorSet, 1> writes{ writeObjectDescriptorSet };
+    vkUpdateDescriptorSets(device->getHandle(), to_u32(writes.size()), writes.data(), 0, nullptr);
+}
+
 void MainApp::createSemaphoreAndFencePools()
 {
     semaphorePool = std::make_unique<SemaphorePool>(*device);
@@ -1914,7 +1984,7 @@ void MainApp::loadModel(const std::string &objFileName)
     const std::string modelPath = "../../assets/models/";
     const std::string filePath = modelPath + objFileName;
 
-    std::shared_ptr<ObjModel> objModel = std::make_shared<ObjModel>();
+    ObjModel objModel;
     ObjLoader objLoader;
     objLoader.loadModel(filePath.c_str());
 
@@ -1926,8 +1996,8 @@ void MainApp::loadModel(const std::string &objFileName)
         m.specular = glm::pow(m.specular, glm::vec3(2.2f));
     }
 
-    objModel->verticesCount = to_u32(objLoader.vertices.size());
-    objModel->indicesCount = to_u32(objLoader.indices.size());
+    objModel.verticesCount = to_u32(objLoader.vertices.size());
+    objModel.indicesCount = to_u32(objLoader.indices.size());
 
     createVertexBuffer(objModel, objLoader);
     createIndexBuffer(objModel, objLoader);
@@ -1935,40 +2005,40 @@ void MainApp::loadModel(const std::string &objFileName)
     createMaterialIndicesBuffer(objModel, objLoader);
 
     std::string objNb = std::to_string(objModels.size());
-    setDebugUtilsObjectName(device->getHandle(), objModel->vertexBuffer->getHandle(), (std::string("vertex_" + objNb).c_str()));
-    setDebugUtilsObjectName(device->getHandle(), objModel->indexBuffer->getHandle(), (std::string("index_" + objNb).c_str()));
-    setDebugUtilsObjectName(device->getHandle(), objModel->materialsBuffer->getHandle(), (std::string("mat_" + objNb).c_str()));
-    setDebugUtilsObjectName(device->getHandle(), objModel->materialsIndexBuffer->getHandle(), (std::string("matIdx_" + objNb).c_str()));
+    setDebugUtilsObjectName(device->getHandle(), objModel.vertexBuffer->getHandle(), (std::string("vertex_" + objNb).c_str()));
+    setDebugUtilsObjectName(device->getHandle(), objModel.indexBuffer->getHandle(), (std::string("index_" + objNb).c_str()));
+    setDebugUtilsObjectName(device->getHandle(), objModel.materialsBuffer->getHandle(), (std::string("mat_" + objNb).c_str()));
+    setDebugUtilsObjectName(device->getHandle(), objModel.materialsIndexBuffer->getHandle(), (std::string("matIdx_" + objNb).c_str()));
 
-    objModel->objFileName = objFileName;
-    objModel->txtOffset = static_cast<uint64_t>(textures.size());
+    objModel.objFileName = objFileName;
+    objModel.txtOffset = static_cast<uint64_t>(textures.size());
     loadTextureImages(objLoader.textures);
 
-    objModels.push_back(objModel);
+    objModels.push_back(std::move(objModel));
 }
 
 void MainApp::createInstance(const std::string &objFileName, glm::mat4 transform)
 {
-    uint32_t objModelIndex = getObjModelIndex(objFileName);
-    std::shared_ptr<ObjModel> objModel = objModels[objModelIndex];
+    uint64_t objModelIndex = getObjModelIndex(objFileName);
+    ObjModel &objModel = objModels[objModelIndex];
 
     ObjInstance instance;
     instance.transform = transform;
     instance.transformIT = glm::transpose(glm::inverse(transform));
     instance.objIndex = objModelIndex;
-    instance.textureOffset = objModel->txtOffset;
+    instance.textureOffset = objModel.txtOffset;
 
     VkBufferDeviceAddressInfo bufferDeviceAddressInfo = { VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO_KHR };
-    bufferDeviceAddressInfo.buffer = objModel->vertexBuffer->getHandle();
+    bufferDeviceAddressInfo.buffer = objModel.vertexBuffer->getHandle();
     instance.vertices = vkGetBufferDeviceAddress(device->getHandle(), &bufferDeviceAddressInfo);
-    bufferDeviceAddressInfo.buffer = objModel->indexBuffer->getHandle();
+    bufferDeviceAddressInfo.buffer = objModel.indexBuffer->getHandle();
     instance.indices = vkGetBufferDeviceAddress(device->getHandle(), &bufferDeviceAddressInfo);
-    bufferDeviceAddressInfo.buffer = objModel->materialsBuffer->getHandle();
+    bufferDeviceAddressInfo.buffer = objModel.materialsBuffer->getHandle();
     instance.materials = vkGetBufferDeviceAddress(device->getHandle(), &bufferDeviceAddressInfo);
-    bufferDeviceAddressInfo.buffer = objModel->materialsIndexBuffer->getHandle();
+    bufferDeviceAddressInfo.buffer = objModel.materialsIndexBuffer->getHandle();
     instance.materialIndices = vkGetBufferDeviceAddress(device->getHandle(), &bufferDeviceAddressInfo);
 
-    objInstances.push_back(instance);
+    objInstances.push_back(std::move(instance));
 }
 
 void MainApp::createSceneLights()
@@ -1983,39 +2053,50 @@ void MainApp::createSceneLights()
 
 void MainApp::loadModels()
 {
-    //loadModel("monkey_smooth.obj");
     loadModel("plane.obj");
     loadModel("Medieval_building.obj");
     loadModel("wuson.obj");
+    loadModel("sphere.obj");
+    //loadModel("monkey_smooth.obj");
     //loadModel("lost_empire.obj");
 
     // Validate that models are only loaded once
     std::set<std::string> existingModels;
     for (int i = 0; i < objModels.size(); ++i)
     {
-        if (existingModels.count(objModels[i]->objFileName) != 0)
+        if (existingModels.count(objModels[i].objFileName) != 0)
         {
             LOGEANDABORT("Duplicate models have been loaded!");
         }
-        existingModels.insert(objModels[i]->objFileName);
+        existingModels.insert(objModels[i].objFileName);
     }
 }
 
 void MainApp::createScene()
 {
-    //createInstance("monkey_smooth.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 3)));
+    // The sphere instance index is hardcoded in the animate.comp file, so when you add or remove an instance, that must be updated
     createInstance("plane.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(0, 0, 0)));
     createInstance("Medieval_building.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ 5, 0,0 }));
+    // All wuson instances are assumed to be one after another for the transformation matrix calculations
     createInstance("wuson.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 3)));
     createInstance("wuson.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 7)));
+    createInstance("wuson.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 10)));
+    createInstance("Medieval_building.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ 15, 0,0 }));
+    //createInstance("monkey_smooth.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 3)));
+    //createInstance("sphere.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 0)));
     //createInstance("lost_empire.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ 5,-10,0 }));
+
+    if (objInstances.size() > MAX_OBJECT_COUNT)
+    {
+        LOGEANDABORT("There are more instances than MAX_OBJECT_COUNT. You need to increase this value to support more instances");
+    }
 }
 
-uint32_t MainApp::getObjModelIndex(const std::string &name)
+uint64_t MainApp::getObjModelIndex(const std::string &name)
 {
-    for (int i = 0; i < objModels.size(); ++i)
+    for (uint64_t i = 0; i < objModels.size(); ++i)
     {
-        if (objModels[i]->objFileName.compare(name) == 0) return i;
+        if (objModels[i].objFileName.compare(name) == 0) return i;
     }
 
     LOGEANDABORT("Object model {} not found", name);
@@ -2160,13 +2241,13 @@ void MainApp::createImageResourcesForFrames()
 BlasInput MainApp::objectToVkGeometryKHR(size_t objModelIndex)
 {
     VkBufferDeviceAddressInfo bufferDeviceAddressInfo = { VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO };
-    bufferDeviceAddressInfo.buffer = objModels[objModelIndex]->vertexBuffer->getHandle();
+    bufferDeviceAddressInfo.buffer = objModels[objModelIndex].vertexBuffer->getHandle();
     // We can take advantage of the fact that position is the first member of Vertex
     VkDeviceAddress vertexAddress = vkGetBufferDeviceAddress(device->getHandle(), &bufferDeviceAddressInfo);
-    bufferDeviceAddressInfo.buffer = objModels[objModelIndex]->indexBuffer->getHandle();
+    bufferDeviceAddressInfo.buffer = objModels[objModelIndex].indexBuffer->getHandle();
     VkDeviceAddress indexAddress = vkGetBufferDeviceAddress(device->getHandle(), &bufferDeviceAddressInfo);
 
-    uint32_t maxPrimitiveCount = objModels[objModelIndex]->indicesCount / 3;
+    uint32_t maxPrimitiveCount = objModels[objModelIndex].indicesCount / 3;
 
     // Describe buffer as array of VertexObj.
     VkAccelerationStructureGeometryTrianglesDataKHR triangles{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR };
@@ -2178,7 +2259,7 @@ BlasInput MainApp::objectToVkGeometryKHR(size_t objModelIndex)
     triangles.indexData.deviceAddress = indexAddress;
     // Indicate identity transform by setting transformData to null device pointer.
     //triangles.transformData = {};
-    triangles.maxVertex = objModels[objModelIndex]->verticesCount;
+    triangles.maxVertex = objModels[objModelIndex].verticesCount;
 
     // Identify the above data as containing opaque triangles.
     VkAccelerationStructureGeometryKHR asGeometry{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR };
@@ -2451,7 +2532,7 @@ void MainApp::buildBlas(const std::vector<BlasInput> &input, VkBuildAcceleration
 void MainApp::createTopLevelAS()
 {
     accelerationStructureInstances.reserve(objInstances.size());
-    for (uint32_t i = 0; i < to_u32(objInstances.size()); i++)
+    for (size_t i = 0; i < objInstances.size(); i++)
     {
         VkAccelerationStructureInstanceKHR rayInst;
         rayInst.transform = toTransformMatrixKHR(objInstances[i].transform);  // Position of the instance
@@ -2598,7 +2679,7 @@ void MainApp::buildTlas(bool update)
 
 VkDeviceAddress MainApp::getBlasDeviceAddress(uint32_t blasId)
 {
-    if (blasId >= objInstances.size()) LOGEANDABORT("Invalid blasId");
+    if (blasId >= objModels.size()) LOGEANDABORT("Invalid blasId");
     VkAccelerationStructureDeviceAddressInfoKHR addressInfo{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR };
     addressInfo.accelerationStructure = m_blas[blasId].as->accel;
     return vkGetAccelerationStructureDeviceAddressKHR(device->getHandle(), &addressInfo);

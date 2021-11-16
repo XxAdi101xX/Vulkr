@@ -28,7 +28,8 @@ namespace vulkr
 {
 
 class Device;
-class PipelineState;
+class GraphicsPipelineState;
+class ComputePipelineState;
 
 class Pipeline
 {
@@ -41,21 +42,32 @@ public:
 	Pipeline &operator=(Pipeline &&) = delete;
 
 	VkPipeline getHandle() const;
+	VkPipelineBindPoint getBindPoint() const;
 
 protected:
-	Pipeline(Device &device, PipelineState &pipelineState);
+	Pipeline(Device &device, VkPipelineBindPoint bindPoint);
 	VkPipeline handle = VK_NULL_HANDLE;
-	Device &device; 
-	PipelineState &pipelineState;
+	Device &device;
+	VkPipelineBindPoint bindPoint;
 };
 
 class GraphicsPipeline final : public Pipeline
 {
 public:
-	GraphicsPipeline(Device &device, PipelineState &pipelineState, VkPipelineCache pipelineCache); // TODO: incorportate pipeline cache
+	GraphicsPipeline(Device &device, GraphicsPipelineState &pipelineState, VkPipelineCache pipelineCache); // TODO: incorportate pipeline cache
 	~GraphicsPipeline() = default;
 	GraphicsPipeline(GraphicsPipeline &&) = default;
+private:
+	GraphicsPipelineState &pipelineState;
 };
 
-// TODO: create compute pipeline
+class ComputePipeline final : public Pipeline
+{
+public:
+	ComputePipeline(Device &device, ComputePipelineState &pipelineState, VkPipelineCache pipelineCache); // TODO: incorportate pipeline cache
+	~ComputePipeline() = default;
+	ComputePipeline(ComputePipeline &&) = default;
+private:
+	ComputePipelineState &pipelineState;
+};
 } // namespace vulkr
