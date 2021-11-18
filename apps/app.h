@@ -211,7 +211,7 @@ public:
 private:
     /* 
     IMPORTANT NOTICE: To enable/disable features, it is not adequate to add the extension name to the device extensions array below. You must also go into
-    instances.cpp to manually enable these features through VkPhysicalDeviceFeatures2 pNext chain
+    device.cpp to manually enable these features through VkPhysicalDeviceFeatures2 pNext chain
     */
     const std::vector<const char *> deviceExtensions {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME, // Required to have access to the swapchain and render images to the screen
@@ -220,6 +220,7 @@ private:
         VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME, // Provides access to vkCmdTraceRaysKHR
         VK_EXT_HOST_QUERY_RESET_EXTENSION_NAME, // Provides access to vkResetQueryPool
         VK_KHR_SHADER_NON_SEMANTIC_INFO_EXTENSION_NAME, // Required to use debugPrintfEXT in shaders
+        VK_KHR_SHADER_DRAW_PARAMETERS_EXTENSION_NAME
     };
 
     std::unique_ptr<Instance> instance{ nullptr };
