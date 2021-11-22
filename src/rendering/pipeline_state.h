@@ -153,7 +153,6 @@ private:
 
 };
 
-// TODO: create specialization constant class
 class GraphicsPipelineState final : public PipelineState
 {
 public:

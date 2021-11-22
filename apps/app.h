@@ -230,6 +230,7 @@ private:
     Queue *computeQueue{ VK_NULL_HANDLE };
     Queue *presentQueue{ VK_NULL_HANDLE };
     Queue *transferQueue{ VK_NULL_HANDLE }; // TODO: currently unused in code
+    uint32_t workGroupSize;
 
     std::unique_ptr<Swapchain> swapchain{ nullptr };
 
@@ -342,6 +343,7 @@ private:
 
     struct ComputePushConstant
     {
+        int indexCount;
         float time;
     } computePushConstant;
 
@@ -391,6 +393,7 @@ private:
     void loadModel(const std::string &objFileName);
     void createInstance(const std::string &objFileName, glm::mat4 transform);
     void loadModels();
+    uint64_t getObjModelIndex(const std::string &name);
     void createScene();
     void createSemaphoreAndFencePools();
     void setupSynchronizationObjects();
@@ -400,8 +403,6 @@ private:
     void initializeImGui();
     void resetFrameSinceViewChange();
     void updateTaaState();
-
-    uint64_t getObjModelIndex(const std::string &name);
 
     // Raytracing TODO: cleanup this section
     BlasInput objectToVkGeometryKHR(size_t objModelIndex);
@@ -443,7 +444,7 @@ private:
 
     // https://www.willusher.io/graphics/2019/11/20/the-sbt-three-ways is a great resource on how the SBT works and how we should be organizing our
     // shaders into primary and occlusion hit groups
-    void           createRtShaderBindingTable();
+    void createRtShaderBindingTable();
     std::unique_ptr<Buffer> m_rtSBTBuffer;
 
     void raytrace();

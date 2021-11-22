@@ -69,9 +69,10 @@ std::vector<char> ShaderSource::readFile(const std::string &filename) const
 }
 
 // ShaderModule implementations
-ShaderModule::ShaderModule(Device &device, VkShaderStageFlagBits stage, std::shared_ptr<ShaderSource> shaderSource, const char *entryPoint) :
+ShaderModule::ShaderModule(Device &device, VkShaderStageFlagBits stage, VkSpecializationInfo &specializationInfo, std::shared_ptr<ShaderSource> shaderSource, const char *entryPoint) :
 	device{ device },
 	stage{ stage },
+	specializationInfo{ specializationInfo },
 	shaderSource{ shaderSource },
 	entryPoint{ entryPoint }
 {
@@ -95,6 +96,11 @@ const std::string &ShaderModule::getEntryPoint() const
 const ShaderSource &ShaderModule::getShaderSource() const
 {
 	return *shaderSource;
+}
+
+const VkSpecializationInfo &ShaderModule::getSpecializationInfo() const
+{
+	return specializationInfo;
 }
 
 } // namespace vulkr

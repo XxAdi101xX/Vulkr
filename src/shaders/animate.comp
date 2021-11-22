@@ -1,10 +1,16 @@
 #version 460
+
 #extension GL_ARB_separate_shader_objects : enable
 #extension GL_EXT_scalar_block_layout : enable
 #extension GL_GOOGLE_include_directive : enable
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
 #extension GL_EXT_buffer_reference2 : require
+//#extension GL_EXT_debug_printf : enable
+
 #include "common.glsl"
+
+layout(constant_id = 0) const uint workGroupSize = 64;
+layout(local_size_x_id = 0) in;
 
 layout(buffer_reference, scalar) buffer Vertices { Vertex v[]; }; // Positions of an object
 layout(buffer_reference, scalar) buffer Indices { ivec3 i[]; }; // Triangle indices
@@ -17,15 +23,20 @@ layout(std140, set = 0, binding = 0) buffer ObjectBuffer {
 
 layout(push_constant) uniform ComputePushConstant
 {
+    int indexCount;
 	float time;
 } pushConstant;
 
 void main()
 {
+    //debugPrintfEXT("workGroupSize is %d", workGroupSize);
+    uint index = gl_GlobalInvocationID.x;
+    if (index >= pushConstant.indexCount) return;
+
     ObjInstance objResource = objectBuffer.objects[2]; // Wuson is the 2nd instance, but it will alter all the of the wuson indices
     Vertices vertices = Vertices(objResource.vertices);
     Indices indices = Indices(objResource.indices);
-    ivec3 ind = indices.i[gl_GlobalInvocationID.x];
+    ivec3 ind = indices.i[index];
     Vertex v0 = vertices.v[ind.x];
 
     // Compute vertex position

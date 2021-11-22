@@ -74,7 +74,7 @@ GraphicsPipeline::GraphicsPipeline(Device &device, GraphicsPipelineState &pipeli
 		VK_CHECK(vkCreateShaderModule(device.getHandle(), &shaderModuleCreateInfo, nullptr, &shaderStageCreateInfo.module));
 
 		shaderStageCreateInfo.pName = shaderModule.getEntryPoint().c_str();
-		shaderStageCreateInfo.pSpecializationInfo = nullptr; // Used for specifying shader constants
+		shaderStageCreateInfo.pSpecializationInfo = shaderModule.getSpecializationInfo().mapEntryCount != 0u ? &shaderModule.getSpecializationInfo() : nullptr;
 
 		shaderStageCreateInfos.push_back(shaderStageCreateInfo);
 	}
@@ -200,7 +200,7 @@ ComputePipeline::ComputePipeline(Device &device, ComputePipelineState &pipelineS
 	VK_CHECK(vkCreateShaderModule(device.getHandle(), &shaderModuleCreateInfo, nullptr, &shaderStageCreateInfo.module));
 
 	shaderStageCreateInfo.pName = shaderModule.getEntryPoint().c_str();
-	shaderStageCreateInfo.pSpecializationInfo = nullptr; // Used for specifying shader constants
+	shaderStageCreateInfo.pSpecializationInfo = shaderModule.getSpecializationInfo().mapEntryCount != 0u ? &shaderModule.getSpecializationInfo() : nullptr;
 	computePipelineCreateInfo.stage = shaderStageCreateInfo;
 
 	vkCreateComputePipelines(device.getHandle(), pipelineCache, 1, &computePipelineCreateInfo, nullptr, &handle);

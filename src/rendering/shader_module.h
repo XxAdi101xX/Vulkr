@@ -63,6 +63,7 @@ public:
 	ShaderModule(
 		Device &device,
 		VkShaderStageFlagBits stage,
+		VkSpecializationInfo &specializationInfo,
 		std::shared_ptr<ShaderSource> shaderSource,
 		const char *entryPoint = "main"
 	);
@@ -76,6 +77,7 @@ public:
 	VkShaderStageFlagBits getStage() const;
 	const std::string &getEntryPoint() const;
 	const ShaderSource &getShaderSource() const;
+	const VkSpecializationInfo &getSpecializationInfo() const;
 private:
 	Device &device;
 
@@ -87,6 +89,9 @@ private:
 
 	// Shader source information
 	std::shared_ptr<ShaderSource> shaderSource;
+
+	// Shader constants
+	VkSpecializationInfo specializationInfo{};
 };
 
 } // namespace vulkr

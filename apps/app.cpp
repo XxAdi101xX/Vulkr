@@ -289,7 +289,7 @@ void MainApp::update()
     if (imagesInFlight[swapchainImageIndex] != VK_NULL_HANDLE)
     {
         // TODO: enabling this check causes errors on swapchain recreation, will need to eventually resolve this for correctness
-        // fencePool->wait(&imagesInFlight[swapchainImageIndex]);
+        fencePool->wait(&imagesInFlight[swapchainImageIndex]);
     }
     imagesInFlight[swapchainImageIndex] = frameData.inFlightFences[currentFrame];
 
@@ -619,13 +619,14 @@ void MainApp::animateWithCompute()
 {
     const uint64_t wusonModelIndex{ getObjModelIndex("wuson.obj") };
 
+    computePushConstant.indexCount = objModels[wusonModelIndex].indicesCount;
     computePushConstant.time = std::chrono::duration<float, std::chrono::seconds::period>(drawingTimer->elapsed()).count();
 
     PipelineData &pipelineData = pipelines.compute;
     vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipeline->getHandle());
     vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipelineState->getPipelineLayout().getHandle(), 0, 1, &frameData.objectDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
     vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstant), &computePushConstant);
-    vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), objModels[wusonModelIndex].indicesCount, 1, 1);
+    vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), objModels[wusonModelIndex].indicesCount / workGroupSize, 1u, 1u);
 }
 
 void MainApp::updateBuffersPerFrame()
@@ -703,6 +704,18 @@ void MainApp::rasterize()
             lastObjIndex = objInstances[index].objIndex;
         }
 
+        // TODO check if this jitter value is correct
+        if (temporalAntiAliasingEnabled)
+        {
+            taaPushConstant.jitter = haltonSequence[std::min(taaPushConstant.frameSinceViewChange, static_cast<int>(taaDepth - 1))];
+            taaPushConstant.jitter.x = (taaPushConstant.jitter.x / swapchain->getProperties().imageExtent.width) * 5;
+            taaPushConstant.jitter.y = (taaPushConstant.jitter.y / swapchain->getProperties().imageExtent.height) * 5;
+        }
+        else
+        {
+            taaPushConstant.jitter = glm::vec2(0.0f, 0.0f);
+        }
+
         vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(TaaPushConstant), &taaPushConstant);
         vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(TaaPushConstant), sizeof(RasterizationPushConstant), &rasterizationPushConstant);
         vkCmdDrawIndexed(frameData.commandBuffers[currentFrame][0]->getHandle(), to_u32(objModel.indicesCount), 1, 0, 0, index);
@@ -736,11 +749,6 @@ void MainApp::drawPost()
 
             lastObjIndex = objInstances[index].objIndex;
         }
-
-        // TODO check if this jitter value is correct
-        taaPushConstant.jitter = haltonSequence[std::min(taaPushConstant.frameSinceViewChange, static_cast<int>(taaDepth - 1))];
-        taaPushConstant.jitter.x = (taaPushConstant.jitter.x / swapchain->getProperties().imageExtent.width) * 5;
-        taaPushConstant.jitter.y = (taaPushConstant.jitter.y / swapchain->getProperties().imageExtent.height) * 5;
 
         // We have history buffer set to 1 - blendFactor so when we have enough samples and the frame has been still for a while, we don't want to recalculate
         // the image but just use what's in the history buffer
@@ -808,6 +816,8 @@ void MainApp::createDevice()
 
     std::unique_ptr<PhysicalDevice> physicalDevice = instance->getSuitablePhysicalDevice();
     physicalDevice->setRequestedFeatures(deviceFeatures);
+
+    workGroupSize = std::min(64u, physicalDevice->getProperties().limits.maxComputeWorkGroupSize[0]);
 
     device = std::make_unique<Device>(std::move(physicalDevice), surface, deviceExtensions);
 }
@@ -1180,11 +1190,17 @@ void MainApp::createMainRasterizationPipeline()
     std::vector<VkDynamicState> dynamicStates;
 
     std::shared_ptr<ShaderSource> mainVertexShader = std::make_shared<ShaderSource>("main.vert.spv");
+    VkSpecializationInfo mainVertexShaderSpecializationInfo;
+    mainVertexShaderSpecializationInfo.mapEntryCount = 0;
+    mainVertexShaderSpecializationInfo.dataSize = 0;
     std::shared_ptr<ShaderSource> mainFragmentShader = std::make_shared<ShaderSource>("main.frag.spv");
+    VkSpecializationInfo mainFragmentShaderSpecializationInfo;
+    mainFragmentShaderSpecializationInfo.mapEntryCount = 0;
+    mainFragmentShaderSpecializationInfo.dataSize = 0;
 
     std::vector<ShaderModule> shaderModules;
-    shaderModules.emplace_back(*device, VK_SHADER_STAGE_VERTEX_BIT, mainVertexShader);
-    shaderModules.emplace_back(*device, VK_SHADER_STAGE_FRAGMENT_BIT, mainFragmentShader);
+    shaderModules.emplace_back(*device, VK_SHADER_STAGE_VERTEX_BIT, mainVertexShaderSpecializationInfo, mainVertexShader);
+    shaderModules.emplace_back(*device, VK_SHADER_STAGE_FRAGMENT_BIT, mainFragmentShaderSpecializationInfo, mainFragmentShader);
 
     std::vector<VkDescriptorSetLayout> descriptorSetLayoutHandles {
         globalDescriptorSetLayout->getHandle(),
@@ -1311,10 +1327,17 @@ void MainApp::createPostProcessingPipeline()
     std::vector<VkDynamicState> dynamicStates{ VK_DYNAMIC_STATE_BLEND_CONSTANTS };
 
     std::shared_ptr<ShaderSource> postProcessVertexShader = std::make_shared<ShaderSource>("postProcess.vert.spv");
+    VkSpecializationInfo postProcessVertexShaderSpecializationInfo;
+    postProcessVertexShaderSpecializationInfo.mapEntryCount = 0;
+    postProcessVertexShaderSpecializationInfo.dataSize = 0;
     std::shared_ptr<ShaderSource> postProcessFragmentShader = std::make_shared<ShaderSource>("postProcess.frag.spv");
+    VkSpecializationInfo postProcessFragmentShaderSpecializationInfo;
+    postProcessFragmentShaderSpecializationInfo.mapEntryCount = 0;
+    postProcessFragmentShaderSpecializationInfo.dataSize = 0;
+
     std::vector<ShaderModule> shaderModules;
-    shaderModules.emplace_back(*device, VK_SHADER_STAGE_VERTEX_BIT, postProcessVertexShader);
-    shaderModules.emplace_back(*device, VK_SHADER_STAGE_FRAGMENT_BIT, postProcessFragmentShader);
+    shaderModules.emplace_back(*device, VK_SHADER_STAGE_VERTEX_BIT, postProcessVertexShaderSpecializationInfo, postProcessVertexShader);
+    shaderModules.emplace_back(*device, VK_SHADER_STAGE_FRAGMENT_BIT, postProcessFragmentShaderSpecializationInfo, postProcessFragmentShader);
 
     std::vector<VkDescriptorSetLayout> descriptorSetLayoutHandles{ postProcessingDescriptorSetLayout->getHandle() };
 
@@ -1341,8 +1364,27 @@ void MainApp::createPostProcessingPipeline()
 void MainApp::createComputePipeline()
 {
     std::shared_ptr<ShaderSource> animationComputeShader = std::make_shared<ShaderSource>("animate.comp.spv");
+
+    const VkSpecializationMapEntry entries[] =
+    {
+        {
+            0u,
+            to_u32(0 * sizeof(uint32_t)),
+            sizeof(uint32_t)
+        }
+    };
+    const uint32_t data[] = { workGroupSize };
+
+    VkSpecializationInfo specializationInfo =
+    {
+        1u,
+        entries,
+        to_u32(1 * sizeof(uint32_t)),
+        data
+    };
+
     std::vector<ShaderModule> shaderModules;
-    shaderModules.emplace_back(*device, VK_SHADER_STAGE_COMPUTE_BIT, animationComputeShader);
+    shaderModules.emplace_back(*device, VK_SHADER_STAGE_COMPUTE_BIT, specializationInfo, animationComputeShader);
 
     std::vector<VkDescriptorSetLayout> descriptorSetLayoutHandles{ objectDescriptorSetLayout->getHandle() };
 
@@ -2179,7 +2221,8 @@ void MainApp::updateTaaState()
 {
     if (!temporalAntiAliasingEnabled && !raytracingEnabled) // remove false
     {
-        resetFrameSinceViewChange();
+        raytracingPushConstant.frameSinceViewChange = 0; // TODO remove
+        taaPushConstant.frameSinceViewChange = 0;
         taaPushConstant.jitter = glm::vec2(0.0f);
         return;
     }
@@ -2810,15 +2853,19 @@ void MainApp::createRtPipeline()
     std::shared_ptr<ShaderSource> rayMissShader = std::make_shared<ShaderSource>("raytrace.rmiss.spv");
     std::shared_ptr<ShaderSource> rayShadowMissShader = std::make_shared<ShaderSource>("raytraceShadow.rmiss.spv");
     std::shared_ptr<ShaderSource> rayClosestHitShader = std::make_shared<ShaderSource>("raytrace.rchit.spv");
+    VkSpecializationInfo specializationInfo;
+    specializationInfo.mapEntryCount = 0;
+    specializationInfo.dataSize = 0;
 
-    raytracingShaderModules.emplace_back(*device, VK_SHADER_STAGE_RAYGEN_BIT_KHR, rayGenShader);
-    raytracingShaderModules.emplace_back(*device, VK_SHADER_STAGE_MISS_BIT_KHR, rayMissShader);
-    raytracingShaderModules.emplace_back(*device, VK_SHADER_STAGE_MISS_BIT_KHR, rayShadowMissShader);
-    raytracingShaderModules.emplace_back(*device, VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, rayClosestHitShader);
+    raytracingShaderModules.emplace_back(*device, VK_SHADER_STAGE_RAYGEN_BIT_KHR, specializationInfo, rayGenShader);
+    raytracingShaderModules.emplace_back(*device, VK_SHADER_STAGE_MISS_BIT_KHR, specializationInfo, rayMissShader);
+    raytracingShaderModules.emplace_back(*device, VK_SHADER_STAGE_MISS_BIT_KHR, specializationInfo, rayShadowMissShader);
+    raytracingShaderModules.emplace_back(*device, VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, specializationInfo, rayClosestHitShader);
 
     // All stages
     std::array<VkPipelineShaderStageCreateInfo, eShaderGroupCount> stages{};
     VkPipelineShaderStageCreateInfo              shaderStageCreateInfo{ VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO };
+    shaderStageCreateInfo.pSpecializationInfo = nullptr;
     // Since we only need the shadermodule during the creation of the pipeline, we don't keep the information in the shader module class and delete at the end
     VkShaderModuleCreateInfo shaderModuleCreateInfo{ VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO };
     // Raygen
