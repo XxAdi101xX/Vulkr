@@ -142,14 +142,16 @@ void ObjLoader::loadModel(const char *filename)
     }
 
     // Fixing material indices
+    bool readujustedMaterialIndices = false;
     for (auto &mi : materialIndices)
     {
         if (mi < 0 || mi > materials.size())
         {
-            LOGW("Material indices had to be readjusted to 0");
+            readujustedMaterialIndices = true;
             mi = 0;
         }
     }
+    if (readujustedMaterialIndices) LOGW("Material indices had to be readjusted to 0");
 
     // Compute normals if none are provided
     if (objAttrib.normals.empty())

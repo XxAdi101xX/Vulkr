@@ -77,10 +77,12 @@ MainApp::~MainApp()
 
     for (uint32_t i = 0; i < maxFramesInFlight; ++i)
     {
-        frameData.historyImages[i].reset();
-        frameData.historyImageViews[i].reset();
         frameData.outputImages[i].reset();
         frameData.outputImageViews[i].reset();
+        frameData.copyOutputImages[i].reset();
+        frameData.copyOutputImageViews[i].reset();
+        frameData.historyImages[i].reset();
+        frameData.historyImageViews[i].reset();
         frameData.velocityImages[i].reset();
         frameData.velocityImageViews[i].reset();
         frameData.commandPools[i].reset();
@@ -523,7 +525,7 @@ void MainApp::drawImGuiInterface()
         if (ImGui::BeginTabItem("Scene"))
         {
             changed |= ImGui::Checkbox("Raytracing enabled", &raytracingEnabled);
-            changed |= ImGui::Checkbox("Temporal anti-aliasing enabled (Work in Progress)", &temporalAntiAliasingEnabled);
+            changed |= ImGui::Checkbox("Temporal anti-aliasing enabled (Rasterization only)", &temporalAntiAliasingEnabled);
             if (changed)
             {
                 resetFrameSinceViewChange();
@@ -764,6 +766,7 @@ void MainApp::drawPost()
 
         float blendConstants[4] = { blendFactor, blendFactor, blendFactor, blendFactor };
         vkCmdSetBlendConstants(frameData.commandBuffers[currentFrame][1]->getHandle(), blendConstants);
+        vkCmdPushConstants(frameData.commandBuffers[currentFrame][1]->getHandle(), pipelineData.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PostProcessPushConstant), &postProcessPushConstant);
         vkCmdDrawIndexed(frameData.commandBuffers[currentFrame][1]->getHandle(), to_u32(objModel.indicesCount), 1, 0, 0, index);
     }
 
@@ -829,6 +832,8 @@ void MainApp::createSwapchain()
 {
     const std::set<VkImageUsageFlagBits> imageUsageFlags{ VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VK_IMAGE_USAGE_TRANSFER_DST_BIT };
     swapchain = std::make_unique<Swapchain>(*device, surface, VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR, VK_PRESENT_MODE_FIFO_KHR, imageUsageFlags, graphicsQueue->getFamilyIndex(), presentQueue->getFamilyIndex());
+
+    postProcessPushConstant.imageExtent = glm::vec2(swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height);
 }
 
 void MainApp::setupCamera()
@@ -860,6 +865,22 @@ void MainApp::createMainRenderPass()
     outputImageAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     mainRenderPass.colorAttachments.push_back(outputImageAttachmentRef);
 
+    Attachment copyOutputImageAttachment{}; // copyOutputImage
+    copyOutputImageAttachment.format = swapchain->getProperties().surfaceFormat.format;
+    copyOutputImageAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+    copyOutputImageAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    copyOutputImageAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    copyOutputImageAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    copyOutputImageAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    copyOutputImageAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    copyOutputImageAttachment.finalLayout = VK_IMAGE_LAYOUT_GENERAL;
+    attachments.push_back(copyOutputImageAttachment);
+
+    VkAttachmentReference copyOutputImageAttachmentRef{};
+    copyOutputImageAttachmentRef.attachment = 1;
+    copyOutputImageAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    mainRenderPass.colorAttachments.push_back(copyOutputImageAttachmentRef);
+
     Attachment velocityImageAttachment{}; // velocityImage
     velocityImageAttachment.format = swapchain->getProperties().surfaceFormat.format;
     velocityImageAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
@@ -872,7 +893,7 @@ void MainApp::createMainRenderPass()
     attachments.push_back(velocityImageAttachment);
 
     VkAttachmentReference velocityImageAttachmentRef{};
-    velocityImageAttachmentRef.attachment = 1;
+    velocityImageAttachmentRef.attachment = 2;
     velocityImageAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     mainRenderPass.colorAttachments.push_back(velocityImageAttachmentRef);
 
@@ -888,7 +909,7 @@ void MainApp::createMainRenderPass()
     attachments.push_back(depthAttachment);
 
     VkAttachmentReference depthAttachmentRef{};
-    depthAttachmentRef.attachment = 2;
+    depthAttachmentRef.attachment = 3;
     depthAttachmentRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
     mainRenderPass.depthStencilAttachments.push_back(depthAttachmentRef);
 
@@ -1061,12 +1082,19 @@ void MainApp::createDescriptorSetLayouts()
     velocityImageLayoutBindingForPost.descriptorCount = 1;
     velocityImageLayoutBindingForPost.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
     velocityImageLayoutBindingForPost.pImmutableSamplers = nullptr;
+    VkDescriptorSetLayoutBinding copyOutputImageLayoutBindingForPost{};
+    copyOutputImageLayoutBindingForPost.binding = 4;
+    copyOutputImageLayoutBindingForPost.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    copyOutputImageLayoutBindingForPost.descriptorCount = 1;
+    copyOutputImageLayoutBindingForPost.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    copyOutputImageLayoutBindingForPost.pImmutableSamplers = nullptr;
 
     std::vector<VkDescriptorSetLayoutBinding> postProcessingDescriptorSetLayoutBindings {
         currentFrameCameraBufferLayoutBindingForPost,
         currentFrameObjectBufferLayoutBindingForPost,
         historyImageLayoutBindingForPost,
-        velocityImageLayoutBindingForPost
+        velocityImageLayoutBindingForPost,
+        copyOutputImageLayoutBindingForPost
     };
     postProcessingDescriptorSetLayout = std::make_unique<DescriptorSetLayout>(*device, postProcessingDescriptorSetLayoutBindings);
 
@@ -1184,6 +1212,7 @@ void MainApp::createMainRasterizationPipeline()
     colorBlendState.logicOpEnable = VK_FALSE;
     colorBlendState.logicOp = VK_LOGIC_OP_COPY;
     colorBlendState.attachments.emplace_back(colorBlendAttachmentState); // No blending for output image
+    colorBlendState.attachments.emplace_back(colorBlendAttachmentState); // No blending for copy output image
     colorBlendState.attachments.emplace_back(colorBlendAttachmentState); // No blending for velocity image
     colorBlendState.blendConstants[0] = 0.0f;
     colorBlendState.blendConstants[1] = 0.0f;
@@ -1345,6 +1374,8 @@ void MainApp::createPostProcessingPipeline()
     std::vector<VkDescriptorSetLayout> descriptorSetLayoutHandles{ postProcessingDescriptorSetLayout->getHandle() };
 
     std::vector<VkPushConstantRange> pushConstantRangeHandles;
+    VkPushConstantRange postProcessPushConstantRange{ VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PostProcessPushConstant) };
+    pushConstantRangeHandles.push_back(postProcessPushConstantRange);
 
     std::shared_ptr<GraphicsPipelineState> postProcessingPipelineState = std::make_shared<GraphicsPipelineState>(
         std::make_unique<PipelineLayout>(*device, shaderModules, descriptorSetLayoutHandles, pushConstantRangeHandles),
@@ -1408,7 +1439,7 @@ void MainApp::createFramebuffers()
 {
     for (uint32_t i = 0; i < maxFramesInFlight; ++i)
     {
-        std::vector<VkImageView> offscreenAttachments{ frameData.outputImageViews[i]->getHandle(), frameData.velocityImageViews[i]->getHandle(), depthImageView->getHandle() };
+        std::vector<VkImageView> offscreenAttachments{ frameData.outputImageViews[i]->getHandle(), frameData.copyOutputImageViews[i]->getHandle(), frameData.velocityImageViews[i]->getHandle(), depthImageView->getHandle() };
         frameData.offscreenFramebuffers[i] = std::make_unique<Framebuffer>(*device, *swapchain, *mainRenderPass.renderPass, offscreenAttachments);
         setDebugUtilsObjectName(device->getHandle(), frameData.offscreenFramebuffers[i]->getHandle(), "outputImageFramebuffer for frame #" + std::to_string(i));
 
@@ -1418,13 +1449,14 @@ void MainApp::createFramebuffers()
     }
 
     // Set clear values
-    offscreenFramebufferClearValues.resize(3);
-    offscreenFramebufferClearValues[0].color = { 1.0f, 1.0f, 1.0f, 1.0f };
-    offscreenFramebufferClearValues[1].color = { 0.0f, 0.0f, 0.0f, 0.0f };
-    offscreenFramebufferClearValues[2].depthStencil = { 1.0f, 0u };
+    offscreenFramebufferClearValues.resize(4);
+    offscreenFramebufferClearValues[0].color = { 1.0f, 1.0f, 1.0f, 1.0f }; // outputImage
+    offscreenFramebufferClearValues[1].color = { 1.0f, 1.0f, 1.0f, 1.0f }; // copyOutputImage
+    offscreenFramebufferClearValues[2].color = { 0.0f, 0.0f, 0.0f, 0.0f }; // velocity buffer
+    offscreenFramebufferClearValues[3].depthStencil = { 1.0f, 0u };
 
     postProcessFramebufferClearValues.resize(2);
-    postProcessFramebufferClearValues[0].color = { 1.0f, 1.0f, 1.0f, 1.0f };
+    postProcessFramebufferClearValues[0].color = { 1.0f, 1.0f, 1.0f, 1.0f }; // outputImage
     postProcessFramebufferClearValues[1].depthStencil = { 1.0f, 0u };
 }
 
@@ -1859,7 +1891,7 @@ void MainApp::createDescriptorSets()
         writePostProcessingStorageBufferDescriptorSet.pImageInfo = nullptr;
         writePostProcessingStorageBufferDescriptorSet.pTexelBufferView = nullptr;
 
-        // Bindings 2 and 3 are the history image and velocity image respectively
+        // Bindings 2, 3 and 4 are the history image, velocity image and copy output image respectively
         VkDescriptorImageInfo historyImageInfo{};
         historyImageInfo.sampler = VK_NULL_HANDLE;
         historyImageInfo.imageView = frameData.historyImageViews[i]->getHandle();
@@ -1868,7 +1900,11 @@ void MainApp::createDescriptorSets()
         velocityImageInfo.sampler = VK_NULL_HANDLE;
         velocityImageInfo.imageView = frameData.velocityImageViews[i]->getHandle();
         velocityImageInfo.imageLayout = frameData.velocityImageViews[i]->getImage().getLayout();
-        std::array<VkDescriptorImageInfo, 2> postProcessingStorageImageInfos{ historyImageInfo, velocityImageInfo };
+        VkDescriptorImageInfo copyOutputImageInfo{};
+        copyOutputImageInfo.sampler = VK_NULL_HANDLE;
+        copyOutputImageInfo.imageView = frameData.copyOutputImageViews[i]->getHandle();
+        copyOutputImageInfo.imageLayout = frameData.copyOutputImageViews[i]->getImage().getLayout();
+        std::array<VkDescriptorImageInfo, 3> postProcessingStorageImageInfos{ historyImageInfo, velocityImageInfo, copyOutputImageInfo };
         
         VkWriteDescriptorSet writePostProcessingStorageImageDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
         writePostProcessingStorageImageDescriptorSet.dstSet = frameData.postProcessingDescriptorSets[i]->getHandle();
@@ -2255,6 +2291,8 @@ void MainApp::createImageResourcesForFrames()
     {
         frameData.outputImages[i] = std::make_unique<Image>(*device, swapchain->getProperties().surfaceFormat.format, extent, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
         frameData.outputImageViews[i] = std::make_unique<ImageView>(*(frameData.outputImages[i]), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, frameData.outputImages[i]->getFormat());
+        frameData.copyOutputImages[i] = std::make_unique<Image>(*device, swapchain->getProperties().surfaceFormat.format, extent, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+        frameData.copyOutputImageViews[i] = std::make_unique<ImageView>(*(frameData.copyOutputImages[i]), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, frameData.copyOutputImages[i]->getFormat());
         frameData.historyImages[i] = std::make_unique<Image>(*device, swapchain->getProperties().surfaceFormat.format, extent, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
         frameData.historyImageViews[i] = std::make_unique<ImageView>(*(frameData.historyImages[i]), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, frameData.historyImages[i]->getFormat());
         frameData.velocityImages[i] = std::make_unique<Image>(*device, swapchain->getProperties().surfaceFormat.format, extent, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
@@ -2262,6 +2300,8 @@ void MainApp::createImageResourcesForFrames()
 
         setDebugUtilsObjectName(device->getHandle(), frameData.outputImages[i]->getHandle(), "outputImage for frame #" + std::to_string(i));
         setDebugUtilsObjectName(device->getHandle(), frameData.outputImageViews[i]->getHandle(), "outputImageView for frame #" + std::to_string(i));
+        setDebugUtilsObjectName(device->getHandle(), frameData.copyOutputImages[i]->getHandle(), "copyOutputImage for frame #" + std::to_string(i));
+        setDebugUtilsObjectName(device->getHandle(), frameData.copyOutputImageViews[i]->getHandle(), "copyOutputImageView for frame #" + std::to_string(i));
         setDebugUtilsObjectName(device->getHandle(), frameData.historyImages[i]->getHandle(), "historyImage for frame #" + std::to_string(i));
         setDebugUtilsObjectName(device->getHandle(), frameData.historyImageViews[i]->getHandle(), "historyImageView for frame #" + std::to_string(i));
         setDebugUtilsObjectName(device->getHandle(), frameData.velocityImages[i]->getHandle(), "velocityImage for frame #" + std::to_string(i));
@@ -2270,6 +2310,7 @@ void MainApp::createImageResourcesForFrames()
         std::unique_ptr<CommandBuffer> commandBuffer = std::make_unique<CommandBuffer>(*frameData.commandPools[currentFrame], VK_COMMAND_BUFFER_LEVEL_PRIMARY);
         commandBuffer->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
         frameData.outputImages[i]->transitionImageLayout(*commandBuffer, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresourceRange);
+        frameData.copyOutputImages[i]->transitionImageLayout(*commandBuffer, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresourceRange);
         frameData.historyImages[i]->transitionImageLayout(*commandBuffer, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresourceRange);
         frameData.velocityImages[i]->transitionImageLayout(*commandBuffer, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresourceRange);
         commandBuffer->end();

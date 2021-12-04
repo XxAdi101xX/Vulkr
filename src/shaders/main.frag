@@ -21,7 +21,8 @@ layout(location = 6) in vec4 currentFramePosition;
 layout(location = 7) in vec4 previousFramePosition;
 
 layout(location = 0) out vec4 outColor;
-layout(location = 1) out vec4 outVelocity;
+layout(location = 1) out vec4 outColorCopy;
+layout(location = 2) out vec4 outVelocity;
 
 layout(push_constant) uniform RasterizationPushConstant
 {
@@ -79,6 +80,7 @@ void main() {
 
     // Result
     outColor = vec4(lightIntensity * (diffuse + specular), 1);
+    outColorCopy = vec4(lightIntensity * (diffuse + specular), 1);
 
     // Populate the velocity image
     vec2 newPos = (currentFramePosition.xy / currentFramePosition.w) * 0.5 + 0.5;

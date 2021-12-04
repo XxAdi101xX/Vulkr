@@ -27,7 +27,7 @@ layout(push_constant) uniform TaaPushConstant
 {
     int frameSinceViewChange;
     vec2 jitter;
-    int blank; // alignment
+    int blank;
 } pushConstant;
 
 layout(location = 0) in vec3 inPosition;

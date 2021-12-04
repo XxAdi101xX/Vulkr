@@ -85,7 +85,7 @@ constexpr uint32_t taaDepth{ 128 };
 constexpr uint32_t MAX_OBJECT_COUNT{ 10000 };
 constexpr uint32_t MAX_LIGHT_COUNT{ 100 };
 bool raytracingEnabled{ true }; // Flag to enable ray tracing vs rasterization
-bool temporalAntiAliasingEnabled{ false }; // Flag to enable temporal anti-aliasing (see https://ziyadbarakat.wordpress.com/2020/07/28/temporal-anti-aliasing-step-by-step/)
+bool temporalAntiAliasingEnabled{ false }; // Flag to enable temporal anti-aliasing (see https://static1.squarespace.com/static/5a3beb72692ebe77330b5118/t/5c9d4f5be2c483f0c4108eca/1553813352302/report.pdf and  https://ziyadbarakat.wordpress.com/2020/07/28/temporal-anti-aliasing-step-by-step/)
 
 /* Structs shared on both the GPU and CPU */
 struct CameraData
@@ -273,6 +273,8 @@ private:
     {
         std::array<std::unique_ptr<Image>, maxFramesInFlight> outputImages;
         std::array<std::unique_ptr<ImageView>, maxFramesInFlight> outputImageViews;
+        std::array<std::unique_ptr<Image>, maxFramesInFlight> copyOutputImages;
+        std::array<std::unique_ptr<ImageView>, maxFramesInFlight> copyOutputImageViews;
         std::array<std::unique_ptr<Image>, maxFramesInFlight> historyImages;
         std::array<std::unique_ptr<ImageView>, maxFramesInFlight> historyImageViews;
         std::array<std::unique_ptr<Image>, maxFramesInFlight> velocityImages;
@@ -340,6 +342,11 @@ private:
         glm::vec2 jitter{ glm::vec2(0.0f) };
         int blank{ 0 }; // alignment
     } taaPushConstant;
+
+    struct PostProcessPushConstant
+    {
+        glm::vec2 imageExtent;
+    } postProcessPushConstant;
 
     struct ComputePushConstant
     {
