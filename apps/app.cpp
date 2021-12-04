@@ -299,6 +299,18 @@ void MainApp::update()
     drawImGuiInterface();
     updateTaaState(); // must be called after drawingImGui
 
+    // TODO check if this jitter value is correct
+    if (temporalAntiAliasingEnabled)
+    {
+        taaPushConstant.jitter = haltonSequence[std::min(taaPushConstant.frameSinceViewChange, static_cast<int>(taaDepth - 1))];
+        taaPushConstant.jitter.x = (taaPushConstant.jitter.x / swapchain->getProperties().imageExtent.width) * 5;
+        taaPushConstant.jitter.y = (taaPushConstant.jitter.y / swapchain->getProperties().imageExtent.height) * 5;
+    }
+    else
+    {
+        taaPushConstant.jitter = glm::vec2(0.0f, 0.0f);
+    }
+
     // Begin command buffer for offscreen pass
     frameData.commandBuffers[currentFrame][0]->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
 
@@ -631,6 +643,8 @@ void MainApp::animateWithCompute()
 
 void MainApp::updateBuffersPerFrame()
 {
+    // TODO use staging buffers instead and replace all instances of VMA_MEMORY_USAGE_CPU_TO_GPU to VMA_MEMORY_USAGE_GPU_ONLY
+
     // Update the camera buffer
     CameraData cameraData{};
     cameraData.view = cameraController->getCamera()->getView();
@@ -704,18 +718,6 @@ void MainApp::rasterize()
             lastObjIndex = objInstances[index].objIndex;
         }
 
-        // TODO check if this jitter value is correct
-        if (temporalAntiAliasingEnabled)
-        {
-            taaPushConstant.jitter = haltonSequence[std::min(taaPushConstant.frameSinceViewChange, static_cast<int>(taaDepth - 1))];
-            taaPushConstant.jitter.x = (taaPushConstant.jitter.x / swapchain->getProperties().imageExtent.width) * 5;
-            taaPushConstant.jitter.y = (taaPushConstant.jitter.y / swapchain->getProperties().imageExtent.height) * 5;
-        }
-        else
-        {
-            taaPushConstant.jitter = glm::vec2(0.0f, 0.0f);
-        }
-
         vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(TaaPushConstant), &taaPushConstant);
         vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(TaaPushConstant), sizeof(RasterizationPushConstant), &rasterizationPushConstant);
         vkCmdDrawIndexed(frameData.commandBuffers[currentFrame][0]->getHandle(), to_u32(objModel.indicesCount), 1, 0, 0, index);
@@ -726,7 +728,7 @@ void MainApp::rasterize()
 
 void MainApp::drawPost()
 {
-    debugUtilBeginLabel(frameData.commandBuffers[currentFrame][1]->getHandle(), "Post");
+    debugUtilBeginLabel(frameData.commandBuffers[currentFrame][1]->getHandle(), "Post Process");
 
     int32_t lastObjIndex{ -1 };
     PipelineData &pipelineData = pipelines.postProcess;
@@ -750,14 +752,15 @@ void MainApp::drawPost()
             lastObjIndex = objInstances[index].objIndex;
         }
 
-        // We have history buffer set to 1 - blendFactor so when we have enough samples and the frame has been still for a while, we don't want to recalculate
-        // the image but just use what's in the history buffer
-        float blendFactor = 0.0f;
-        if (taaPushConstant.frameSinceViewChange < taaDepth)
-        {
-            blendFactor = 1.0f / float(taaPushConstant.frameSinceViewChange + 1);
-            //blendFactor = 0.2f;//TODO remove
-        }
+        // Limit blending once enough frames have been occumulated (this optimization is only relavent for static scenes)
+        //float blendFactor = 0.0f;
+        //if (taaPushConstant.frameSinceViewChange < taaDepth)
+        //{
+        //    blendFactor = 1.0f / float(taaPushConstant.frameSinceViewChange + 1);
+        //}
+
+        // We have history buffer set to 1 - blendFactor
+        float blendFactor = 0.2f;
 
         float blendConstants[4] = { blendFactor, blendFactor, blendFactor, blendFactor };
         vkCmdSetBlendConstants(frameData.commandBuffers[currentFrame][1]->getHandle(), blendConstants);
@@ -1613,9 +1616,9 @@ void MainApp::createVertexBuffer(ObjModel &objModel, const ObjLoader &objLoader)
     VmaAllocationCreateInfo memoryInfo{};
     memoryInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
     std::unique_ptr<Buffer> stagingBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
+
     bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | rayTracingFlags;
     memoryInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
-
     objModel.vertexBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
 
     void *mappedData = stagingBuffer->map();
@@ -1707,7 +1710,7 @@ void MainApp::createUniformBuffers()
     bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
     VmaAllocationCreateInfo memoryInfo{};
-    memoryInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
+    memoryInfo.usage = VMA_MEMORY_USAGE_CPU_TO_GPU; // TODO: we should use staging buffers instead
 
     for (uint32_t i = 0; i < maxFramesInFlight; ++i)
     {
@@ -1738,7 +1741,7 @@ void MainApp::createSSBOs()
     bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
     VmaAllocationCreateInfo memoryInfo{};
-    memoryInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
+    memoryInfo.usage = VMA_MEMORY_USAGE_CPU_TO_GPU; // TODO: we should use staging buffers instead
 
     for (uint32_t i = 0; i < maxFramesInFlight; ++i)
     {
@@ -1952,6 +1955,7 @@ void MainApp::createDescriptorSets()
         textureImageInfos.push_back(textureImageInfo);
     }
 
+    // Binding 0 is the texture image
     VkWriteDescriptorSet writeTextureDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
     writeTextureDescriptorSet.dstSet = textureDescriptorSet->getHandle();
     writeTextureDescriptorSet.dstBinding = 0;
