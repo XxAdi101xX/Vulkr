@@ -1,3 +1,5 @@
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+
 struct Vertex
 {
     vec3 position;
