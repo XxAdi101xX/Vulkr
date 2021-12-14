@@ -64,6 +64,7 @@
 #include <iostream>
 #include <chrono>
 #include <algorithm>
+#include <random>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
@@ -84,7 +85,23 @@ constexpr uint32_t commandBufferCountForFrame{ 3 };
 constexpr uint32_t taaDepth{ 128 };
 constexpr uint32_t MAX_OBJECT_COUNT{ 10000 };
 constexpr uint32_t MAX_LIGHT_COUNT{ 100 };
-bool raytracingEnabled{ true }; // Flag to enable ray tracing vs rasterization
+constexpr uint32_t PARTICLES_PER_ATTRACTOR{ 64 }; // TODO change it to 1024
+#if 1
+const std::vector<glm::vec3> attractors = {
+    glm::vec3(2.5f, 1.5f, 0.0f),
+    glm::vec3(-2.5f, -1.5f, 0.0f),
+};
+#else
+const std::vector<glm::vec3> attractors = {
+    glm::vec3(5.0f, 0.0f, 0.0f),
+    glm::vec3(-5.0f, 0.0f, 0.0f),
+    glm::vec3(0.0f, 0.0f, 5.0f),
+    glm::vec3(0.0f, 0.0f, -5.0f),
+    glm::vec3(0.0f, 4.0f, 0.0f),
+    glm::vec3(0.0f, -8.0f, 0.0f),
+};
+#endif
+bool raytracingEnabled{ false }; // Flag to enable ray tracing vs rasterization
 bool temporalAntiAliasingEnabled{ false }; // Flag to enable temporal anti-aliasing (see https://static1.squarespace.com/static/5a3beb72692ebe77330b5118/t/5c9d4f5be2c483f0c4108eca/1553813352302/report.pdf and  https://ziyadbarakat.wordpress.com/2020/07/28/temporal-anti-aliasing-step-by-step/)
 
 /* Structs shared on both the GPU and CPU */
@@ -104,6 +121,28 @@ struct ObjInstance
     alignas(8) VkDeviceAddress indices;
     alignas(8) VkDeviceAddress materials;
     alignas(8) VkDeviceAddress materialIndices;
+
+    bool operator == (const ObjInstance &other) const {
+        return
+            transform == other.transform &&
+            transformIT == other.transformIT &&
+            objIndex == other.objIndex &&
+            textureOffset == other.textureOffset &&
+            vertices == other.vertices &&
+            indices == other.indices &&
+            materials == other.materials &&
+            materialIndices == other.materialIndices;
+    }
+
+    bool operator != (const ObjInstance &other) const {
+        return !(*this == other);
+    }
+};
+
+struct Particle
+{
+    alignas(16) glm::vec4 position; // xyz = position, w = mass
+    alignas(16) glm::vec4 velocity; // xyz = velocity, w = gradient texture position
 };
 
 /* CPU only structs */
@@ -231,6 +270,7 @@ private:
     Queue *presentQueue{ VK_NULL_HANDLE };
     Queue *transferQueue{ VK_NULL_HANDLE }; // TODO: currently unused in code
     uint32_t workGroupSize;
+    uint32_t shadedMemorySize;
 
     std::unique_ptr<Swapchain> swapchain{ nullptr };
 
@@ -253,6 +293,7 @@ private:
     std::unique_ptr<DescriptorSetLayout> textureDescriptorSetLayout{ nullptr };
     std::unique_ptr<DescriptorSetLayout> postProcessingDescriptorSetLayout{ nullptr };
     std::unique_ptr<DescriptorSetLayout> taaDescriptorSetLayout{ nullptr };
+    std::unique_ptr<DescriptorSetLayout> particleComputeDescriptorSetLayout{ nullptr };
     std::unique_ptr<DescriptorPool> descriptorPool;
     std::unique_ptr<DescriptorPool> imguiPool;
 
@@ -286,6 +327,7 @@ private:
         std::array<VkSemaphore, maxFramesInFlight> offscreenRenderingFinishedSemaphores;
         std::array<VkSemaphore, maxFramesInFlight> postProcessRenderingFinishedSemaphores;
         std::array<VkSemaphore, maxFramesInFlight> outputImageCopyFinishedSemaphores;
+        std::array<VkSemaphore, maxFramesInFlight> computeParticlesFinishedSemaphores;
         std::array<VkFence, maxFramesInFlight> inFlightFences;
 
         std::array<std::unique_ptr<CommandPool>, maxFramesInFlight> commandPools;
@@ -295,12 +337,14 @@ private:
         std::array<std::unique_ptr<DescriptorSet>, maxFramesInFlight> objectDescriptorSets;
         std::array<std::unique_ptr<DescriptorSet>, maxFramesInFlight> postProcessingDescriptorSets;
         std::array<std::unique_ptr<DescriptorSet>, maxFramesInFlight> taaDescriptorSets;
+        std::array<std::unique_ptr<DescriptorSet>, maxFramesInFlight> particleComputeDescriptorSets;
         std::array<std::unique_ptr<DescriptorSet>, maxFramesInFlight> rtDescriptorSets;
         std::array<std::unique_ptr<Buffer>, maxFramesInFlight> cameraBuffers;
         std::array<std::unique_ptr<Buffer>, maxFramesInFlight> previousFrameCameraBuffers;
         std::array<std::unique_ptr<Buffer>, maxFramesInFlight> lightBuffers;
         std::array<std::unique_ptr<Buffer>, maxFramesInFlight> objectBuffers;
         std::array<std::unique_ptr<Buffer>, maxFramesInFlight> previousFrameObjectBuffers;
+        std::array<std::unique_ptr<Buffer>, maxFramesInFlight> particleBuffers;
     } frameData;
 
     std::vector<VkClearValue> offscreenFramebufferClearValues;
@@ -315,10 +359,15 @@ private:
         PipelineData offscreen;
         PipelineData postProcess;
         PipelineData compute;
+        PipelineData computeParticleCalculate;
+        PipelineData computeParticleIntegrate;
     } pipelines;
     std::vector<ObjModel> objModels;
     std::vector<Texture> textures;
     std::vector<ObjInstance> objInstances;
+
+    VkDeviceSize particleBufferSize{ 0 };
+    std::vector<Particle> particleBuffer;
 
     // Note that any modifications to push constants must be matched in the shaders and offsets must be set appropriately
     struct RasterizationPushConstant
@@ -354,6 +403,13 @@ private:
         float time;
     } computePushConstant;
 
+    struct ComputeParticlesPushConstant
+    {
+        int startingIndex;
+        int particleCount;
+        float deltaTime;
+    } computeParticlesPushConstant;
+
     // TODO: current this is not used in shaders so they must be added in the future
     // TODO: if the type of struct is changed, ensure that you change lines where the size of the array is using sizeof(LightData)
     std::vector<LightData> sceneLights;
@@ -362,6 +418,7 @@ private:
     void drawImGuiInterface();
     void animateInstances();
     void animateWithCompute();
+    void computeParticles();
     void updateBuffersPerFrame();
     void rasterize();
     void drawPost();
@@ -377,6 +434,8 @@ private:
     void createMainRasterizationPipeline();
     void createPostProcessingPipeline();
     void createComputePipeline();
+    void createParticleCalculateComputePipeline();
+    void createParticleIntegrateComputePipeline();
     void createFramebuffers();
     void createCommandPools();
     void createCommandBuffers();
@@ -393,6 +452,7 @@ private:
     void createMaterialIndicesBuffer(ObjModel &objModel, const ObjLoader &objLoader);
     void createUniformBuffers();
     void createSSBOs();
+    void prepareParticleData();
     void createDescriptorPool();
     void createDescriptorSets();
     void updateComputeDescriptorSet();
@@ -410,6 +470,7 @@ private:
     void initializeImGui();
     void resetFrameSinceViewChange();
     void updateTaaState();
+    void initializeBufferData();
 
     // Raytracing TODO: cleanup this section
     BlasInput objectToVkGeometryKHR(size_t objModelIndex);

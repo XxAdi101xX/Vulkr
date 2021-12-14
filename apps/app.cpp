@@ -53,6 +53,7 @@ MainApp::~MainApp()
     textureDescriptorSetLayout.reset();
     postProcessingDescriptorSetLayout.reset();
     taaDescriptorSetLayout.reset();
+    particleComputeDescriptorSetLayout.reset();
 
     for (auto &it : objModels)
     {
@@ -128,6 +129,10 @@ void MainApp::cleanupSwapchain()
     pipelines.postProcess.pipelineState.reset();
     pipelines.compute.pipeline.reset();
     pipelines.compute.pipelineState.reset();
+    pipelines.computeParticleCalculate.pipeline.reset();
+    pipelines.computeParticleCalculate.pipelineState.reset();
+    pipelines.computeParticleIntegrate.pipeline.reset();
+    pipelines.computeParticleIntegrate.pipelineState.reset();
 
     mainRenderPass.renderPass.reset();
     mainRenderPass.subpasses.clear();
@@ -160,6 +165,7 @@ void MainApp::cleanupSwapchain()
         frameData.lightBuffers[i].reset();
         frameData.objectBuffers[i].reset();
         frameData.previousFrameObjectBuffers[i].reset();
+        frameData.particleBuffers[i].reset();
     }
 
     descriptorPool.reset();
@@ -247,6 +253,9 @@ void MainApp::prepare()
     createTextureSampler();
     createUniformBuffers();
     createSSBOs();
+    prepareParticleData();
+    createParticleCalculateComputePipeline();
+    createParticleIntegrateComputePipeline();
     createDescriptorPool();
     createDescriptorSets();
     setupCamera();
@@ -263,6 +272,8 @@ void MainApp::prepare()
 
     createSemaphoreAndFencePools();
     setupSynchronizationObjects();
+
+    initializeBufferData();
 }
 
 void MainApp::update()
@@ -295,8 +306,9 @@ void MainApp::update()
     }
     imagesInFlight[swapchainImageIndex] = frameData.inFlightFences[currentFrame];
 
+    computeParticlesPushConstant.deltaTime = drawingTimer->tick();
     animateInstances();
-    updateComputeDescriptorSet();
+    //updateComputeDescriptorSet(); // TODO: is this even correct, i'm not sure whether we need to update descriptor sets really
     updateBuffersPerFrame();
     drawImGuiInterface();
     updateTaaState(); // must be called after drawingImGui
@@ -316,15 +328,65 @@ void MainApp::update()
     // Begin command buffer for offscreen pass
     frameData.commandBuffers[currentFrame][0]->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
 
+    // Compute shader invocations
+    computeParticles();
     //animateWithCompute(); // Compute vertices with compute shader TODO: fix the validation errors that happen when this is enabled, might be due to incorrect sytnax with obj buffer
     // in animate.comp or the fact that the objBuffer is readonly? Not totally sure.
-    // TODO: We need to add a memory barrier to prevent the offscreen pass from consuming the vertices before the compute shader is done with them!!!!
+
     if (raytracingEnabled)
     {
+        // Add memory barrier to ensure that the particleIntegrate computer shader has finished writing to the currentFrameObjectBuffer
+        VkBufferMemoryBarrier memoryBarrier =
+        {
+            VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+            nullptr,
+            VK_ACCESS_SHADER_WRITE_BIT,
+            VK_ACCESS_SHADER_READ_BIT,
+            VK_QUEUE_FAMILY_IGNORED,
+            VK_QUEUE_FAMILY_IGNORED,
+            frameData.objectBuffers[currentFrame]->getHandle(),
+            0,
+            particleBufferSize
+        };
+
+        vkCmdPipelineBarrier(
+            frameData.commandBuffers[currentFrame][0]->getHandle(),
+            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+            VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR,
+            0,
+            0, nullptr,
+            1, &memoryBarrier,
+            0, nullptr
+        );
+
         raytrace();
     }
     else
     {
+        // Add memory barrier to ensure that the particleIntegrate computer shader has finished writing to the currentFrameObjectBuffer
+        VkBufferMemoryBarrier memoryBarrier =
+        {
+            VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+            nullptr,
+            VK_ACCESS_SHADER_WRITE_BIT,
+            VK_ACCESS_SHADER_READ_BIT,
+            VK_QUEUE_FAMILY_IGNORED,
+            VK_QUEUE_FAMILY_IGNORED,
+            frameData.objectBuffers[currentFrame]->getHandle(),
+            0,
+            particleBufferSize
+        };
+
+        vkCmdPipelineBarrier(
+            frameData.commandBuffers[currentFrame][0]->getHandle(),
+            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+            VK_PIPELINE_STAGE_VERTEX_SHADER_BIT,
+            0,
+            0, nullptr,
+            1, &memoryBarrier,
+            0, nullptr
+        );
+
         frameData.commandBuffers[currentFrame][0]->beginRenderPass(*mainRenderPass.renderPass, *(frameData.offscreenFramebuffers[currentFrame]), swapchain->getProperties().imageExtent, offscreenFramebufferClearValues, VK_SUBPASS_CONTENTS_INLINE);
         rasterize();
         frameData.commandBuffers[currentFrame][0]->endRenderPass();
@@ -604,6 +666,7 @@ void MainApp::drawImGuiInterface()
 
 void MainApp::animateInstances()
 {
+    const uint64_t startingIndex{ 2 };
     const int64_t wusonInstanceCount{
         std::count_if(objInstances.begin(), objInstances.end(), [this](ObjInstance i) { return i.objIndex == getObjModelIndex("wuson.obj"); })
     };
@@ -619,7 +682,7 @@ void MainApp::animateInstances()
     const float time = std::chrono::duration<float, std::chrono::seconds::period>(drawingTimer->elapsed()).count();
     const float offset = time * 0.5f;
 
-    for (int i = 2; i < 2 + wusonInstanceCount; i++)
+    for (uint64_t i = startingIndex; i < startingIndex + wusonInstanceCount; i++)
     {
         objInstances[i].transform = glm::rotate(glm::mat4(1.0f), i * deltaAngle + offset, glm::vec3(0.0f, 1.0f, 0.0f)) * glm::translate(glm::mat4{ 1.0 }, glm::vec3(radius, 0.f, 0.f));
         objInstances[i].transformIT = glm::transpose(glm::inverse(objInstances[i].transform));
@@ -627,6 +690,22 @@ void MainApp::animateInstances()
         accelerationStructureInstances[i].transform = toTransformMatrixKHR(objInstances[i].transform);
     }
     buildTlas(true);
+
+    // Update the transformation for the wuson instances
+    void *mappedData = frameData.objectBuffers[currentFrame]->map();
+    ObjInstance *objectSSBO = static_cast<ObjInstance *>(mappedData);
+    for (int i = startingIndex; i < startingIndex + wusonInstanceCount; i++)
+    {
+        objectSSBO[i].transform = objInstances[i].transform;
+        objectSSBO[i].transformIT = objInstances[i].transformIT;
+        objectSSBO[i].objIndex = objInstances[i].objIndex;
+        objectSSBO[i].textureOffset = objInstances[i].textureOffset;
+        objectSSBO[i].vertices = objInstances[i].vertices;
+        objectSSBO[i].indices = objInstances[i].indices;
+        objectSSBO[i].materials = objInstances[i].materials;
+        objectSSBO[i].materialIndices = objInstances[i].materialIndices;
+    }
+    frameData.objectBuffers[currentFrame]->unmap();
 }
 
 void MainApp::animateWithCompute()
@@ -643,9 +722,139 @@ void MainApp::animateWithCompute()
     vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), objModels[wusonModelIndex].indicesCount / workGroupSize, 1u, 1u);
 }
 
+void MainApp::computeParticles()
+{
+    // Acquire
+    if (graphicsQueue->getFamilyIndex() != computeQueue->getFamilyIndex())
+    {
+        VkBufferMemoryBarrier bufferBarrier =
+        {
+            VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+            nullptr,
+            0,
+            VK_ACCESS_SHADER_WRITE_BIT,
+            graphicsQueue->getFamilyIndex(),
+            computeQueue->getFamilyIndex(),
+            frameData.particleBuffers[currentFrame]->getHandle(),
+            0,
+            particleBufferSize
+        };
+
+        vkCmdPipelineBarrier(
+            frameData.commandBuffers[currentFrame][0]->getHandle(),
+            VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
+            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+            0,
+            0, nullptr,
+            1, &bufferBarrier,
+            0, nullptr
+        );
+    }
+
+    // First pass: Calculate particle movement
+    vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeParticleCalculate.pipeline->getBindPoint(), pipelines.computeParticleCalculate.pipeline->getHandle());
+    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeParticleCalculate.pipeline->getBindPoint(), pipelines.computeParticleCalculate.pipelineState->getPipelineLayout().getHandle(), 0, 1, &frameData.particleComputeDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
+    vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeParticleCalculate.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputeParticlesPushConstant), &computeParticlesPushConstant);
+    vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), computeParticlesPushConstant.particleCount / workGroupSize, 1, 1);
+
+    // Add memory barrier to ensure that the computer shader has finished writing to the buffer
+    VkBufferMemoryBarrier memoryBarrier =
+    {
+        VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+        nullptr,
+        VK_ACCESS_SHADER_WRITE_BIT,
+        VK_ACCESS_SHADER_READ_BIT,
+        VK_QUEUE_FAMILY_IGNORED,
+        VK_QUEUE_FAMILY_IGNORED,
+        frameData.particleBuffers[currentFrame]->getHandle(),
+        0,
+        particleBufferSize
+    };
+
+    vkCmdPipelineBarrier(
+        frameData.commandBuffers[currentFrame][0]->getHandle(),
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+        0,
+        0, nullptr,
+        1, &memoryBarrier,
+        0, nullptr
+    );
+
+    // Second pass: Integrate particles
+    vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeParticleIntegrate.pipeline->getBindPoint(), pipelines.computeParticleIntegrate.pipeline->getHandle());
+    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeParticleIntegrate.pipeline->getBindPoint(), pipelines.computeParticleIntegrate.pipelineState->getPipelineLayout().getHandle(), 0, 1, &frameData.particleComputeDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
+    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeParticleIntegrate.pipeline->getBindPoint(), pipelines.computeParticleIntegrate.pipelineState->getPipelineLayout().getHandle(), 1, 1, &frameData.objectDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
+    vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeParticleIntegrate.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputeParticlesPushConstant), &computeParticlesPushConstant);
+    vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), computeParticlesPushConstant.particleCount / workGroupSize, 1, 1);
+
+    // Release
+    if (graphicsQueue->getFamilyIndex() != computeQueue->getFamilyIndex())
+    {
+        VkBufferMemoryBarrier bufferBarrier =
+        {
+            VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+            nullptr,
+            VK_ACCESS_SHADER_WRITE_BIT,
+            0,
+            computeQueue->getFamilyIndex(),
+            graphicsQueue->getFamilyIndex(),
+            frameData.particleBuffers[currentFrame]->getHandle(),
+            0,
+            particleBufferSize
+        };
+
+        vkCmdPipelineBarrier(
+            frameData.commandBuffers[currentFrame][0]->getHandle(),
+            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+            VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
+            0,
+            0, nullptr,
+            1, &bufferBarrier,
+            0, nullptr
+        );
+    }
+}
+
+void MainApp::initializeBufferData()
+{
+    for (uint32_t frame = 0; frame < maxFramesInFlight; ++frame)
+    {
+        // Update the camera buffer
+        CameraData cameraData{};
+        cameraData.view = cameraController->getCamera()->getView();
+        cameraData.proj = cameraController->getCamera()->getProjection();
+
+        void *mappedData = frameData.cameraBuffers[frame]->map();
+        memcpy(mappedData, &cameraData, sizeof(cameraData));
+        frameData.cameraBuffers[frame]->unmap();
+
+        // Update the light buffer
+        mappedData = frameData.lightBuffers[frame]->map();
+        memcpy(mappedData, sceneLights.data(), sizeof(LightData) * sceneLights.size());
+        frameData.lightBuffers[frame]->unmap();
+
+        // Update the object buffer
+        mappedData = frameData.objectBuffers[frame]->map();
+        ObjInstance *objectSSBO = static_cast<ObjInstance *>(mappedData);
+        for (int instanceIndex = 0; instanceIndex < objInstances.size(); instanceIndex++)
+        {
+            objectSSBO[instanceIndex].transform = objInstances[instanceIndex].transform;
+            objectSSBO[instanceIndex].transformIT = objInstances[instanceIndex].transformIT;
+            objectSSBO[instanceIndex].objIndex = objInstances[instanceIndex].objIndex;
+            objectSSBO[instanceIndex].textureOffset = objInstances[instanceIndex].textureOffset;
+            objectSSBO[instanceIndex].vertices = objInstances[instanceIndex].vertices;
+            objectSSBO[instanceIndex].indices = objInstances[instanceIndex].indices;
+            objectSSBO[instanceIndex].materials = objInstances[instanceIndex].materials;
+            objectSSBO[instanceIndex].materialIndices = objInstances[instanceIndex].materialIndices;
+        }
+        frameData.objectBuffers[frame]->unmap();
+    }
+}
+
 void MainApp::updateBuffersPerFrame()
 {
-    // TODO use staging buffers instead and replace all instances of VMA_MEMORY_USAGE_CPU_TO_GPU to VMA_MEMORY_USAGE_GPU_ONLY
+    // TODO should we use staging buffers instead and replace all instances of VMA_MEMORY_USAGE_CPU_TO_GPU to VMA_MEMORY_USAGE_GPU_ONLY?
 
     // Update the camera buffer
     CameraData cameraData{};
@@ -660,25 +869,6 @@ void MainApp::updateBuffersPerFrame()
     mappedData = frameData.lightBuffers[currentFrame]->map();
     memcpy(mappedData, sceneLights.data(), sizeof(LightData) * sceneLights.size());
     frameData.lightBuffers[currentFrame]->unmap();
-
-    // Update the object buffer
-    mappedData = frameData.objectBuffers[currentFrame]->map();
-    ObjInstance *objectSSBO = (ObjInstance *)mappedData;
-    VkBufferDeviceAddressInfo bufferDeviceAddressInfo = { VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO_KHR };
-    for (int index = 0; index < objInstances.size(); index++)
-    {
-        objectSSBO[index].transform = objInstances[index].transform;
-        objectSSBO[index].transformIT = objInstances[index].transformIT;
-
-        // TODO this doesn't have to be set per frame, we can do this once in the beginning
-        objectSSBO[index].objIndex = objInstances[index].objIndex;
-        objectSSBO[index].textureOffset = objInstances[index].textureOffset;
-        objectSSBO[index].vertices = objInstances[index].vertices;
-        objectSSBO[index].indices = objInstances[index].indices;
-        objectSSBO[index].materials = objInstances[index].materials;
-        objectSSBO[index].materialIndices = objInstances[index].materialIndices;
-    }
-    frameData.objectBuffers[currentFrame]->unmap();
 }
 
 // TODO: as opposed to doing slot based binding of descriptor sets which leads to multiple vkCmdBindDescriptorSets calls per drawcall, you can use
@@ -687,7 +877,7 @@ void MainApp::updateBuffersPerFrame()
 void MainApp::rasterize()
 {
     debugUtilBeginLabel(frameData.commandBuffers[currentFrame][0]->getHandle(), "Rasterize");
-    
+    // TODO: alot of these vkcmd functions can be pulled outside of the loop, same with the drawPost function
     int32_t lastObjIndex{ -1 };
     PipelineData &pipelineData = pipelines.offscreen;
     for (int index = 0; index < objInstances.size(); index++)
@@ -824,6 +1014,7 @@ void MainApp::createDevice()
     physicalDevice->setRequestedFeatures(deviceFeatures);
 
     workGroupSize = std::min(64u, physicalDevice->getProperties().limits.maxComputeWorkGroupSize[0]);
+    shadedMemorySize = std::min(1024u, physicalDevice->getProperties().limits.maxComputeSharedMemorySize);
 
     device = std::make_unique<Device>(std::move(physicalDevice), surface, deviceExtensions);
 }
@@ -1128,6 +1319,17 @@ void MainApp::createDescriptorSetLayouts()
 
     std::vector<VkDescriptorSetLayoutBinding> textureDescriptorSetLayoutBindings{ samplerLayoutBinding };
     textureDescriptorSetLayout = std::make_unique<DescriptorSetLayout>(*device, textureDescriptorSetLayoutBindings);
+
+    // Particle compute descriptor set layout
+    VkDescriptorSetLayoutBinding particleBufferLayoutBinding{};
+    particleBufferLayoutBinding.binding = 0;
+    particleBufferLayoutBinding.descriptorCount = 1;
+    particleBufferLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    particleBufferLayoutBinding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    particleBufferLayoutBinding.pImmutableSamplers = nullptr;
+
+    std::vector<VkDescriptorSetLayoutBinding> particleComputeDescriptorSetLayoutBindings{ particleBufferLayoutBinding };
+    particleComputeDescriptorSetLayout = std::make_unique<DescriptorSetLayout>(*device, particleComputeDescriptorSetLayoutBindings);
 }
 
 void MainApp::createMainRasterizationPipeline()
@@ -1435,6 +1637,97 @@ void MainApp::createComputePipeline()
     pipelines.compute.pipeline = animationComputePipeline;
 }
 
+void MainApp::createParticleCalculateComputePipeline()
+{
+    std::shared_ptr<ShaderSource> particleCalculateComputeShader = std::make_shared<ShaderSource>("particleCalculate.comp.spv");
+
+    struct SpecializationData {
+        uint32_t workGroupSize;
+        uint32_t sharedDataSize;
+        float gravity;
+        float power;
+        float soften;
+    } specializationData;
+    const VkSpecializationMapEntry entries[] =
+    {
+        { 0u, offsetof(SpecializationData, workGroupSize), sizeof(uint32_t) },
+        { 1u, offsetof(SpecializationData, sharedDataSize), sizeof(uint32_t) },
+        { 2u, offsetof(SpecializationData, gravity), sizeof(float) },
+        { 3u, offsetof(SpecializationData, power), sizeof(float) },
+        { 4u, offsetof(SpecializationData, soften), sizeof(float) },
+    };
+    specializationData.workGroupSize = workGroupSize;
+    specializationData.sharedDataSize = shadedMemorySize / sizeof(glm::vec4);
+    specializationData.gravity = 0.002f;
+    specializationData.power = 0.75f;
+    specializationData.soften = 0.05f;
+
+    VkSpecializationInfo specializationInfo =
+    {
+        5u,
+        entries,
+        to_u32(sizeof(SpecializationData)),
+        &specializationData
+    };
+
+    std::vector<ShaderModule> shaderModules;
+    shaderModules.emplace_back(*device, VK_SHADER_STAGE_COMPUTE_BIT, specializationInfo, particleCalculateComputeShader);
+
+    std::vector<VkDescriptorSetLayout> descriptorSetLayoutHandles{ particleComputeDescriptorSetLayout->getHandle() };
+
+    std::vector<VkPushConstantRange> pushConstantRangeHandles;
+    VkPushConstantRange computePushConstantRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputeParticlesPushConstant) };
+    pushConstantRangeHandles.push_back(computePushConstantRange);
+
+    std::shared_ptr<ComputePipelineState> particleCalculateComputePipelineState = std::make_shared<ComputePipelineState>(
+        std::make_unique<PipelineLayout>(*device, shaderModules, descriptorSetLayoutHandles, pushConstantRangeHandles)
+    );
+    std::shared_ptr<ComputePipeline> particleCalculateComputePipeline = std::make_shared<ComputePipeline>(*device, *particleCalculateComputePipelineState, nullptr);
+
+    pipelines.computeParticleCalculate.pipelineState = particleCalculateComputePipelineState;
+    pipelines.computeParticleCalculate.pipeline = particleCalculateComputePipeline;
+}
+
+void MainApp::createParticleIntegrateComputePipeline()
+{
+    std::shared_ptr<ShaderSource> particleIntegrateComputeShader = std::make_shared<ShaderSource>("particleIntegrate.comp.spv");
+
+    const VkSpecializationMapEntry entries[] =
+    {
+        {
+            0u,
+            to_u32(0 * sizeof(uint32_t)),
+            sizeof(uint32_t)
+        }
+    };
+    const uint32_t data[] = { workGroupSize };
+
+    VkSpecializationInfo specializationInfo =
+    {
+        1u,
+        entries,
+        to_u32(1 * sizeof(uint32_t)),
+        data
+    };
+
+    std::vector<ShaderModule> shaderModules;
+    shaderModules.emplace_back(*device, VK_SHADER_STAGE_COMPUTE_BIT, specializationInfo, particleIntegrateComputeShader);
+
+    std::vector<VkDescriptorSetLayout> descriptorSetLayoutHandles{ particleComputeDescriptorSetLayout->getHandle(), objectDescriptorSetLayout->getHandle()};
+
+    std::vector<VkPushConstantRange> pushConstantRangeHandles;
+    VkPushConstantRange computePushConstantRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputeParticlesPushConstant) };
+    pushConstantRangeHandles.push_back(computePushConstantRange);
+
+    std::shared_ptr<ComputePipelineState> particleIntegrateComputePipelineState = std::make_shared<ComputePipelineState>(
+        std::make_unique<PipelineLayout>(*device, shaderModules, descriptorSetLayoutHandles, pushConstantRangeHandles)
+    );
+    std::shared_ptr<ComputePipeline> particleIntegrateComputePipeline = std::make_shared<ComputePipeline>(*device, *particleIntegrateComputePipelineState, nullptr);
+
+    pipelines.computeParticleIntegrate.pipelineState = particleIntegrateComputePipelineState;
+    pipelines.computeParticleIntegrate.pipeline = particleIntegrateComputePipeline;
+}
+
 void MainApp::createFramebuffers()
 {
     for (uint32_t i = 0; i < maxFramesInFlight; ++i)
@@ -1476,7 +1769,7 @@ void MainApp::createCommandBuffers()
     for (uint32_t i = 0; i < maxFramesInFlight; ++i)
     {
         frameData.commandBuffers[i][0] = std::make_unique<CommandBuffer>(*frameData.commandPools[i], VK_COMMAND_BUFFER_LEVEL_PRIMARY);
-        setDebugUtilsObjectName(device->getHandle(), frameData.commandBuffers[i][0]->getHandle(), "offscreen commandBuffer for frame #" + std::to_string(i));
+        setDebugUtilsObjectName(device->getHandle(), frameData.commandBuffers[i][0]->getHandle(), "compute/offscreen commandBuffer for frame #" + std::to_string(i));
 
         frameData.commandBuffers[i][1] = std::make_unique<CommandBuffer>(*frameData.commandPools[i], VK_COMMAND_BUFFER_LEVEL_PRIMARY);
         setDebugUtilsObjectName(device->getHandle(), frameData.commandBuffers[i][1]->getHandle(), "post-process commandBuffer for frame #" + std::to_string(i));
@@ -1626,6 +1919,34 @@ void MainApp::copyBufferToBuffer(const Buffer &srcBuffer, const Buffer &dstBuffe
     copyRegion.size = size;
     vkCmdCopyBuffer(commandBuffer->getHandle(), srcBuffer.getHandle(), dstBuffer.getHandle(), 1, &copyRegion);
 
+    // Execute a transfer to the compute queue, if necessary
+    if (graphicsQueue->getFamilyIndex() != transferQueue->getFamilyIndex())
+    {
+        LOGEANDABORT("Cases when the graphics and transfer queue are not the same are not supported yet. This logic requires verification as well.");
+
+        VkBufferMemoryBarrier bufferBarrier =
+        {
+            VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+            nullptr,
+            VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT,
+            0,
+            graphicsQueue->getFamilyIndex(),
+            transferQueue->getFamilyIndex(),
+            srcBuffer.getHandle(),
+            0,
+            size
+        };
+
+        vkCmdPipelineBarrier(
+            commandBuffer->getHandle(),
+            VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
+            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+            0,
+            0, nullptr,
+            1, &bufferBarrier,
+            0, nullptr);
+    }
+
     commandBuffer->end();
 
     VkSubmitInfo submitInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
@@ -1747,12 +2068,14 @@ void MainApp::createUniformBuffers()
     for (uint32_t i = 0; i < maxFramesInFlight; ++i)
     {
         frameData.cameraBuffers[i] = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
+        setDebugUtilsObjectName(device->getHandle(), frameData.cameraBuffers[i]->getHandle(), "cameraBuffers for frame #" + std::to_string(i));
     }
 
     bufferInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
     for (uint32_t i = 0; i < maxFramesInFlight; ++i)
     {
         frameData.previousFrameCameraBuffers[i] = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
+        setDebugUtilsObjectName(device->getHandle(), frameData.previousFrameCameraBuffers[i]->getHandle(), "previousFrameCameraBuffers for frame #" + std::to_string(i));
     }
 
     bufferInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
@@ -1760,6 +2083,7 @@ void MainApp::createUniformBuffers()
     for (uint32_t i = 0; i < maxFramesInFlight; ++i)
     {
         frameData.lightBuffers[i] = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
+        setDebugUtilsObjectName(device->getHandle(), frameData.lightBuffers[i]->getHandle(), "lightBuffers for frame #" + std::to_string(i));
     }
 }
 
@@ -1778,12 +2102,86 @@ void MainApp::createSSBOs()
     for (uint32_t i = 0; i < maxFramesInFlight; ++i)
     {
         frameData.objectBuffers[i] = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
+        setDebugUtilsObjectName(device->getHandle(), frameData.objectBuffers[i]->getHandle(), "objectBuffers for frame #" + std::to_string(i));
     }
 
     bufferInfo.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
     for (uint32_t i = 0; i < maxFramesInFlight; ++i)
     {
         frameData.previousFrameObjectBuffers[i] = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
+        setDebugUtilsObjectName(device->getHandle(), frameData.previousFrameObjectBuffers[i]->getHandle(), "previousFrameObjectBuffers for frame #" + std::to_string(i));
+    }
+}
+
+// Setup and fill the compute shader storage buffers containing the particles
+void MainApp::prepareParticleData()
+{
+    computeParticlesPushConstant.particleCount = to_u32(attractors.size()) * PARTICLES_PER_ATTRACTOR;
+
+    // Initial particle positions
+    particleBuffer.resize(computeParticlesPushConstant.particleCount);
+
+    std::default_random_engine      rndEngine((unsigned)time(nullptr));
+    std::normal_distribution<float> rndDistribution(0.0f, 1.0f);
+
+    for (uint32_t i = 0; i < to_u32(attractors.size()); i++)
+    {
+        for (uint32_t j = 0; j < PARTICLES_PER_ATTRACTOR; j++)
+        {
+            Particle &particle = particleBuffer[i * PARTICLES_PER_ATTRACTOR + j];
+
+            // First particle in group as heavy center of gravity
+            if (j == 0)
+            {
+                particle.position = glm::vec4(attractors[i] * 1.5f, 90000.0f);
+                particle.velocity = glm::vec4(glm::vec4(0.0f));
+            }
+            else
+            {
+                // Position
+                glm::vec3 position(attractors[i] + glm::vec3(rndDistribution(rndEngine), rndDistribution(rndEngine), rndDistribution(rndEngine)) * 0.75f);
+                float     len = glm::length(glm::normalize(position - attractors[i]));
+                position.y *= 2.0f - (len * len);
+
+                // Velocity
+                glm::vec3 angular = glm::vec3(0.5f, 1.5f, 0.5f) * (((i % 2) == 0) ? 1.0f : -1.0f);
+                glm::vec3 velocity = glm::cross((position - attractors[i]), angular) + glm::vec3(rndDistribution(rndEngine), rndDistribution(rndEngine), rndDistribution(rndEngine) * 0.025f);
+
+                float mass = (rndDistribution(rndEngine) * 0.5f + 0.5f) * 75.0f;
+                particle.position = glm::vec4(position, mass);
+                particle.velocity = glm::vec4(velocity, 0.0f);
+            }
+
+            // Color gradient offset
+            particle.velocity.w = (float)i * 1.0f / static_cast<uint32_t>(attractors.size());
+        }
+    }
+
+    particleBufferSize = particleBuffer.size() * sizeof(Particle);
+
+    VkBufferCreateInfo bufferInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+    bufferInfo.size = particleBufferSize;
+    bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+    VmaAllocationCreateInfo memoryInfo{};
+    memoryInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
+
+    std::unique_ptr<Buffer> stagingBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
+
+    bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+    memoryInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+
+    void *mappedData = stagingBuffer->map();
+    memcpy(mappedData, particleBuffer.data(), static_cast<size_t>(particleBufferSize));
+    stagingBuffer->unmap();
+
+    // SSBO won't be changed on the host after upload so copy to device local memory
+    for (uint32_t i = 0; i < maxFramesInFlight; ++i)
+    {
+        frameData.particleBuffers[i] = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
+        setDebugUtilsObjectName(device->getHandle(), frameData.particleBuffers[i]->getHandle(), "particleBuffers for frame #" + std::to_string(i));
+        copyBufferToBuffer(*stagingBuffer, *(frameData.particleBuffers[i]), particleBufferSize);
     }
 }
 
@@ -1958,8 +2356,33 @@ void MainApp::createDescriptorSets()
         writeTaaStorageBufferDescriptorSet.pImageInfo = nullptr;
         writeTaaStorageBufferDescriptorSet.pTexelBufferView = nullptr;
 
+        // Particle Buffer Descriptor Set
+        VkDescriptorSetAllocateInfo particleComputeDescriptorSetAllocateInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+        particleComputeDescriptorSetAllocateInfo.descriptorPool = descriptorPool->getHandle();
+        particleComputeDescriptorSetAllocateInfo.descriptorSetCount = 1;
+        particleComputeDescriptorSetAllocateInfo.pSetLayouts = &particleComputeDescriptorSetLayout->getHandle();
+        frameData.particleComputeDescriptorSets[i] = std::make_unique<DescriptorSet>(*device, particleComputeDescriptorSetAllocateInfo);
+        setDebugUtilsObjectName(device->getHandle(), frameData.particleComputeDescriptorSets[i]->getHandle(), "particleComputeDescriptorSet for frame #" + std::to_string(i));
+
+        // Binding 0 is the particle buffer
+        VkDescriptorBufferInfo particleBufferInfo{};
+        particleBufferInfo.buffer = frameData.particleBuffers[i]->getHandle();
+        particleBufferInfo.offset = 0;
+        particleBufferInfo.range = sizeof(Particle) * computeParticlesPushConstant.particleCount;
+        std::array<VkDescriptorBufferInfo, 1> particleComputeStorageBufferInfos{ particleBufferInfo };
+
+        VkWriteDescriptorSet writeParticleComputeStorageBufferDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        writeParticleComputeStorageBufferDescriptorSet.dstSet = frameData.particleComputeDescriptorSets[i]->getHandle();
+        writeParticleComputeStorageBufferDescriptorSet.dstBinding = 0;
+        writeParticleComputeStorageBufferDescriptorSet.dstArrayElement = 0;
+        writeParticleComputeStorageBufferDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        writeParticleComputeStorageBufferDescriptorSet.descriptorCount = particleComputeStorageBufferInfos.size();
+        writeParticleComputeStorageBufferDescriptorSet.pBufferInfo = particleComputeStorageBufferInfos.data();
+        writeParticleComputeStorageBufferDescriptorSet.pImageInfo = nullptr;
+        writeParticleComputeStorageBufferDescriptorSet.pTexelBufferView = nullptr;
+
         // Write descriptor sets
-        std::array<VkWriteDescriptorSet, 7> writeDescriptorSets {
+        std::array<VkWriteDescriptorSet, 8> writeDescriptorSets {
             writeGlobalDescriptorSet,
             writeObjectDescriptorSet,
 
@@ -1968,7 +2391,9 @@ void MainApp::createDescriptorSets()
             writePostProcessingStorageImageDescriptorSet,
 
             writeTaaUniformBufferDescriptorSet,
-            writeTaaStorageBufferDescriptorSet
+            writeTaaStorageBufferDescriptorSet,
+
+            writeParticleComputeStorageBufferDescriptorSet
         };
         vkUpdateDescriptorSets(device->getHandle(), to_u32(writeDescriptorSets.size()), writeDescriptorSets.data(), 0, nullptr);
     }
@@ -2057,6 +2482,7 @@ void MainApp::setupSynchronizationObjects()
         frameData.offscreenRenderingFinishedSemaphores[i] = semaphorePool->requestSemaphore();
         frameData.postProcessRenderingFinishedSemaphores[i] = semaphorePool->requestSemaphore();
         frameData.outputImageCopyFinishedSemaphores[i] = semaphorePool->requestSemaphore();
+        frameData.computeParticlesFinishedSemaphores[i] = semaphorePool->requestSemaphore();
         frameData.inFlightFences[i] = fencePool->requestFence();
     }
 }
@@ -2165,8 +2591,14 @@ void MainApp::createScene()
     createInstance("wuson.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 10)));
     createInstance("Medieval_building.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ 15, 0,0 }));
     //createInstance("monkey_smooth.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 3)));
-    //createInstance("sphere.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 0)));
     //createInstance("lost_empire.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ 5,-10,0 }));
+
+    // ALl particle instances are assumed to be grouped together
+    computeParticlesPushConstant.startingIndex = static_cast<int>(objInstances.size());
+    for (int i = 0; i < computeParticlesPushConstant.particleCount; ++i)
+    {
+        createInstance("sphere.obj", glm::translate(glm::scale(glm::mat4{ 1.0 }, glm::vec3(0.2f, 0.2f, 0.2f)), glm::vec3(particleBuffer[i].position.xyz)));
+    }
 
     if (objInstances.size() > MAX_OBJECT_COUNT)
     {

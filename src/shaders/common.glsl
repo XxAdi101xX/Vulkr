@@ -34,6 +34,12 @@ struct WaveFrontMaterial
     int   textureId;
 };
 
+struct Particle
+{
+	vec4 position; // xyz = position, w = mass
+	vec4 velocity; // xyz = velocity, w = gradient texture position
+};
+
 vec3 computeDiffuse(WaveFrontMaterial mat, vec3 lightDir, vec3 normal)
 {
     // Lambertian BRDF
