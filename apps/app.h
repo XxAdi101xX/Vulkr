@@ -421,7 +421,7 @@ private:
     void computeParticles();
     void updateBuffersPerFrame();
     void rasterize();
-    void drawPost();
+    void postProcess();
     void cleanupSwapchain();
     void createInstance();
     void createSurface();

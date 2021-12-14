@@ -399,7 +399,7 @@ void MainApp::update()
     frameData.commandBuffers[currentFrame][1]->beginRenderPass(*postRenderPass.renderPass, *(frameData.postProcessFramebuffers[currentFrame]), swapchain->getProperties().imageExtent, postProcessFramebufferClearValues, VK_SUBPASS_CONTENTS_INLINE);
     if (temporalAntiAliasingEnabled)
     {
-        drawPost();
+        postProcess();
     }
     ImGui::Render();
     ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), frameData.commandBuffers[currentFrame][1]->getHandle());
@@ -850,29 +850,34 @@ void MainApp::updateBuffersPerFrame()
 void MainApp::rasterize()
 {
     debugUtilBeginLabel(frameData.commandBuffers[currentFrame][0]->getHandle(), "Rasterize");
-    // TODO: alot of these vkcmd functions can be pulled outside of the loop, same with the drawPost function
-    int32_t lastObjIndex{ -1 };
+
     PipelineData &pipelineData = pipelines.offscreen;
+
+    // Bind the pipeline
+    vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipeline->getHandle());
+
+    // Global data descriptor
+    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipelineState->getPipelineLayout().getHandle(), 0, 1, &frameData.globalDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
+
+    // Object data descriptor
+    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipelineState->getPipelineLayout().getHandle(), 1, 1, &frameData.objectDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
+
+    // Texture descriptor
+    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipelineState->getPipelineLayout().getHandle(), 2, 1, &textureDescriptorSet->getHandle(), 0, nullptr);
+
+    // Taa data descriptor
+    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipelineState->getPipelineLayout().getHandle(), 3, 1, &frameData.taaDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
+
+    // Push constants
+    vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(TaaPushConstant), &taaPushConstant);
+    vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(TaaPushConstant), sizeof(RasterizationPushConstant), &rasterizationPushConstant);
+
+    // Bind vertices, indices and call the draw method
+    int32_t lastObjIndex{ -1 };
     for (int index = 0; index < objInstances.size(); index++)
     {
-        // Bind the pipeline if it doesn't match with the already bound one TODO: this will always be the same so refactor away this check
-        vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipeline->getHandle());
-
-        // Global data descriptor
-        vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipelineState->getPipelineLayout().getHandle(), 0, 1, &frameData.globalDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
-
-        // Object data descriptor
-        vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipelineState->getPipelineLayout().getHandle(), 1, 1, &frameData.objectDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
-
-        // TODO we only need to bind this once so we should move it out of this method
-        // Texture descriptor
-        vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipelineState->getPipelineLayout().getHandle(), 2, 1, &textureDescriptorSet->getHandle(), 0, nullptr);
-
-        // Taa data descriptor
-        vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipelineState->getPipelineLayout().getHandle(), 3, 1, &frameData.taaDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
-
         ObjModel &objModel = objModels[objInstances[index].objIndex];
-        // Bind the objModel if it's a different one from last one
+        // Bind the vertex and index buffers if the instance model is different from the previous one
         if (objInstances[index].objIndex != lastObjIndex)
         {
             VkBuffer vertexBuffers[] = { objModel.vertexBuffer->getHandle() };
@@ -883,29 +888,45 @@ void MainApp::rasterize()
             lastObjIndex = objInstances[index].objIndex;
         }
 
-        vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(TaaPushConstant), &taaPushConstant);
-        vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(TaaPushConstant), sizeof(RasterizationPushConstant), &rasterizationPushConstant);
         vkCmdDrawIndexed(frameData.commandBuffers[currentFrame][0]->getHandle(), to_u32(objModel.indicesCount), 1, 0, 0, index);
     }
     
     debugUtilEndLabel(frameData.commandBuffers[currentFrame][0]->getHandle());
 }
 
-void MainApp::drawPost()
+void MainApp::postProcess()
 {
     debugUtilBeginLabel(frameData.commandBuffers[currentFrame][1]->getHandle(), "Post Process");
 
-    int32_t lastObjIndex{ -1 };
     PipelineData &pipelineData = pipelines.postProcess;
+
+    // Bind the pipeline
+    vkCmdBindPipeline(frameData.commandBuffers[currentFrame][1]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipeline->getHandle());
+
+    // Post processing descriptor
+    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][1]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipelineState->getPipelineLayout().getHandle(), 0, 1, &frameData.postProcessingDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
+    
+    // Limit blending once enough frames have been occumulated (this optimization is commented out since it is only relavent for static scenes)
+    //float blendFactor = 0.0f;
+    //if (taaPushConstant.frameSinceViewChange < taaDepth)
+    //{
+    //    blendFactor = 1.0f / float(taaPushConstant.frameSinceViewChange + 1);
+    //}
+
+    // Blend constants (history buffer is set to 1 - blendFactor)
+    float blendFactor = 0.2f;
+    float blendConstants[4] = { blendFactor, blendFactor, blendFactor, blendFactor };
+    vkCmdSetBlendConstants(frameData.commandBuffers[currentFrame][1]->getHandle(), blendConstants);
+
+    // Push constants
+    vkCmdPushConstants(frameData.commandBuffers[currentFrame][1]->getHandle(), pipelineData.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PostProcessPushConstant), &postProcessPushConstant);
+
+    // Bind vertices, indices and call the draw method
+    int32_t lastObjIndex{ -1 };
     for (int index = 0; index < objInstances.size(); index++)
     {
+
         ObjModel &objModel = objModels[objInstances[index].objIndex];
-
-        vkCmdBindPipeline(frameData.commandBuffers[currentFrame][1]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipeline->getHandle());
-
-        // Post processing descriptor
-        vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][1]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipelineState->getPipelineLayout().getHandle(), 0, 1, &frameData.postProcessingDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
-
         // Bind the objModel if it's a different one from last one
         if (objInstances[index].objIndex != lastObjIndex)
         {
@@ -917,19 +938,6 @@ void MainApp::drawPost()
             lastObjIndex = objInstances[index].objIndex;
         }
 
-        // Limit blending once enough frames have been occumulated (this optimization is only relavent for static scenes)
-        //float blendFactor = 0.0f;
-        //if (taaPushConstant.frameSinceViewChange < taaDepth)
-        //{
-        //    blendFactor = 1.0f / float(taaPushConstant.frameSinceViewChange + 1);
-        //}
-
-        // We have history buffer set to 1 - blendFactor
-        float blendFactor = 0.2f;
-
-        float blendConstants[4] = { blendFactor, blendFactor, blendFactor, blendFactor };
-        vkCmdSetBlendConstants(frameData.commandBuffers[currentFrame][1]->getHandle(), blendConstants);
-        vkCmdPushConstants(frameData.commandBuffers[currentFrame][1]->getHandle(), pipelineData.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PostProcessPushConstant), &postProcessPushConstant);
         vkCmdDrawIndexed(frameData.commandBuffers[currentFrame][1]->getHandle(), to_u32(objModel.indicesCount), 1, 0, 0, index);
     }
 
