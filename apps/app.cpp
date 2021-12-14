@@ -336,26 +336,17 @@ void MainApp::update()
     if (raytracingEnabled)
     {
         // Add memory barrier to ensure that the particleIntegrate computer shader has finished writing to the currentFrameObjectBuffer
-        VkBufferMemoryBarrier memoryBarrier =
-        {
-            VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-            nullptr,
-            VK_ACCESS_SHADER_WRITE_BIT,
-            VK_ACCESS_SHADER_READ_BIT,
-            VK_QUEUE_FAMILY_IGNORED,
-            VK_QUEUE_FAMILY_IGNORED,
-            frameData.objectBuffers[currentFrame]->getHandle(),
-            0,
-            particleBufferSize
-        };
+        VkMemoryBarrier memoryBarrier{ VK_STRUCTURE_TYPE_MEMORY_BARRIER };
+        memoryBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+        memoryBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 
         vkCmdPipelineBarrier(
             frameData.commandBuffers[currentFrame][0]->getHandle(),
             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
             VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR,
             0,
-            0, nullptr,
             1, &memoryBarrier,
+            0, nullptr,
             0, nullptr
         );
 
@@ -364,26 +355,17 @@ void MainApp::update()
     else
     {
         // Add memory barrier to ensure that the particleIntegrate computer shader has finished writing to the currentFrameObjectBuffer
-        VkBufferMemoryBarrier memoryBarrier =
-        {
-            VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-            nullptr,
-            VK_ACCESS_SHADER_WRITE_BIT,
-            VK_ACCESS_SHADER_READ_BIT,
-            VK_QUEUE_FAMILY_IGNORED,
-            VK_QUEUE_FAMILY_IGNORED,
-            frameData.objectBuffers[currentFrame]->getHandle(),
-            0,
-            particleBufferSize
-        };
+        VkMemoryBarrier memoryBarrier{ VK_STRUCTURE_TYPE_MEMORY_BARRIER };
+        memoryBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+        memoryBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 
         vkCmdPipelineBarrier(
             frameData.commandBuffers[currentFrame][0]->getHandle(),
             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
             VK_PIPELINE_STAGE_VERTEX_SHADER_BIT,
             0,
-            0, nullptr,
             1, &memoryBarrier,
+            0, nullptr,
             0, nullptr
         );
 
@@ -758,26 +740,17 @@ void MainApp::computeParticles()
     vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), computeParticlesPushConstant.particleCount / workGroupSize, 1, 1);
 
     // Add memory barrier to ensure that the computer shader has finished writing to the buffer
-    VkBufferMemoryBarrier memoryBarrier =
-    {
-        VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-        nullptr,
-        VK_ACCESS_SHADER_WRITE_BIT,
-        VK_ACCESS_SHADER_READ_BIT,
-        VK_QUEUE_FAMILY_IGNORED,
-        VK_QUEUE_FAMILY_IGNORED,
-        frameData.particleBuffers[currentFrame]->getHandle(),
-        0,
-        particleBufferSize
-    };
+    VkMemoryBarrier memoryBarrier{ VK_STRUCTURE_TYPE_MEMORY_BARRIER };
+    memoryBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    memoryBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 
     vkCmdPipelineBarrier(
         frameData.commandBuffers[currentFrame][0]->getHandle(),
         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
         0,
-        0, nullptr,
         1, &memoryBarrier,
+        0, nullptr,
         0, nullptr
     );
 
