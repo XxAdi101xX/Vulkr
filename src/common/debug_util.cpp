@@ -24,8 +24,10 @@
 
 void setDebugUtilsObjectName(VkDevice device, const uint64_t object, const std::string &name, VkObjectType t)
 {
+#ifdef VULKR_DEBUG
 	VkDebugUtilsObjectNameInfoEXT info{ VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT, nullptr, t, object, name.c_str() };
 	vkSetDebugUtilsObjectNameEXT(device, &info);
+#endif
 }
 
 void setDebugUtilsObjectName(VkDevice device, VkBuffer object, const std::string &name) { setDebugUtilsObjectName(device, (uint64_t)object, name, VK_OBJECT_TYPE_BUFFER); }
@@ -52,19 +54,23 @@ void setDebugUtilsObjectName(VkDevice device, VkAccelerationStructureKHR object,
 
 void debugUtilBeginLabel(VkCommandBuffer commandBuffer, const std::string &label)
 {
-
+#ifdef VULKR_DEBUG
     VkDebugUtilsLabelEXT debugUtilsLabel{ VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT, nullptr, label.c_str(), {1.0f, 1.0f, 1.0f, 1.0f} };
     vkCmdBeginDebugUtilsLabelEXT(commandBuffer, &debugUtilsLabel);
+#endif
 }
 
 void debugUtilEndLabel(VkCommandBuffer commandBuffer)
 {
-
+#ifdef VULKR_DEBUG
     vkCmdEndDebugUtilsLabelEXT(commandBuffer);
+#endif
 }
 
 void debugUtilInsertLabel(VkCommandBuffer commandBuffer, const std::string &label)
 {
+#ifdef VULKR_DEBUG
     VkDebugUtilsLabelEXT debugUtilsLabel{ VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT, nullptr, label.c_str(), {1.0f, 1.0f, 1.0f, 1.0f} };
     vkCmdInsertDebugUtilsLabelEXT(commandBuffer, &debugUtilsLabel);
+#endif
 }
