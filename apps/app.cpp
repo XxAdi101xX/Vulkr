@@ -170,10 +170,12 @@ void MainApp::cleanupSwapchain()
 
     descriptorPool.reset();
 
+#ifndef RENDERDOC_DEBUG
     vkDestroyPipelineLayout(device->getHandle(), m_rtPipelineLayout, nullptr);  // TODO Put this into pipeline layout class
     vkDestroyPipeline(device->getHandle(), m_rtPipeline, nullptr); // TODO Put this into pipeline class
     m_rtDescSetLayout.reset();
     m_rtDescPool.reset();
+#endif
 
     cameraController.reset();
 }
@@ -262,6 +264,7 @@ void MainApp::prepare()
     createScene();
     createSceneLights();
 
+#ifndef RENDERDOC_DEBUG
     createBottomLevelAS();
     createTopLevelAS();
     createRtDescriptorPool();
@@ -269,6 +272,7 @@ void MainApp::prepare()
     createRtDescriptorSets();
     createRtPipeline();
     createRtShaderBindingTable();
+#endif
 
     createSemaphoreAndFencePools();
     setupSynchronizationObjects();
@@ -534,7 +538,9 @@ void MainApp::recreateSwapchain()
     createSSBOs();
     createDescriptorPool();
     createDescriptorSets();
+#ifndef RENDERDOC_DEBUG
     updateRtDescriptorSet();
+#endif
     createScene();
 
     imagesInFlight.resize(swapchain->getImages().size(), VK_NULL_HANDLE);
@@ -568,7 +574,9 @@ void MainApp::drawImGuiInterface()
     {
         if (ImGui::BeginTabItem("Scene"))
         {
+#ifndef RENDERDOC_DEBUG
             changed |= ImGui::Checkbox("Raytracing enabled", &raytracingEnabled);
+#endif
             changed |= ImGui::Checkbox("Temporal anti-aliasing enabled (Rasterization only)", &temporalAntiAliasingEnabled);
             if (changed)
             {
@@ -668,10 +676,13 @@ void MainApp::animateInstances()
     {
         objInstances[i].transform = glm::rotate(glm::mat4(1.0f), i * deltaAngle + offset, glm::vec3(0.0f, 1.0f, 0.0f)) * glm::translate(glm::mat4{ 1.0 }, glm::vec3(radius, 0.f, 0.f));
         objInstances[i].transformIT = glm::transpose(glm::inverse(objInstances[i].transform));
-
+#ifndef RENDERDOC_DEBUG
         accelerationStructureInstances[i].transform = toTransformMatrixKHR(objInstances[i].transform);
+#endif
     }
+#ifndef RENDERDOC_DEBUG
     buildTlas(true);
+#endif
 
     // Update the transformation for the wuson instances
     void *mappedData = frameData.objectBuffers[currentFrame]->map();

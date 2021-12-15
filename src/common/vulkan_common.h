@@ -32,6 +32,8 @@
 
 #define VULKR_DEBUG /* Enable the validation layers */
 
+// #define RENDERDOC_DEBUG /* Disable extensions unsupported by RenderDoc (like raytracing) in order to use it to debug this application */
+
 /* Assert whether an VkResult has returned an error */
 #define VK_CHECK(r)                                                  \
 	do                                                               \
