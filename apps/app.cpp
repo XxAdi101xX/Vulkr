@@ -691,12 +691,6 @@ void MainApp::animateInstances()
     {
         objectSSBO[i].transform = objInstances[i].transform;
         objectSSBO[i].transformIT = objInstances[i].transformIT;
-        objectSSBO[i].objIndex = objInstances[i].objIndex;
-        objectSSBO[i].textureOffset = objInstances[i].textureOffset;
-        objectSSBO[i].vertices = objInstances[i].vertices;
-        objectSSBO[i].indices = objInstances[i].indices;
-        objectSSBO[i].materials = objInstances[i].materials;
-        objectSSBO[i].materialIndices = objInstances[i].materialIndices;
     }
     frameData.objectBuffers[currentFrame]->unmap();
 }
@@ -936,7 +930,6 @@ void MainApp::postProcess()
     int32_t lastObjIndex{ -1 };
     for (int index = 0; index < objInstances.size(); index++)
     {
-
         ObjModel &objModel = objModels[objInstances[index].objIndex];
         // Bind the objModel if it's a different one from last one
         if (objInstances[index].objIndex != lastObjIndex)
@@ -3041,6 +3034,7 @@ void MainApp::buildBlas(const std::vector<BlasInput> &input, VkBuildAcceleration
     vkDestroyQueryPool(device->getHandle(), queryPool, nullptr);
 }
 
+// TODO: objInstances[i].transform is stale data since it can be updated in the GPU!!!!!
 void MainApp::createTopLevelAS()
 {
     accelerationStructureInstances.reserve(objInstances.size());
