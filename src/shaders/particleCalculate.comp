@@ -15,6 +15,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 #extension GL_GOOGLE_include_directive : enable
 #include "common.glsl"
 
@@ -29,6 +30,7 @@ layout(push_constant) uniform ComputeParticlesPushConstant
 	int startingIndex;
     int particleCount;
     float deltaTime;
+	int blank; // alignment
 } pushConstant;
 
 layout(constant_id = 0) const uint workGroupSize = 64;
@@ -39,13 +41,12 @@ layout(constant_id = 4) const float SOFTEN = 0.05;
 
 layout(local_size_x_id = 0) in;
 
-// Share data between computer shader invocations to speed up caluclations
+// Share data between computer shader invocations to speed up calculations
 shared vec4 sharedData[SHARED_DATA_SIZE];
-
-#define TIME_FACTOR 0.05
 
 void main() 
 {
+	float TIME_FACTOR = 0.05;
 	// Current SSBO index
 	uint index = gl_GlobalInvocationID.x;
 	if (index >= pushConstant.particleCount) 

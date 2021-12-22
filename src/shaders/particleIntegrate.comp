@@ -16,7 +16,7 @@
  * limitations under the License.
  */
 
-//#extension GL_EXT_debug_printf : enable
+#extension GL_EXT_debug_printf : enable
 #extension GL_GOOGLE_include_directive : enable
 #include "common.glsl"
 
@@ -24,7 +24,7 @@
 layout(std140, set = 0, binding = 0) buffer Particles 
 {
    Particle particles[];
-};
+}; 
 layout(std140, set = 1, binding = 0) buffer ObjectBuffer {
 	ObjInstance objects[];
 } objectBuffer;
@@ -37,25 +37,24 @@ layout(push_constant) uniform ComputeParticlesPushConstant
 	int startingIndex;
     int particleCount;
     float deltaTime;
+	int blank; // alignment
 } pushConstant;
-
-#define TIME_FACTOR 0.45
 
 void main() 
 {
-	int index = int(gl_GlobalInvocationID);
+	float TIME_FACTOR = 0.05;
+	uint index = gl_GlobalInvocationID.x;
 	vec4 position = particles[index].position;
 	vec4 velocity = particles[index].velocity;
 	vec4 positionDelta = pushConstant.deltaTime * TIME_FACTOR * velocity;
-	particles[index].position = position + positionDelta;
-	//debugPrintfEXT("starting index is %d", pushConstant.startingIndex);
-	//if (objectBuffer.objects[pushConstant.startingIndex + index].transform[3][0] == 0.0f)
-	//debugPrintfEXT("first row: %1.2v4f", objectBuffer.objects[pushConstant.startingIndex + index].transform[3]);
+	//debugPrintfEXT("velocity for index12: %1.7v4f", velocity);
 
 	mat4 translationMatrix = mat4(1.0);
 	translationMatrix[3][0] = positionDelta.x;
 	translationMatrix[3][1] = positionDelta.y;
 	translationMatrix[3][2] = positionDelta.z;
+	particles[index].position.xyz = position.xyz + translationMatrix[3].xyz;
+
 	objectBuffer.objects[pushConstant.startingIndex + index].transform = translationMatrix * objectBuffer.objects[pushConstant.startingIndex + index].transform;
 	objectBuffer.objects[pushConstant.startingIndex + index].transformIT = transpose(inverse(objectBuffer.objects[pushConstant.startingIndex + index].transform));
 }

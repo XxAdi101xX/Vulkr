@@ -407,9 +407,10 @@ private:
 
     struct ComputeParticlesPushConstant
     {
-        int startingIndex;
-        int particleCount;
-        float deltaTime;
+        int startingIndex{ 0 };
+        int particleCount{ 0 };
+        float deltaTime{ 0.0f };
+        int blank{ 0 }; // alignment
     } computeParticlesPushConstant;
 
     // TODO: current this is not used in shaders so they must be added in the future

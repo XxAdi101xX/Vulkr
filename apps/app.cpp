@@ -278,6 +278,9 @@ void MainApp::prepare()
     setupSynchronizationObjects();
 
     initializeBufferData();
+
+    // Ensure that the first tick is with respect to the time after all of the steup
+    drawingTimer->tick();
 }
 
 void MainApp::update()
@@ -310,7 +313,11 @@ void MainApp::update()
     }
     imagesInFlight[swapchainImageIndex] = frameData.inFlightFences[currentFrame];
 
-    computeParticlesPushConstant.deltaTime = drawingTimer->tick();
+    // Maintain the deltaTime for both frames in flight
+    if (currentFrame == 0)
+    {
+        computeParticlesPushConstant.deltaTime = static_cast<float>(drawingTimer->tick());
+    }
     animateInstances();
     //updateComputeDescriptorSet(); // TODO: is this even correct, i'm not sure whether we need to update descriptor sets really
     updateBuffersPerFrame();
