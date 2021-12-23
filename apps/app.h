@@ -85,13 +85,13 @@ constexpr uint32_t commandBufferCountForFrame{ 3 };
 constexpr uint32_t taaDepth{ 128 };
 constexpr uint32_t MAX_OBJECT_COUNT{ 10000 };
 constexpr uint32_t MAX_LIGHT_COUNT{ 100 };
-constexpr uint32_t PARTICLES_PER_ATTRACTOR{ 64 }; // TODO change it to 1024
-#if 1
-const std::vector<glm::vec3> attractors = {
-    glm::vec3(2.5f, 1.5f, 0.0f),
-    glm::vec3(-2.5f, -1.5f, 0.0f),
-};
+
+#ifdef VULKR_DEBUG
+constexpr uint32_t PARTICLES_PER_ATTRACTOR{ 64 };
 #else
+constexpr uint32_t PARTICLES_PER_ATTRACTOR{ 1024 };
+#endif
+
 const std::vector<glm::vec3> attractors = {
     glm::vec3(5.0f, 0.0f, 0.0f),
     glm::vec3(-5.0f, 0.0f, 0.0f),
@@ -100,7 +100,7 @@ const std::vector<glm::vec3> attractors = {
     glm::vec3(0.0f, 4.0f, 0.0f),
     glm::vec3(0.0f, -8.0f, 0.0f),
 };
-#endif
+
 bool raytracingEnabled{ false }; // Flag to enable ray tracing vs rasterization
 bool temporalAntiAliasingEnabled{ false }; // Flag to enable temporal anti-aliasing (see https://static1.squarespace.com/static/5a3beb72692ebe77330b5118/t/5c9d4f5be2c483f0c4108eca/1553813352302/report.pdf and  https://ziyadbarakat.wordpress.com/2020/07/28/temporal-anti-aliasing-step-by-step/)
 
