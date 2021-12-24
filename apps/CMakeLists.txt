@@ -24,7 +24,8 @@ cmake_minimum_required(VERSION 3.20)
 
 add_executable(app app.cpp app.h)
 
-target_compile_features(app PRIVATE cxx_std_17)
+target_compile_features(app PRIVATE cxx_std_20)
+set_target_properties(app PROPERTIES CXX_EXTENSIONS OFF)
 
 target_link_libraries(app PRIVATE src)
 
