@@ -42,7 +42,7 @@ public:
 	Device &operator=(Device &&) = delete;
 
 	/* Wait for a device to be fully idle, is the equivilant of calling vkQueueWaitIdle on all the queues owned by the device */
-	void Device::waitIdle() const;
+	void waitIdle() const;
 
 	/* Get the logical device handle */
 	VkDevice getHandle() const;

@@ -49,7 +49,7 @@ struct SwapchainProperties
 class Swapchain
 {
 public:
-	Swapchain::Swapchain(
+	Swapchain(
 		Device &device,
 		VkSurfaceKHR surface,
 		const VkSurfaceTransformFlagBitsKHR transform,

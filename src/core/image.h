@@ -50,7 +50,7 @@ public:
 		const uint32_t *pQueueFamilyIndices = nullptr
 	);
 
-	Image::Image(
+	Image(
 		Device &device,
 		VkImage handle,
 		VkExtent3D extent,
