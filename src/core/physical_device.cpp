@@ -34,7 +34,8 @@ PhysicalDevice::PhysicalDevice(Instance &instance, VkPhysicalDevice gpu) :
 	vkGetPhysicalDeviceFeatures(gpu, &features);
 	vkGetPhysicalDeviceProperties(gpu, &properties);
 	vkGetPhysicalDeviceMemoryProperties(gpu, &memoryProperties);
-	// Requesting ray tracing properties
+	// Requesting acceleration structure properties, ray tracing properties
+	rayTracingPipelineProperties.pNext = &accelerationStructureProperties;
 	VkPhysicalDeviceProperties2 properties2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2 };
 	properties2.pNext = &rayTracingPipelineProperties;
 	vkGetPhysicalDeviceProperties2(gpu, &properties2);
@@ -89,6 +90,11 @@ const VkPhysicalDeviceRayTracingPipelinePropertiesKHR &PhysicalDevice::getRayTra
 const VkPhysicalDeviceRayTracingPipelineFeaturesKHR &PhysicalDevice::getRayTracingPipelineFeatures() const
 {
 	return rayTracingPipelineFeatures;
+}
+
+const VkPhysicalDeviceAccelerationStructurePropertiesKHR &PhysicalDevice::getAccelerationStructureProperties() const
+{
+	return accelerationStructureProperties;
 }
 
 const VkPhysicalDeviceAccelerationStructureFeaturesKHR &PhysicalDevice::getAccelerationStructureFeatures() const

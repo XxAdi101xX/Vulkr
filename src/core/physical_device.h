@@ -63,6 +63,9 @@ public:
 	/* Get the ray tracing pipeline features for the physical device */
 	const VkPhysicalDeviceRayTracingPipelineFeaturesKHR &getRayTracingPipelineFeatures() const;
 
+	/* Get the acceleration structure properties for the physical device */
+	const VkPhysicalDeviceAccelerationStructurePropertiesKHR &getAccelerationStructureProperties() const;
+	
 	/* Get the acceleration structure features for the physical device */
 	const VkPhysicalDeviceAccelerationStructureFeaturesKHR &getAccelerationStructureFeatures() const;
 
@@ -108,6 +111,9 @@ private:
 	/* The GPU ray tracing pipeline features */
 	VkPhysicalDeviceRayTracingPipelineFeaturesKHR rayTracingPipelineFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR };
 
+	/* The GPU acceleration structure properties */
+	VkPhysicalDeviceAccelerationStructurePropertiesKHR accelerationStructureProperties{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR };
+	
 	/* The GPU acceleration structure features */
 	VkPhysicalDeviceAccelerationStructureFeaturesKHR accelerationStructureFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR };
 
