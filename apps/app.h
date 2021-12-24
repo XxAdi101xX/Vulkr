@@ -83,16 +83,16 @@ namespace vulkr
 constexpr uint32_t maxFramesInFlight{ 2 }; // Explanation on this how we got this number: https://software.intel.com/content/www/us/en/develop/articles/practical-approach-to-vulkan-part-1.html
 constexpr uint32_t commandBufferCountForFrame{ 3 };
 constexpr uint32_t taaDepth{ 128 };
-constexpr uint32_t MAX_OBJECT_COUNT{ 10000 };
-constexpr uint32_t MAX_LIGHT_COUNT{ 100 };
+constexpr uint32_t maxObjectCount{ 10000 };
+constexpr uint32_t maxLightCount{ 100 };
 
 #ifdef VULKR_DEBUG
-constexpr uint32_t PARTICLES_PER_ATTRACTOR{ 64 };
+constexpr uint32_t particlesPerAttractor{ 64 };
 #else
-constexpr uint32_t PARTICLES_PER_ATTRACTOR{ 1024 };
+constexpr uint32_t particlesPerAttractor{ 1024 };
 #endif
 
-const std::vector<glm::vec3> attractors = {
+constexpr std::array<glm::vec3, 6> attractors = {
     glm::vec3(5.0f, 0.0f, 0.0f),
     glm::vec3(-5.0f, 0.0f, 0.0f),
     glm::vec3(0.0f, 0.0f, 5.0f),

@@ -471,7 +471,7 @@ void MainApp::update()
     VkBufferCopy objectBufferCopyRegion{};
     objectBufferCopyRegion.srcOffset = 0;
     objectBufferCopyRegion.dstOffset = 0;
-    objectBufferCopyRegion.size = sizeof(ObjInstance) * MAX_OBJECT_COUNT;
+    objectBufferCopyRegion.size = sizeof(ObjInstance) * maxObjectCount;
     vkCmdCopyBuffer(frameData.commandBuffers[currentFrame][2]->getHandle(), frameData.objectBuffers[currentFrame]->getHandle(), frameData.previousFrameObjectBuffers[currentFrame]->getHandle(), 1, &objectBufferCopyRegion);
 
     // Transition the current swapchain image back for presentation
@@ -2071,7 +2071,7 @@ void MainApp::createUniformBuffers()
     }
 
     bufferInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
-    bufferInfo.size = sizeof(LightData) * MAX_LIGHT_COUNT;
+    bufferInfo.size = sizeof(LightData) * maxLightCount;
     for (uint32_t i = 0; i < maxFramesInFlight; ++i)
     {
         frameData.lightBuffers[i] = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
@@ -2081,7 +2081,7 @@ void MainApp::createUniformBuffers()
 
 void MainApp::createSSBOs()
 {
-    VkDeviceSize bufferSize{ sizeof(ObjInstance) * MAX_OBJECT_COUNT };
+    VkDeviceSize bufferSize{ sizeof(ObjInstance) * maxObjectCount };
 
     VkBufferCreateInfo bufferInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
     bufferInfo.size = bufferSize;
@@ -2108,7 +2108,7 @@ void MainApp::createSSBOs()
 // Setup and fill the compute shader storage buffers containing the particles
 void MainApp::prepareParticleData()
 {
-    computeParticlesPushConstant.particleCount = to_u32(attractors.size()) * PARTICLES_PER_ATTRACTOR;
+    computeParticlesPushConstant.particleCount = to_u32(attractors.size()) * particlesPerAttractor;
 
     // Initial particle positions
     particleBuffer.resize(computeParticlesPushConstant.particleCount);
@@ -2118,9 +2118,9 @@ void MainApp::prepareParticleData()
 
     for (uint32_t i = 0; i < to_u32(attractors.size()); i++)
     {
-        for (uint32_t j = 0; j < PARTICLES_PER_ATTRACTOR; j++)
+        for (uint32_t j = 0; j < particlesPerAttractor; j++)
         {
-            Particle &particle = particleBuffer[i * PARTICLES_PER_ATTRACTOR + j];
+            Particle &particle = particleBuffer[i * particlesPerAttractor + j];
 
             // First particle in group as heavy center of gravity
             if (j == 0)
@@ -2213,7 +2213,7 @@ void MainApp::createDescriptorSets()
         VkDescriptorBufferInfo lightBufferInfo{};
         lightBufferInfo.buffer = frameData.lightBuffers[i]->getHandle();
         lightBufferInfo.offset = 0;
-        lightBufferInfo.range = sizeof(LightData) * MAX_LIGHT_COUNT;
+        lightBufferInfo.range = sizeof(LightData) * maxLightCount;
         std::array<VkDescriptorBufferInfo, 2> globalBufferInfos{ cameraBufferInfo, lightBufferInfo };
 
         VkWriteDescriptorSet writeGlobalDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
@@ -2237,7 +2237,7 @@ void MainApp::createDescriptorSets()
         VkDescriptorBufferInfo currentFrameObjectBufferInfo{};
         currentFrameObjectBufferInfo.buffer = frameData.objectBuffers[i]->getHandle();
         currentFrameObjectBufferInfo.offset = 0;
-        currentFrameObjectBufferInfo.range = sizeof(ObjInstance) * MAX_OBJECT_COUNT;
+        currentFrameObjectBufferInfo.range = sizeof(ObjInstance) * maxObjectCount;
 
         VkWriteDescriptorSet writeObjectDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
         writeObjectDescriptorSet.dstSet = frameData.objectDescriptorSets[i]->getHandle();
@@ -2335,7 +2335,7 @@ void MainApp::createDescriptorSets()
         VkDescriptorBufferInfo previousFrameObjectBufferInfo{};
         previousFrameObjectBufferInfo.buffer = frameData.previousFrameObjectBuffers[i]->getHandle();
         previousFrameObjectBufferInfo.offset = 0;
-        previousFrameObjectBufferInfo.range = sizeof(ObjInstance) * MAX_OBJECT_COUNT;
+        previousFrameObjectBufferInfo.range = sizeof(ObjInstance) * maxObjectCount;
         std::array<VkDescriptorBufferInfo, 1> taaStorageImageInfos{ previousFrameObjectBufferInfo };
 
         VkWriteDescriptorSet writeTaaStorageBufferDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
@@ -2428,7 +2428,7 @@ void MainApp::updateComputeDescriptorSet()
     VkDescriptorBufferInfo currentFrameObjectBufferInfo{};
     currentFrameObjectBufferInfo.buffer = frameData.objectBuffers[currentFrame]->getHandle();
     currentFrameObjectBufferInfo.offset = 0;
-    currentFrameObjectBufferInfo.range = sizeof(ObjInstance) * MAX_OBJECT_COUNT;
+    currentFrameObjectBufferInfo.range = sizeof(ObjInstance) * maxObjectCount;
     std::array<VkDescriptorBufferInfo, 1> storageImageInfos{ currentFrameObjectBufferInfo };
 
     VkWriteDescriptorSet writeObjectDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
@@ -2592,9 +2592,9 @@ void MainApp::createScene()
         createInstance("sphere.obj", glm::translate(glm::scale(glm::mat4{ 1.0 }, glm::vec3(0.2f, 0.2f, 0.2f)), glm::vec3(particleBuffer[i].position.xyz)));
     }
 
-    if (objInstances.size() > MAX_OBJECT_COUNT)
+    if (objInstances.size() > maxObjectCount)
     {
-        LOGEANDABORT("There are more instances than MAX_OBJECT_COUNT. You need to increase this value to support more instances");
+        LOGEANDABORT("There are more instances than maxObjectCount. You need to increase this value to support more instances");
     }
 }
 
