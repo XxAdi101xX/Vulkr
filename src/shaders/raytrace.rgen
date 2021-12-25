@@ -63,9 +63,10 @@ void main()
         0               // payload (location = 0)
     );
 
-    // Linearly interpolate images from previous frame and accumulate the information onwards
-    if (pushConstant.frameSinceViewChange > 0)
+    // NOTE that the if case is disabled because this method only works for a static scene
+    if (pushConstant.frameSinceViewChange > 0 && false)
     {
+        // Linearly interpolate images from previous frame and accumulate the information onwards.
         float a = 1.0f / float(pushConstant.frameSinceViewChange + 1);
         vec3 oldColor = imageLoad(image, ivec2(gl_LaunchIDEXT.xy)).xyz;
         imageStore(image, ivec2(gl_LaunchIDEXT.xy), vec4(mix(oldColor, payload.hitValue, a), 1.0f));

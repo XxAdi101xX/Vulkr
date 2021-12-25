@@ -266,7 +266,7 @@ void MainApp::prepare()
 
 #ifndef RENDERDOC_DEBUG
     createBottomLevelAS();
-    createTopLevelAS();
+    buildTlas(false);
     createRtDescriptorPool();
     createRtDescriptorLayout();
     createRtDescriptorSets();
@@ -323,6 +323,13 @@ void MainApp::update()
     updateBuffersPerFrame();
     drawImGuiInterface();
     updateTaaState(); // must be called after drawingImGui
+
+#ifndef RENDERDOC_DEBUG
+    if (raytracingEnabled)
+    {
+        buildTlas(true);
+    }
+#endif
 
     // TODO check if this jitter value is correct
     if (temporalAntiAliasingEnabled)
@@ -683,13 +690,7 @@ void MainApp::animateInstances()
     {
         objInstances[i].transform = glm::rotate(glm::mat4(1.0f), i * deltaAngle + offset, glm::vec3(0.0f, 1.0f, 0.0f)) * glm::translate(glm::mat4{ 1.0 }, glm::vec3(radius, 0.f, 0.f));
         objInstances[i].transformIT = glm::transpose(glm::inverse(objInstances[i].transform));
-#ifndef RENDERDOC_DEBUG
-        accelerationStructureInstances[i].transform = toTransformMatrixKHR(objInstances[i].transform);
-#endif
     }
-#ifndef RENDERDOC_DEBUG
-    buildTlas(true);
-#endif
 
     // Update the transformation for the wuson instances
     void *mappedData = frameData.objectBuffers[currentFrame]->map();
@@ -2553,10 +2554,11 @@ void MainApp::createSceneLights()
 
 void MainApp::loadModels()
 {
+    // TODO: note that loading in the sphere models error out for raytracing so that needs to be resolved when it is used
     loadModel("plane.obj");
     loadModel("Medieval_building.obj");
     loadModel("wuson.obj");
-    loadModel("sphere.obj");
+    loadModel("cube.obj");
     //loadModel("monkey_smooth.obj");
     //loadModel("lost_empire.obj");
 
@@ -2594,7 +2596,7 @@ void MainApp::createScene()
     computeParticlesPushConstant.startingIndex = static_cast<int>(objInstances.size());
     for (int i = 0; i < computeParticlesPushConstant.particleCount; ++i)
     {
-        createInstance("sphere.obj", glm::translate(glm::scale(glm::mat4{ 1.0 }, glm::vec3(0.2f, 0.2f, 0.2f)), glm::vec3(particleBuffer[i].position.xyz)));
+        createInstance("cube.obj", glm::translate(glm::scale(glm::mat4{ 1.0 }, glm::vec3(0.2f, 0.2f, 0.2f)), glm::vec3(particleBuffer[i].position.xyz)));
     }
 
     if (objInstances.size() > maxInstanceCount)
@@ -2837,7 +2839,7 @@ std::unique_ptr<AccelKHR> MainApp::createAcceleration(VkAccelerationStructureCre
 }
 
 
-void MainApp::buildBlas(const std::vector<BlasInput> &input, VkBuildAccelerationStructureFlagsKHR flags)
+void MainApp::buildBlas(const std::vector<BlasInput> &input, VkBuildAccelerationStructureFlagsKHR buildAccelerationStructureFlags)
 {
     m_blas = std::vector<BlasEntry>(input.begin(), input.end());
     uint32_t nbBlas = to_u32(m_blas.size());
@@ -2849,7 +2851,7 @@ void MainApp::buildBlas(const std::vector<BlasInput> &input, VkBuildAcceleration
     for (uint32_t idx = 0; idx < nbBlas; idx++)
     {
         buildInfos[idx].sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
-        buildInfos[idx].flags = flags;
+        buildInfos[idx].flags = buildAccelerationStructureFlags;
         buildInfos[idx].geometryCount = (uint32_t)m_blas[idx].input.asGeometry.size();
         buildInfos[idx].pGeometries = m_blas[idx].input.asGeometry.data();
         buildInfos[idx].mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
@@ -2890,7 +2892,7 @@ void MainApp::buildBlas(const std::vector<BlasInput> &input, VkBuildAcceleration
         buildInfos[idx].dstAccelerationStructure = m_blas[idx].as->accel;  // Setting the where the build lands
 
         // Keeping info
-        m_blas[idx].flags = flags;
+        m_blas[idx].flags = buildAccelerationStructureFlags;
         maxScratch = std::max(maxScratch, sizeInfo.buildScratchSize);
 
         // Stats - Original size
@@ -2914,7 +2916,7 @@ void MainApp::buildBlas(const std::vector<BlasInput> &input, VkBuildAcceleration
     VkDeviceAddress scratchAddress = vkGetBufferDeviceAddress(device->getHandle(), &bufferDeviceAddressInfo);
 
     // Is compaction requested?
-    bool doCompaction = (flags & VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_COMPACTION_BIT_KHR)
+    bool doCompaction = (buildAccelerationStructureFlags & VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_COMPACTION_BIT_KHR)
         == VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_COMPACTION_BIT_KHR;
 
     LOGD("Acceleration structure compaction is {}", doCompaction ? "enabled" : "disabled");
@@ -3046,25 +3048,6 @@ void MainApp::buildBlas(const std::vector<BlasInput> &input, VkBuildAcceleration
     vkDestroyQueryPool(device->getHandle(), queryPool, nullptr);
 }
 
-// TODO: objInstances[i].transform is stale data since it can be updated in the GPU!!!!!
-void MainApp::createTopLevelAS()
-{
-    accelerationStructureInstances.reserve(objInstances.size());
-    for (size_t i = 0; i < objInstances.size(); i++)
-    {
-        VkAccelerationStructureInstanceKHR rayInst;
-        rayInst.transform = toTransformMatrixKHR(objInstances[i].transform);  // Position of the instance
-        rayInst.instanceCustomIndex = objInstances[i].objIndex;                           // gl_InstanceCustomIndexEXT
-        rayInst.mask = 0xFF;
-        rayInst.instanceShaderBindingTableRecordOffset = 0;  // We will use the same hit group for all objects
-        rayInst.flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
-        rayInst.accelerationStructureReference = getBlasDeviceAddress(objInstances[i].objIndex);
-        accelerationStructureInstances.emplace_back(rayInst);
-    }
-    rtFlags = VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR | VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
-    buildTlas(false);
-}
-
 void MainApp::buildTlas(bool update)
 {
     // Cannot call buildTlas twice except to update.
@@ -3076,6 +3059,35 @@ void MainApp::buildTlas(bool update)
     if (m_tlas == nullptr)
     {
         m_tlas = std::make_unique<Tlas>();
+    }
+
+    if (update)
+    {
+        // Update the acceleration structure instance transformations by obtaining the objectBuffer data since the objInstances data is stale
+        void *mappedData = frameData.objectBuffers[currentFrame]->map();
+        ObjInstance *objectSSBO = static_cast<ObjInstance *>(mappedData);
+        for (int i = 0; i < objInstances.size(); ++i)
+        {
+            accelerationStructureInstances[i].transform = toTransformMatrixKHR(objectSSBO[i].transform);
+        }
+        frameData.objectBuffers[currentFrame]->unmap();
+    }
+    else
+    {
+        // First time creation
+        accelerationStructureInstances.reserve(objInstances.size());
+        for (size_t i = 0; i < objInstances.size(); ++i)
+        {
+            VkAccelerationStructureInstanceKHR accelerationStructureInstance;
+            accelerationStructureInstance.transform = toTransformMatrixKHR(objInstances[i].transform);  // Position of the instance
+            accelerationStructureInstance.instanceCustomIndex = objInstances[i].objIndex;               // gl_InstanceCustomIndexEXT
+            accelerationStructureInstance.mask = 0xFF;
+            accelerationStructureInstance.instanceShaderBindingTableRecordOffset = 0;                   // We will use the same hit group for all objects
+            accelerationStructureInstance.flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
+            accelerationStructureInstance.accelerationStructureReference = getBlasDeviceAddress(objInstances[i].objIndex);
+            accelerationStructureInstances.emplace_back(accelerationStructureInstance);
+        }
+        rtFlags = VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR | VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
     }
 
     CommandPool asCommandPool(*device, graphicsQueue->getFamilyIndex(), VK_COMMAND_POOL_CREATE_TRANSIENT_BIT);
@@ -3152,7 +3164,7 @@ void MainApp::buildTlas(bool update)
     vkGetAccelerationStructureBuildSizesKHR(device->getHandle(), VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &buildInfo, &instancesCount, &sizeInfo);
 
     // Create TLAS
-    if (update == false)
+    if (!update)
     {
         VkAccelerationStructureCreateInfoKHR accelerationStructureCreateInfo{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR };
         accelerationStructureCreateInfo.type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
@@ -3499,9 +3511,6 @@ void MainApp::createRtShaderBindingTable()
     copyBufferToBuffer(*stagingBuffer, *m_rtSBTBuffer, sbtSize);
 }
 
-//--------------------------------------------------------------------------------------------------
-// Ray Tracing the scene
-//
 void MainApp::raytrace()
 {
     debugUtilBeginLabel(frameData.commandBuffers[currentFrame][0]->getHandle(), "Raytrace");

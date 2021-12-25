@@ -483,7 +483,6 @@ private:
     // Vector containing all the BLASes built in buildBlas (and referenced by the TLAS)
     std::vector<BlasEntry> m_blas;
 
-    void createTopLevelAS();
     void buildTlas(bool update);
     // Top-level acceleration structure
     std::unique_ptr<Tlas> m_tlas;
@@ -500,13 +499,11 @@ private:
     std::unique_ptr<DescriptorPool> m_rtDescPool;
     std::unique_ptr<DescriptorSetLayout> m_rtDescSetLayout;
 
-    VkBufferUsageFlags flag = VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT; // TODO do we need this
-    VkBufferUsageFlags rayTracingFlags = // used also for building acceleration structures 
-        flag | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+    VkBufferUsageFlags rayTracingFlags = VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
 
     void updateRtDescriptorSet();
 
-    void                                              createRtPipeline();
+    void createRtPipeline();
 
     std::vector<ShaderModule> raytracingShaderModules; // TODO: cleanup
     std::vector<VkRayTracingShaderGroupCreateInfoKHR> m_rtShaderGroups;
