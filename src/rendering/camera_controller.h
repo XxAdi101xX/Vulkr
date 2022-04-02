@@ -56,7 +56,7 @@ private:
 	void handleCursorPositionChange(const MouseInputEvent &mouseInputEvent);
 	void orbit(const MouseInputEvent &mouseInputEvent);
 	void zoomOnMouseDrag(const MouseInputEvent &mouseInputEvent);
-	void pan(const MouseInputEvent &mouseInputEvent);
+	void pan(const float dx, const float dy, const float dz);
 
 };
 

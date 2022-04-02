@@ -1,4 +1,4 @@
-/* Copyright (c) 2020 Adithya Venkatarao
+/* Copyright (c) 2022 Adithya Venkatarao
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
@@ -53,16 +53,40 @@ void CameraController::handleInputEvents(const InputEvent &inputEvent)
         // Handle key input
         switch (keyInputEvent.getInput())
         {
-        case KeyInput::Up:
+        case KeyInput::W:
             if (keyInputEvent.getAction() == KeyAction::Press || keyInputEvent.getAction() == KeyAction::Repeat)
             {
-                // TODO
+                pan(0.0f, 0.0f, 3.0f);
             }
             break;
-        case KeyInput::Down:
+        case KeyInput::S:
             if (keyInputEvent.getAction() == KeyAction::Press || keyInputEvent.getAction() == KeyAction::Repeat)
             {
-                // TODO
+                pan(0.0f, 0.0f, -3.0f);
+            }
+            break;
+        case KeyInput::A:
+            if (keyInputEvent.getAction() == KeyAction::Press || keyInputEvent.getAction() == KeyAction::Repeat)
+            {
+                pan(250.0f, 0.0f, 0.0f);
+            }
+            break;
+        case KeyInput::D:
+            if (keyInputEvent.getAction() == KeyAction::Press || keyInputEvent.getAction() == KeyAction::Repeat)
+            {
+                pan(-250.0f, 0.0f, 0.0f);
+            }
+            break;
+        case KeyInput::E:
+            if (keyInputEvent.getAction() == KeyAction::Press || keyInputEvent.getAction() == KeyAction::Repeat)
+            {
+                pan(0.0f, 250.0f, 0.0f);
+            }
+            break;
+        case KeyInput::Q:
+            if (keyInputEvent.getAction() == KeyAction::Press || keyInputEvent.getAction() == KeyAction::Repeat)
+            {
+                pan(0.0f, -250.0f, 0.0f);
             }
             break;
         }
@@ -129,7 +153,8 @@ void CameraController::handleCursorPositionChange(const MouseInputEvent &mouseIn
         zoomOnMouseDrag(mouseInputEvent);
         break;
     case MouseInput::Middle:
-        pan(mouseInputEvent);
+        pan(float(mouseInputEvent.getPositionX() - lastMousePosition.x), float(mouseInputEvent.getPositionY() - lastMousePosition.y), 0.0f);
+        lastMousePosition = glm::vec2(mouseInputEvent.getPositionX(), mouseInputEvent.getPositionY());
         break;
     }
 }
@@ -184,23 +209,23 @@ void CameraController::zoomOnMouseDrag(const MouseInputEvent &mouseInputEvent)
     lastMousePosition = glm::vec2(mouseInputEvent.getPositionX(), mouseInputEvent.getPositionY());
 }
 
-void CameraController::pan(const MouseInputEvent &mouseInputEvent)
+void CameraController::pan(const float dx, const float dy, const float dz)
 {
-    float dx = float(mouseInputEvent.getPositionX() - lastMousePosition.x) / float(camera->getViewport().x);
-    float dy = float(mouseInputEvent.getPositionY() - lastMousePosition.y) / float(camera->getViewport().y);
+    const float dxNormalized = dx / float(camera->getViewport().x);
+    const float dyNormalized = dy / float(camera->getViewport().y);
 
     glm::vec3 z{ camera->getPosition() - camera->getCenter() };
     float length = static_cast<float>(glm::length(z));
     z = glm::normalize(z);
     glm::vec3 x = glm::normalize(glm::cross(camera->getUp(), z));
     glm::vec3 y = glm::normalize(glm::cross(z, x));
-    x *= -dx * length;
-    y *= dy * length;
+    
+    x *= -dxNormalized * length;
+    y *= dyNormalized * length;
+    z *= dz;
 
-    camera->setPosition(camera->getPosition() + x + y);
-    camera->setCenter(camera->getCenter() + x + y);
-
-    lastMousePosition = glm::vec2(mouseInputEvent.getPositionX(), mouseInputEvent.getPositionY());
+    camera->setPosition(camera->getPosition() + x + y + -z);
+    camera->setCenter(camera->getCenter() + x + y + -z);
 }
 
 } // namespace vulkr
