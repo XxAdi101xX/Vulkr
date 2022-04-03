@@ -71,7 +71,6 @@ void Platform::processApplication() const
 void Platform::terminate() const
 {
 	application->finish();
-	spdlog::drop_all();
 }
 
 void Platform::createSurface(VkInstance instance)

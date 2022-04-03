@@ -62,7 +62,7 @@ Instance::Instance(std::string applicationName)
 
     std::array<VkValidationFeatureEnableEXT, 3> validationFeatureToEnable {
         // VK_VALIDATION_FEATURE_ENABLE_GPU_ASSISTED_EXT and VK_VALIDATION_FEATURE_ENABLE_DEBUG_PRINTF_EXT can not be enabled at the same time
-#if 1
+#if 0
         VK_VALIDATION_FEATURE_ENABLE_GPU_ASSISTED_EXT,
 #else
         VK_VALIDATION_FEATURE_ENABLE_DEBUG_PRINTF_EXT,
