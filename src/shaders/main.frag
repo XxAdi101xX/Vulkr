@@ -5,7 +5,6 @@
 #extension GL_EXT_scalar_block_layout : enable
 #extension GL_EXT_buffer_reference2 : require
 //#extension GL_EXT_debug_printf : enable
-
 #extension GL_GOOGLE_include_directive : enable
 
 #include "common.glsl"
@@ -23,24 +22,24 @@ layout(location = 0) out vec4 outColor;
 layout(location = 1) out vec4 outColorCopy;
 layout(location = 2) out vec4 outVelocity;
 
-layout(push_constant) uniform RasterizationPushConstant
-{
-    layout(offset = 16)
-	vec3 lightPosition;
-	float lightIntensity;
-	int lightType; // 0: point, 1: infinite
-} pushConstant;
-
 layout(buffer_reference, scalar) buffer Materials {WaveFrontMaterial m[]; }; // Array of all materials on an object
 layout(buffer_reference, scalar) buffer MaterialIndices {int i[]; }; // Material ID for each triangle
 
+layout(std140, set = 0, binding = 1) uniform LightBuffer {
+	LightData lights[];
+} lightBuffer;
 layout(std140, set = 1, binding = 0) readonly buffer ObjectBuffer {
 	ObjInstance objects[];
 } objectBuffer;
 layout(set = 2, binding = 0) uniform sampler2D[] textureSamplers;
 
+layout(push_constant) uniform RasterizationPushConstant
+{
+    int lightCount;
+} pushConstant;
+
 void main() {
-    // debugPrintfEXT("Example print of float is is %f", pushConstant.lightIntensity);
+    // debugPrintfEXT("Example print of float is is %f", lightBuffer.lights[0].lightIntensity);
     ObjInstance objResource = objectBuffer.objects[baseInstance];
     Materials materials = Materials(objResource.materials);
     MaterialIndices matIndices = MaterialIndices(objResource.materialIndices);
@@ -52,17 +51,17 @@ void main() {
 
     // Vector toward light
     vec3  L;
-    float lightIntensity = pushConstant.lightIntensity;
-    if (pushConstant.lightType == 0)
+    float lightIntensity = lightBuffer.lights[0].lightIntensity;
+    if (lightBuffer.lights[0].lightType == 0)
     {
-        vec3  lDir     = pushConstant.lightPosition - worldPos;
+        vec3  lDir     = lightBuffer.lights[0].lightPosition - worldPos;
         float d        = length(lDir);
-        lightIntensity = pushConstant.lightIntensity / (d * d);
+        lightIntensity = lightBuffer.lights[0].lightIntensity / (d * d);
         L              = normalize(lDir);
     }
     else
     {
-        L = normalize(pushConstant.lightPosition - vec3(0));
+        L = normalize(lightBuffer.lights[0].lightPosition - vec3(0));
     }
 
     // Diffuse

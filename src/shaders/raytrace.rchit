@@ -4,7 +4,6 @@
 #extension GL_EXT_nonuniform_qualifier : enable
 #extension GL_EXT_buffer_reference2 : require
 #extension GL_EXT_scalar_block_layout : enable
-#extension GL_EXT_debug_printf : enable
 #extension GL_GOOGLE_include_directive : enable
 
 #include "common.glsl"
@@ -21,9 +20,9 @@ layout(buffer_reference, scalar) buffer Materials {WaveFrontMaterial m[]; }; // 
 layout(buffer_reference, scalar) buffer MaterialIndices {int i[]; }; // Material ID for each triangle
 
 layout(set = 0, binding = 0) uniform accelerationStructureEXT topLevelAS;
-//layout(set = 1, binding = 0) uniform LightBuffer {
-//	LightData lights[];
-//} lightBuffer;
+layout(std140, set = 1, binding = 1) uniform LightBuffer {
+	LightData lights[];
+} lightBuffer;
 layout(std140, set = 2, binding = 0) readonly buffer ObjectBuffer {
 	ObjInstance objects[];
 } objectBuffer;
@@ -31,10 +30,8 @@ layout(set = 3, binding = 0) uniform sampler2D[] textureSamplers;
 
 layout(push_constant) uniform RaytracingPushConstant
 {
-	vec3  lightPosition;
-	float lightIntensity;
-	int   lightType;
-	int   frameSinceViewChange;
+	int lightCount;
+	int frameSinceViewChange;
 } pushConstant;
 
 void main()
@@ -69,20 +66,20 @@ void main()
 
     // Vector toward the light
     vec3  L;
-    float lightIntensity = pushConstant.lightIntensity;
+    float lightIntensity = lightBuffer.lights[0].lightIntensity;
     float lightDistance  = 100000.0;
 
     // Point light
-    if (pushConstant.lightType == 0)
+    if (lightBuffer.lights[0].lightType == 0)
     {
-        vec3 lDir      = pushConstant.lightPosition - worldPos;
+        vec3 lDir      = lightBuffer.lights[0].lightPosition - worldPos;
         lightDistance  = length(lDir);
-        lightIntensity = pushConstant.lightIntensity / (lightDistance * lightDistance);
+        lightIntensity = lightBuffer.lights[0].lightIntensity / (lightDistance * lightDistance);
         L              = normalize(lDir);
     }
     else // Directional light
     {
-        L = normalize(pushConstant.lightPosition - vec3(0));
+        L = normalize(lightBuffer.lights[0].lightPosition - vec3(0));
     }
 
 

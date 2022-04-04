@@ -40,6 +40,13 @@ struct Particle
 	vec4 velocity; // xyz = velocity, w = gradient texture position
 };
 
+struct LightData
+{
+    vec3 lightPosition;
+    float lightIntensity;
+    int lightType; // 0: point, 1: directional (infinite)
+};
+
 vec3 computeDiffuse(WaveFrontMaterial mat, vec3 lightDir, vec3 normal)
 {
     // Lambertian BRDF

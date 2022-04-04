@@ -1,4 +1,4 @@
-/* Copyright (c) 2021 Adithya Venkatarao
+/* Copyright (c) 2022 Adithya Venkatarao
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
@@ -630,31 +630,25 @@ void MainApp::drawImGuiInterface()
 
         if (ImGui::BeginTabItem("Environment"))
         {
-            if (ImGui::CollapsingHeader("Light"))
+            for (int lightCount = 0; lightCount < sceneLights.size(); ++lightCount)
             {
-                if (raytracingEnabled)
+                std::ostringstream oss;
+                oss << "Light " << lightCount;
+
+                if (ImGui::CollapsingHeader(oss.str().c_str()))
                 {
-                    changed |= ImGui::RadioButton("Point", &raytracingPushConstant.lightType, 0);
+                    changed |= ImGui::RadioButton("Point", &sceneLights[lightCount].lightType, 0);
                     ImGui::SameLine();
-                    changed |= ImGui::RadioButton("Infinite", &raytracingPushConstant.lightType, 1);
+                    changed |= ImGui::RadioButton("Infinite", &sceneLights[lightCount].lightType, 1);
 
-                    changed |= ImGui::SliderFloat3("Position", &raytracingPushConstant.lightPosition.x, -50.f, 50.f);
-                    changed |= ImGui::SliderFloat("Intensity", &raytracingPushConstant.lightIntensity, 0.f, 250.f);
-                }
-                else
-                {
-                    changed |= ImGui::RadioButton("Point", &rasterizationPushConstant.lightType, 0);
-                    ImGui::SameLine();
-                    changed |= ImGui::RadioButton("Infinite", &rasterizationPushConstant.lightType, 1);
+                    changed |= ImGui::SliderFloat3("Position", &sceneLights[lightCount].lightPosition.x, -50.f, 50.f);
+                    changed |= ImGui::SliderFloat("Intensity", &sceneLights[lightCount].lightIntensity, 0.f, 250.f);
 
-                    changed |= ImGui::SliderFloat3("Position", &rasterizationPushConstant.lightPosition.x, -50.f, 50.f);
-                    changed |= ImGui::SliderFloat("Intensity", &rasterizationPushConstant.lightIntensity, 0.f, 250.f);
-                }
-
-                if (changed)
-                {
-                    resetFrameSinceViewChange();
-                    changed = false;
+                    if (changed)
+                    {
+                        resetFrameSinceViewChange();
+                        changed = false;
+                    }
                 }
             }
             
@@ -1218,13 +1212,13 @@ void MainApp::createDescriptorSetLayouts()
     cameraBufferLayoutBinding.binding = 0;
     cameraBufferLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     cameraBufferLayoutBinding.descriptorCount = 1;
-    cameraBufferLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_RAYGEN_BIT_KHR;
+    cameraBufferLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR; // TODO: not used in fragment bit, closest hit shader
     cameraBufferLayoutBinding.pImmutableSamplers = nullptr; // Optional
     VkDescriptorSetLayoutBinding lightBufferLayoutBinding{};
     lightBufferLayoutBinding.binding = 1;
     lightBufferLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     lightBufferLayoutBinding.descriptorCount = 1;
-    lightBufferLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_RAYGEN_BIT_KHR;
+    lightBufferLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR; // TODO not being used in vertex bit
     lightBufferLayoutBinding.pImmutableSamplers = nullptr; // Optional
 
     std::vector<VkDescriptorSetLayoutBinding> globalDescriptorSetLayoutBindings{ cameraBufferLayoutBinding, lightBufferLayoutBinding };
@@ -2544,12 +2538,14 @@ void MainApp::createInstance(const std::string &objFileName, glm::mat4 transform
 
 void MainApp::createSceneLights()
 {
-    // TODO: currently these scene lights are not used
     LightData l1;
     LightData l2;
     l2.lightPosition = glm::vec3(10.0f, 5.0f, 4.5f);
     sceneLights.emplace_back(std::move(l1));
     sceneLights.emplace_back(std::move(l2));
+
+    rasterizationPushConstant.lightCount = sceneLights.size();
+    raytracingPushConstant.lightCount = sceneLights.size();
 }
 
 void MainApp::loadModels()

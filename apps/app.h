@@ -102,7 +102,7 @@ constexpr std::array<glm::vec3, 6> attractors = {
 };
 
 bool raytracingEnabled{ false }; // Flag to enable ray tracing vs rasterization
-bool temporalAntiAliasingEnabled{ false }; // Flag to enable temporal anti-aliasing (see https://static1.squarespace.com/static/5a3beb72692ebe77330b5118/t/5c9d4f5be2c483f0c4108eca/1553813352302/report.pdf and  https://ziyadbarakat.wordpress.com/2020/07/28/temporal-anti-aliasing-step-by-step/)
+bool temporalAntiAliasingEnabled{ false }; // Flag to enable temporal anti-aliasing
 
 /* Structs shared on both the GPU and CPU */
 struct CameraData
@@ -145,8 +145,6 @@ struct Particle
     alignas(16) glm::vec4 velocity; // xyz = velocity, w = gradient texture position
 };
 
-/* CPU only structs */
-// TODO check these alignments
 struct LightData
 {
     alignas(16) glm::vec3 lightPosition{ 10.0f, 4.3f, 7.1f };
@@ -154,6 +152,7 @@ struct LightData
     alignas(4) int lightType{ 0 }; // 0: point, 1: directional (infinite)
 };
 
+/* CPU only structs */
 struct ObjModel
 {
     std::string objFileName;
@@ -374,17 +373,13 @@ private:
     // Note that any modifications to push constants must be matched in the shaders and offsets must be set appropriately
     struct RasterizationPushConstant
     {
-        glm::vec3 lightPosition{ 10.0f, 4.3f, 7.1f };
-        float lightIntensity{ 140.0f };
-        int lightType{ 0 }; // 0: point, 1: directional (infinite)
+        int lightCount{ 0 };
     } rasterizationPushConstant;
 
     struct RaytracingPushConstant
     {
-        glm::vec3 lightPosition{ 10.0f, 4.3f, 7.1f };
-        float lightIntensity{ 140.0f };
-        int lightType{ 0 }; // 0: point, 1: directional (infinite)
-        int frameSinceViewChange{ -1 }; // Used for temporal anti-aliasing 
+        int lightCount{ 0 };
+        int frameSinceViewChange{ -1 }; // TODO not used
     } raytracingPushConstant;
 
     struct TaaPushConstant
