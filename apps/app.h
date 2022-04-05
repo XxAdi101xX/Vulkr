@@ -104,7 +104,7 @@ constexpr std::array<glm::vec3, 6> attractors = {
 bool raytracingEnabled{ false }; // Flag to enable ray tracing vs rasterization
 bool temporalAntiAliasingEnabled{ false }; // Flag to enable temporal anti-aliasing
 
-/* Structs shared on both the GPU and CPU */
+/* Structs shared across the GPU and CPU */
 struct CameraData
 {
     alignas(16) glm::mat4 view;
@@ -248,8 +248,7 @@ public:
     virtual void handleInputEvents(const InputEvent& inputEvent) override;
 private:
     /* 
-    IMPORTANT NOTICE: To enable/disable features, it is not adequate to add the extension name to the device extensions array below. You must also go into
-    device.cpp to manually enable these features through VkPhysicalDeviceFeatures2 pNext chain
+    IMPORTANT NOTICE: To enable/disable features, it is not adequate to add the extension name to the device extensions array below. You must also go into device.cpp to manually enable these features through VkPhysicalDeviceFeatures2 pNext chain
     */
     const std::vector<const char *> deviceExtensions {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME, // Required to have access to the swapchain and render images to the screen
@@ -340,6 +339,7 @@ private:
         std::array<std::unique_ptr<DescriptorSet>, maxFramesInFlight> taaDescriptorSets;
         std::array<std::unique_ptr<DescriptorSet>, maxFramesInFlight> particleComputeDescriptorSets;
         std::array<std::unique_ptr<DescriptorSet>, maxFramesInFlight> rtDescriptorSets;
+
         std::array<std::unique_ptr<Buffer>, maxFramesInFlight> cameraBuffers;
         std::array<std::unique_ptr<Buffer>, maxFramesInFlight> previousFrameCameraBuffers;
         std::array<std::unique_ptr<Buffer>, maxFramesInFlight> lightBuffers;
@@ -366,11 +366,12 @@ private:
     std::vector<ObjModel> objModels;
     std::vector<Texture> textures;
     std::vector<ObjInstance> objInstances;
+    std::vector<LightData> sceneLights;
 
     VkDeviceSize particleBufferSize{ 0 };
     std::vector<Particle> particleBuffer;
 
-    // Note that any modifications to push constants must be matched in the shaders and offsets must be set appropriately
+    // Push constants; note that any modifications to push constants must be matched in the shaders and offsets must be set appropriately including when multiple push constants are defined for different stages (see layout(offset = 16))
     struct RasterizationPushConstant
     {
         int lightCount{ 0 };
@@ -384,8 +385,8 @@ private:
 
     struct TaaPushConstant
     {
-        int frameSinceViewChange{ -1 };
         glm::vec2 jitter{ glm::vec2(0.0f) };
+        int frameSinceViewChange{ -1 };
         int blank{ 0 }; // alignment
     } taaPushConstant;
 
@@ -407,10 +408,6 @@ private:
         float deltaTime{ 0.0f };
         int blank{ 0 }; // alignment
     } computeParticlesPushConstant;
-
-    // TODO: current this is not used in shaders so they must be added in the future
-    // TODO: if the type of struct is changed, ensure that you change lines where the size of the array is using sizeof(LightData)
-    std::vector<LightData> sceneLights;
 
     // Subroutines
     void drawImGuiInterface();

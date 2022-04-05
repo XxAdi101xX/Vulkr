@@ -23,6 +23,8 @@
 #include "app.h"
 #include "platform/platform.h"
 
+#include <format>
+
 // TODO move this into raytracing helpers file when it's created
 VkTransformMatrixKHR toTransformMatrixKHR(glm::mat4 matrix)
 {
@@ -630,26 +632,29 @@ void MainApp::drawImGuiInterface()
 
         if (ImGui::BeginTabItem("Environment"))
         {
-            for (int lightCount = 0; lightCount < sceneLights.size(); ++lightCount)
+            for (int lightIndex = 0; lightIndex < sceneLights.size(); ++lightIndex)
             {
                 std::ostringstream oss;
-                oss << "Light " << lightCount;
-
+                oss << "Light " << lightIndex;
                 if (ImGui::CollapsingHeader(oss.str().c_str()))
                 {
-                    changed |= ImGui::RadioButton("Point", &sceneLights[lightCount].lightType, 0);
+                    oss.str(""); oss << "Point" << "##" << lightIndex;
+                    changed |= ImGui::RadioButton(oss.str().c_str(), &sceneLights[lightIndex].lightType, 0);
                     ImGui::SameLine();
-                    changed |= ImGui::RadioButton("Infinite", &sceneLights[lightCount].lightType, 1);
+                    oss.str(""); oss << "Infinite" << "##" << lightIndex;
+                    changed |= ImGui::RadioButton(oss.str().c_str(), &sceneLights[lightIndex].lightType, 1);
 
-                    changed |= ImGui::SliderFloat3("Position", &sceneLights[lightCount].lightPosition.x, -50.f, 50.f);
-                    changed |= ImGui::SliderFloat("Intensity", &sceneLights[lightCount].lightIntensity, 0.f, 250.f);
-
-                    if (changed)
-                    {
-                        resetFrameSinceViewChange();
-                        changed = false;
-                    }
+                    oss.str(""); oss << "Position" << "##" << lightIndex;
+                    changed |= ImGui::SliderFloat3(oss.str().c_str(), &(sceneLights[lightIndex].lightPosition.x), -50.f, 50.f);
+                    oss.str(""); oss << "Intensity" << "##" << lightIndex;
+                    changed |= ImGui::SliderFloat(oss.str().c_str(), &sceneLights[lightIndex].lightIntensity, 0.f, 250.f);
                 }
+            }
+
+            if (changed)
+            {
+                resetFrameSinceViewChange();
+                changed = false;
             }
             
             ImGui::EndTabItem();
@@ -1414,10 +1419,24 @@ void MainApp::createMainRasterizationPipeline()
     VkSpecializationInfo mainVertexShaderSpecializationInfo;
     mainVertexShaderSpecializationInfo.mapEntryCount = 0;
     mainVertexShaderSpecializationInfo.dataSize = 0;
+
     std::shared_ptr<ShaderSource> mainFragmentShader = std::make_shared<ShaderSource>("main.frag.spv");
-    VkSpecializationInfo mainFragmentShaderSpecializationInfo;
-    mainFragmentShaderSpecializationInfo.mapEntryCount = 0;
-    mainFragmentShaderSpecializationInfo.dataSize = 0;
+    struct SpecializationData {
+        uint32_t maxLightCount;
+    } specializationData;
+    const VkSpecializationMapEntry entries[] =
+    {
+        { 0u, offsetof(SpecializationData, maxLightCount), sizeof(uint32_t) }
+    };
+    specializationData.maxLightCount = maxLightCount;
+
+    VkSpecializationInfo mainFragmentShaderSpecializationInfo =
+    {
+        1u,
+        entries,
+        to_u32(sizeof(SpecializationData)),
+        &specializationData
+    };
 
     std::vector<ShaderModule> shaderModules;
     shaderModules.emplace_back(*device, VK_SHADER_STAGE_VERTEX_BIT, mainVertexShaderSpecializationInfo, mainVertexShader);
@@ -3336,24 +3355,47 @@ void MainApp::createRtPipeline()
     std::shared_ptr<ShaderSource> rayMissShader = std::make_shared<ShaderSource>("raytrace.rmiss.spv");
     std::shared_ptr<ShaderSource> rayShadowMissShader = std::make_shared<ShaderSource>("raytraceShadow.rmiss.spv");
     std::shared_ptr<ShaderSource> rayClosestHitShader = std::make_shared<ShaderSource>("raytrace.rchit.spv");
-    VkSpecializationInfo specializationInfo;
-    specializationInfo.mapEntryCount = 0;
-    specializationInfo.dataSize = 0;
 
-    raytracingShaderModules.emplace_back(*device, VK_SHADER_STAGE_RAYGEN_BIT_KHR, specializationInfo, rayGenShader);
-    raytracingShaderModules.emplace_back(*device, VK_SHADER_STAGE_MISS_BIT_KHR, specializationInfo, rayMissShader);
-    raytracingShaderModules.emplace_back(*device, VK_SHADER_STAGE_MISS_BIT_KHR, specializationInfo, rayShadowMissShader);
-    raytracingShaderModules.emplace_back(*device, VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, specializationInfo, rayClosestHitShader);
+    struct SpecializationData {
+        uint32_t maxLightCount;
+    } specializationData;
+    const VkSpecializationMapEntry entries[] =
+    {
+        { 0u, offsetof(SpecializationData, maxLightCount), sizeof(uint32_t) }
+    };
+    specializationData.maxLightCount = maxLightCount;
+
+    VkSpecializationInfo rayGenSpecializationInfo;
+    rayGenSpecializationInfo.mapEntryCount = 0;
+    rayGenSpecializationInfo.dataSize = 0;
+    VkSpecializationInfo rayMissSpecializationInfo;
+    rayMissSpecializationInfo.mapEntryCount = 0;
+    rayMissSpecializationInfo.dataSize = 0;
+    VkSpecializationInfo rayShadowMissSpecializationInfo;
+    rayShadowMissSpecializationInfo.mapEntryCount = 0;
+    rayShadowMissSpecializationInfo.dataSize = 0;
+    VkSpecializationInfo rayClosestHitSpecializationInfo =
+    {
+        1u,
+        entries,
+        to_u32(sizeof(SpecializationData)),
+        &specializationData
+    };
+
+    raytracingShaderModules.emplace_back(*device, VK_SHADER_STAGE_RAYGEN_BIT_KHR, rayGenSpecializationInfo, rayGenShader);
+    raytracingShaderModules.emplace_back(*device, VK_SHADER_STAGE_MISS_BIT_KHR, rayMissSpecializationInfo, rayMissShader);
+    raytracingShaderModules.emplace_back(*device, VK_SHADER_STAGE_MISS_BIT_KHR, rayShadowMissSpecializationInfo, rayShadowMissShader);
+    raytracingShaderModules.emplace_back(*device, VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, rayClosestHitSpecializationInfo, rayClosestHitShader);
 
     // All stages
     std::array<VkPipelineShaderStageCreateInfo, eShaderGroupCount> stages{};
     VkPipelineShaderStageCreateInfo              shaderStageCreateInfo{ VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO };
-    shaderStageCreateInfo.pSpecializationInfo = nullptr;
     // Since we only need the shadermodule during the creation of the pipeline, we don't keep the information in the shader module class and delete at the end
     VkShaderModuleCreateInfo shaderModuleCreateInfo{ VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO };
     // Raygen
     shaderModuleCreateInfo.codeSize = raytracingShaderModules[0].getShaderSource().getData().size();
     shaderModuleCreateInfo.pCode = reinterpret_cast<const uint32_t *>(raytracingShaderModules[0].getShaderSource().getData().data());
+    shaderStageCreateInfo.pSpecializationInfo = &raytracingShaderModules[0].getSpecializationInfo();
     VK_CHECK(vkCreateShaderModule(device->getHandle(), &shaderModuleCreateInfo, nullptr, &shaderStageCreateInfo.module));
     shaderStageCreateInfo.pName = raytracingShaderModules[0].getEntryPoint().c_str();
     shaderStageCreateInfo.stage = raytracingShaderModules[0].getStage();
@@ -3361,6 +3403,7 @@ void MainApp::createRtPipeline()
     // Miss
     shaderModuleCreateInfo.codeSize = raytracingShaderModules[1].getShaderSource().getData().size();
     shaderModuleCreateInfo.pCode = reinterpret_cast<const uint32_t *>(raytracingShaderModules[1].getShaderSource().getData().data());
+    shaderStageCreateInfo.pSpecializationInfo = &raytracingShaderModules[1].getSpecializationInfo();
     VK_CHECK(vkCreateShaderModule(device->getHandle(), &shaderModuleCreateInfo, nullptr, &shaderStageCreateInfo.module));
     shaderStageCreateInfo.pName = raytracingShaderModules[1].getEntryPoint().c_str();
     shaderStageCreateInfo.stage = raytracingShaderModules[1].getStage();
@@ -3368,6 +3411,7 @@ void MainApp::createRtPipeline()
     // The second miss shader is invoked when a shadow ray misses the geometry. It simply indicates that no occlusion has been found
     shaderModuleCreateInfo.codeSize = raytracingShaderModules[2].getShaderSource().getData().size();
     shaderModuleCreateInfo.pCode = reinterpret_cast<const uint32_t *>(raytracingShaderModules[2].getShaderSource().getData().data());
+    shaderStageCreateInfo.pSpecializationInfo = &raytracingShaderModules[2].getSpecializationInfo();
     VK_CHECK(vkCreateShaderModule(device->getHandle(), &shaderModuleCreateInfo, nullptr, &shaderStageCreateInfo.module));
     shaderStageCreateInfo.pName = raytracingShaderModules[2].getEntryPoint().c_str();
     shaderStageCreateInfo.stage = raytracingShaderModules[2].getStage();
@@ -3375,6 +3419,7 @@ void MainApp::createRtPipeline()
     // Hit Group - Closest Hit
     shaderModuleCreateInfo.codeSize = raytracingShaderModules[3].getShaderSource().getData().size();
     shaderModuleCreateInfo.pCode = reinterpret_cast<const uint32_t *>(raytracingShaderModules[3].getShaderSource().getData().data());
+    shaderStageCreateInfo.pSpecializationInfo = &raytracingShaderModules[3].getSpecializationInfo();
     VK_CHECK(vkCreateShaderModule(device->getHandle(), &shaderModuleCreateInfo, nullptr, &shaderStageCreateInfo.module));
     shaderStageCreateInfo.pName = raytracingShaderModules[3].getEntryPoint().c_str();
     shaderStageCreateInfo.stage = raytracingShaderModules[3].getStage();

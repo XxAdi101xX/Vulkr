@@ -11,6 +11,8 @@
 
 hitAttributeEXT vec2 attribs;
 
+layout(constant_id = 0) const uint maxLightCount = 100;
+
 layout(location = 0) rayPayloadInEXT RayPayload payload;
 layout(location = 1) rayPayloadEXT bool isShadowed;
 
@@ -21,7 +23,7 @@ layout(buffer_reference, scalar) buffer MaterialIndices {int i[]; }; // Material
 
 layout(set = 0, binding = 0) uniform accelerationStructureEXT topLevelAS;
 layout(std140, set = 1, binding = 1) uniform LightBuffer {
-	LightData lights[];
+	LightData lights[maxLightCount];
 } lightBuffer;
 layout(std140, set = 2, binding = 0) readonly buffer ObjectBuffer {
 	ObjInstance objects[];
@@ -65,74 +67,83 @@ void main()
     worldPos = vec3(objResource.transform * vec4(worldPos, 1.0));
 
     // Vector toward the light
-    vec3  L;
-    float lightIntensity = lightBuffer.lights[0].lightIntensity;
+    vec3 outputColor = vec3(0.0);
+    vec3 L;
     float lightDistance  = 100000.0;
-
-    // Point light
-    if (lightBuffer.lights[0].lightType == 0)
+    float lightIntensity;
+    
+    for (int lightIndex = 0; lightIndex < pushConstant.lightCount; ++lightIndex)
     {
-        vec3 lDir      = lightBuffer.lights[0].lightPosition - worldPos;
-        lightDistance  = length(lDir);
-        lightIntensity = lightBuffer.lights[0].lightIntensity / (lightDistance * lightDistance);
-        L              = normalize(lDir);
-    }
-    else // Directional light
-    {
-        L = normalize(lightBuffer.lights[0].lightPosition - vec3(0));
-    }
+    
+        lightIntensity = lightBuffer.lights[lightIndex].lightIntensity;
 
-
-    // Material of the object
-    int materialIndex = matIndices.i[gl_PrimitiveID];
-    WaveFrontMaterial mat = materials.m[materialIndex];
-
-    // Diffuse
-    vec3 diffuse = computeDiffuse(mat, L, normal);
-    if (mat.textureId >= 0)
-    {
-        uint txtId = uint(mat.textureId + objResource.textureOffset);
-        vec2 texCoord = v0.textureCoordinate * barycentrics.x + v1.textureCoordinate * barycentrics.y + v2.textureCoordinate * barycentrics.z;
-        diffuse *= texture(textureSamplers[nonuniformEXT(txtId)], texCoord).xyz;
-    }
-
-    vec3 specular = vec3(0);
-    float attenuation = 1.0;
-
-    // Tracing shadow ray only if the light is visible from the surface
-    if (dot(normal, L) > 0)
-    {
-        float tMin   = 0.001;
-        float tMax   = lightDistance;
-        vec3  origin = gl_WorldRayOriginEXT + gl_WorldRayDirectionEXT * gl_HitTEXT;
-        vec3  rayDir = L;
-        uint  flags  = gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT | gl_RayFlagsSkipClosestHitShaderEXT;
-        isShadowed   = true;
-
-        traceRayEXT(
-            topLevelAS,  // acceleration structure
-            flags,       // rayFlags
-            0xFF,        // cullMask
-            0,           // sbtRecordOffset
-            0,           // sbtRecordStride
-            1,           // missIndex (0 is regular miss while 1 is the shadow miss)
-            origin,      // ray origin
-            tMin,        // ray min range
-            rayDir,      // ray direction
-            tMax,        // ray max range
-            1            // payload (location = 1)
-        );
-
-        if (isShadowed)
+        // Point light
+        if (lightBuffer.lights[lightIndex].lightType == 0)
         {
-            attenuation = 0.3;
+            vec3 lDir      = lightBuffer.lights[lightIndex].lightPosition - worldPos;
+            lightDistance  = length(lDir);
+            lightIntensity = lightBuffer.lights[lightIndex].lightIntensity / (lightDistance * lightDistance);
+            L              = normalize(lDir);
         }
-        else
+        else // Directional light
         {
-            // Compute specular since we're not in the shadow
-            specular = computeSpecular(mat, gl_WorldRayDirectionEXT, L, normal);
+            L = normalize(lightBuffer.lights[lightIndex].lightPosition - vec3(0));
         }
+
+
+        // Material of the object
+        int materialIndex = matIndices.i[gl_PrimitiveID];
+        WaveFrontMaterial mat = materials.m[materialIndex];
+
+        // Diffuse
+        vec3 diffuse = computeDiffuse(mat, L, normal);
+        if (mat.textureId >= 0)
+        {
+            uint txtId = uint(mat.textureId + objResource.textureOffset);
+            vec2 texCoord = v0.textureCoordinate * barycentrics.x + v1.textureCoordinate * barycentrics.y + v2.textureCoordinate * barycentrics.z;
+            diffuse *= texture(textureSamplers[nonuniformEXT(txtId)], texCoord).xyz;
+        }
+
+        vec3 specular = vec3(0);
+        float attenuation = 1.0;
+
+        // Tracing shadow ray only if the light is visible from the surface
+        if (dot(normal, L) > 0)
+        {
+            float tMin   = 0.001;
+            float tMax   = lightDistance;
+            vec3  origin = gl_WorldRayOriginEXT + gl_WorldRayDirectionEXT * gl_HitTEXT;
+            vec3  rayDir = L;
+            uint  flags  = gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT | gl_RayFlagsSkipClosestHitShaderEXT;
+            isShadowed   = true;
+
+            traceRayEXT(
+                topLevelAS,  // acceleration structure
+                flags,       // rayFlags
+                0xFF,        // cullMask
+                0,           // sbtRecordOffset
+                0,           // sbtRecordStride
+                1,           // missIndex (0 is regular miss while 1 is the shadow miss)
+                origin,      // ray origin
+                tMin,        // ray min range
+                rayDir,      // ray direction
+                tMax,        // ray max range
+                1            // payload (location = 1)
+            );
+
+            if (isShadowed)
+            {
+                attenuation = 0.3;
+            }
+            else
+            {
+                // Compute specular since we're not in the shadow
+                specular = computeSpecular(mat, gl_WorldRayDirectionEXT, L, normal);
+            }
+        }
+
+        outputColor += vec3(lightIntensity * attenuation * (diffuse + specular));
     }
 
-    payload.hitValue = vec3(lightIntensity * attenuation * (diffuse + specular));
+    payload.hitValue = outputColor;
 }

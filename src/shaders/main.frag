@@ -9,6 +9,8 @@
 
 #include "common.glsl"
 
+layout(constant_id = 0) const uint maxLightCount = 10000;
+
 layout(location = 0) in vec3 fragColor;
 layout(location = 1) in vec3 fragNormal;
 layout(location = 2) in vec2 fragTexCoord;
@@ -26,7 +28,7 @@ layout(buffer_reference, scalar) buffer Materials {WaveFrontMaterial m[]; }; // 
 layout(buffer_reference, scalar) buffer MaterialIndices {int i[]; }; // Material ID for each triangle
 
 layout(std140, set = 0, binding = 1) uniform LightBuffer {
-	LightData lights[];
+	LightData lights[maxLightCount];
 } lightBuffer;
 layout(std140, set = 1, binding = 0) readonly buffer ObjectBuffer {
 	ObjInstance objects[];
@@ -35,11 +37,11 @@ layout(set = 2, binding = 0) uniform sampler2D[] textureSamplers;
 
 layout(push_constant) uniform RasterizationPushConstant
 {
-    int lightCount;
+    layout(offset = 16) int lightCount;
 } pushConstant;
 
 void main() {
-    // debugPrintfEXT("Example print of float is is %f", lightBuffer.lights[0].lightIntensity);
+    //debugPrintfEXT("the lightcount is %d", pushConstant.lightCount);
     ObjInstance objResource = objectBuffer.objects[baseInstance];
     Materials materials = Materials(objResource.materials);
     MaterialIndices matIndices = MaterialIndices(objResource.materialIndices);
@@ -49,36 +51,43 @@ void main() {
 
     vec3 N = normalize(fragNormal);
 
+    vec3 outputValue = vec3(0.0);
+
     // Vector toward light
     vec3  L;
-    float lightIntensity = lightBuffer.lights[0].lightIntensity;
-    if (lightBuffer.lights[0].lightType == 0)
+    float lightIntensity;
+    for (int lightIndex = 0; lightIndex < pushConstant.lightCount; ++lightIndex)
     {
-        vec3  lDir     = lightBuffer.lights[0].lightPosition - worldPos;
-        float d        = length(lDir);
-        lightIntensity = lightBuffer.lights[0].lightIntensity / (d * d);
-        L              = normalize(lDir);
-    }
-    else
-    {
-        L = normalize(lightBuffer.lights[0].lightPosition - vec3(0));
-    }
+        lightIntensity = lightBuffer.lights[lightIndex].lightIntensity;
+        if (lightBuffer.lights[lightIndex].lightType == 0)
+        {
+            vec3  lDir     = lightBuffer.lights[lightIndex].lightPosition - worldPos;
+            float d        = length(lDir);
+            lightIntensity = lightBuffer.lights[lightIndex].lightIntensity / (d * d);
+            L              = normalize(lDir);
+        }
+        else
+        {
+            L = normalize(lightBuffer.lights[lightIndex].lightPosition - vec3(0));
+        }
 
-    // Diffuse
-    vec3 diffuse = computeDiffuse(mat, L, N);
-    if (mat.textureId >= 0)
-    {
-        uint txtId  = uint(mat.textureId + objResource.textureOffset);
-        vec3 diffuseTxt = texture(textureSamplers[nonuniformEXT(txtId)], fragTexCoord).xyz;
-        diffuse *= diffuseTxt;
+        // Diffuse
+        vec3 diffuse = computeDiffuse(mat, L, N);
+        if (mat.textureId >= 0)
+        {
+            uint txtId  = uint(mat.textureId + objResource.textureOffset);
+            vec3 diffuseTxt = texture(textureSamplers[nonuniformEXT(txtId)], fragTexCoord).xyz;
+            diffuse *= diffuseTxt;
+        }
+
+        // Specular
+        vec3 specular = computeSpecular(mat, viewDir, L, N);
+
+        // Result
+        outputValue += vec3(lightIntensity * (diffuse + specular));
     }
-
-    // Specular
-    vec3 specular = computeSpecular(mat, viewDir, L, N);
-
-    // Result
-    outColor = vec4(lightIntensity * (diffuse + specular), 1);
-    outColorCopy = vec4(lightIntensity * (diffuse + specular), 1);
+    outColor = vec4(outputValue, 1);
+    outColorCopy = vec4(outputValue, 1);
 
     // Populate the velocity image
     vec2 newPos = (currentFramePosition.xy / currentFramePosition.w) * 0.5 + 0.5;

@@ -39,8 +39,8 @@ layout(std140, set = 3, binding = 1) readonly buffer PreviousFrameObjectBuffer {
 
 layout(push_constant) uniform TaaPushConstant
 {
-    int frameSinceViewChange;
     vec2 jitter;
+    int frameSinceViewChange;
     int blank;
 } pushConstant;
 
