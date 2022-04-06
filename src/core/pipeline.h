@@ -30,6 +30,7 @@ namespace vulkr
 class Device;
 class GraphicsPipelineState;
 class ComputePipelineState;
+class RayTracingPipelineState;
 
 class Pipeline
 {
@@ -70,4 +71,15 @@ public:
 private:
 	ComputePipelineState &pipelineState;
 };
+
+class RayTracingPipeline final : public Pipeline
+{
+public:
+	RayTracingPipeline(Device &device, RayTracingPipelineState &pipelineState, VkPipelineCache pipelineCache); // TODO: incorportate pipeline cache
+	~RayTracingPipeline() = default;
+	RayTracingPipeline(RayTracingPipeline &&) = default;
+private:
+	RayTracingPipelineState &pipelineState;
+};
+
 } // namespace vulkr

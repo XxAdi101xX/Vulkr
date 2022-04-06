@@ -135,6 +135,8 @@ void MainApp::cleanupSwapchain()
     pipelines.computeParticleCalculate.pipelineState.reset();
     pipelines.computeParticleIntegrate.pipeline.reset();
     pipelines.computeParticleIntegrate.pipelineState.reset();
+    pipelines.rayTracing.pipeline.reset();
+    pipelines.rayTracing.pipelineState.reset();
 
     mainRenderPass.renderPass.reset();
     mainRenderPass.subpasses.clear();
@@ -173,8 +175,6 @@ void MainApp::cleanupSwapchain()
     descriptorPool.reset();
 
 #ifndef RENDERDOC_DEBUG
-    vkDestroyPipelineLayout(device->getHandle(), m_rtPipelineLayout, nullptr);  // TODO Put this into pipeline layout class
-    vkDestroyPipeline(device->getHandle(), m_rtPipeline, nullptr); // TODO Put this into pipeline class
     m_rtDescSetLayout.reset();
     m_rtDescPool.reset();
 #endif
@@ -2769,9 +2769,7 @@ void MainApp::createImageResourcesForFrames()
     }
 }
 
-//--------------------------------------------------------------------------------------------------
 // Convert an OBJ model into the ray tracing geometry used to build the BLAS
-//
 BlasInput MainApp::objectToVkGeometryKHR(size_t objModelIndex)
 {
     VkBufferDeviceAddressInfo bufferDeviceAddressInfo = { VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO };
@@ -3265,9 +3263,6 @@ void MainApp::createRtDescriptorLayout()
     m_rtDescSetLayout = std::make_unique<DescriptorSetLayout>(*device, rtDescriptorSetLayoutBindings);
 }
 
-//--------------------------------------------------------------------------------------------------
-// This descriptor set holds the Acceleration structure and the output image
-//
 void MainApp::createRtDescriptorSets()
 {
     for (uint32_t i = 0; i < maxFramesInFlight; ++i)
@@ -3311,10 +3306,7 @@ void MainApp::createRtDescriptorSets()
     }
 }
 
-//--------------------------------------------------------------------------------------------------
-// Writes the output image to the descriptor set
-// - Required when changing resolution
-//
+// Writes the output image to the descriptor set, Required when changing resolution
 void MainApp::updateRtDescriptorSet()
 {
     for (uint32_t i = 0; i < maxFramesInFlight; ++i)
@@ -3337,20 +3329,9 @@ void MainApp::updateRtDescriptorSet()
     }
 }
 
-//--------------------------------------------------------------------------------------------------
 // Pipeline for the ray tracer: all shaders, raygen, chit, miss
-//
 void MainApp::createRtPipeline()
 {
-    enum StageIndices
-    {
-        eRaygen,
-        eMiss,
-        eMissShadow,
-        eClosestHit,
-        eShaderGroupCount
-    };
-
     std::shared_ptr<ShaderSource> rayGenShader = std::make_shared<ShaderSource>("raytrace.rgen.spv");
     std::shared_ptr<ShaderSource> rayMissShader = std::make_shared<ShaderSource>("raytrace.rmiss.spv");
     std::shared_ptr<ShaderSource> rayShadowMissShader = std::make_shared<ShaderSource>("raytraceShadow.rmiss.spv");
@@ -3382,50 +3363,23 @@ void MainApp::createRtPipeline()
         &specializationData
     };
 
+    std::vector<ShaderModule> raytracingShaderModules;
     raytracingShaderModules.emplace_back(*device, VK_SHADER_STAGE_RAYGEN_BIT_KHR, rayGenSpecializationInfo, rayGenShader);
     raytracingShaderModules.emplace_back(*device, VK_SHADER_STAGE_MISS_BIT_KHR, rayMissSpecializationInfo, rayMissShader);
     raytracingShaderModules.emplace_back(*device, VK_SHADER_STAGE_MISS_BIT_KHR, rayShadowMissSpecializationInfo, rayShadowMissShader);
     raytracingShaderModules.emplace_back(*device, VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, rayClosestHitSpecializationInfo, rayClosestHitShader);
 
-    // All stages
-    std::array<VkPipelineShaderStageCreateInfo, eShaderGroupCount> stages{};
-    VkPipelineShaderStageCreateInfo              shaderStageCreateInfo{ VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO };
-    // Since we only need the shadermodule during the creation of the pipeline, we don't keep the information in the shader module class and delete at the end
-    VkShaderModuleCreateInfo shaderModuleCreateInfo{ VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO };
-    // Raygen
-    shaderModuleCreateInfo.codeSize = raytracingShaderModules[0].getShaderSource().getData().size();
-    shaderModuleCreateInfo.pCode = reinterpret_cast<const uint32_t *>(raytracingShaderModules[0].getShaderSource().getData().data());
-    shaderStageCreateInfo.pSpecializationInfo = &raytracingShaderModules[0].getSpecializationInfo();
-    VK_CHECK(vkCreateShaderModule(device->getHandle(), &shaderModuleCreateInfo, nullptr, &shaderStageCreateInfo.module));
-    shaderStageCreateInfo.pName = raytracingShaderModules[0].getEntryPoint().c_str();
-    shaderStageCreateInfo.stage = raytracingShaderModules[0].getStage();
-    stages[eRaygen] = shaderStageCreateInfo;
-    // Miss
-    shaderModuleCreateInfo.codeSize = raytracingShaderModules[1].getShaderSource().getData().size();
-    shaderModuleCreateInfo.pCode = reinterpret_cast<const uint32_t *>(raytracingShaderModules[1].getShaderSource().getData().data());
-    shaderStageCreateInfo.pSpecializationInfo = &raytracingShaderModules[1].getSpecializationInfo();
-    VK_CHECK(vkCreateShaderModule(device->getHandle(), &shaderModuleCreateInfo, nullptr, &shaderStageCreateInfo.module));
-    shaderStageCreateInfo.pName = raytracingShaderModules[1].getEntryPoint().c_str();
-    shaderStageCreateInfo.stage = raytracingShaderModules[1].getStage();
-    stages[eMiss] = shaderStageCreateInfo;
-    // The second miss shader is invoked when a shadow ray misses the geometry. It simply indicates that no occlusion has been found
-    shaderModuleCreateInfo.codeSize = raytracingShaderModules[2].getShaderSource().getData().size();
-    shaderModuleCreateInfo.pCode = reinterpret_cast<const uint32_t *>(raytracingShaderModules[2].getShaderSource().getData().data());
-    shaderStageCreateInfo.pSpecializationInfo = &raytracingShaderModules[2].getSpecializationInfo();
-    VK_CHECK(vkCreateShaderModule(device->getHandle(), &shaderModuleCreateInfo, nullptr, &shaderStageCreateInfo.module));
-    shaderStageCreateInfo.pName = raytracingShaderModules[2].getEntryPoint().c_str();
-    shaderStageCreateInfo.stage = raytracingShaderModules[2].getStage();
-    stages[eMissShadow] = shaderStageCreateInfo;
-    // Hit Group - Closest Hit
-    shaderModuleCreateInfo.codeSize = raytracingShaderModules[3].getShaderSource().getData().size();
-    shaderModuleCreateInfo.pCode = reinterpret_cast<const uint32_t *>(raytracingShaderModules[3].getShaderSource().getData().data());
-    shaderStageCreateInfo.pSpecializationInfo = &raytracingShaderModules[3].getSpecializationInfo();
-    VK_CHECK(vkCreateShaderModule(device->getHandle(), &shaderModuleCreateInfo, nullptr, &shaderStageCreateInfo.module));
-    shaderStageCreateInfo.pName = raytracingShaderModules[3].getEntryPoint().c_str();
-    shaderStageCreateInfo.stage = raytracingShaderModules[3].getStage();
-    stages[eClosestHit] = shaderStageCreateInfo;
-
     // Shader groups
+    enum StageIndices
+    {
+        eRaygen,
+        eMiss,
+        eMissShadow,
+        eClosestHit,
+        eShaderGroupCount
+    };
+
+    std::vector<VkRayTracingShaderGroupCreateInfoKHR> rtShaderGroups;
     VkRayTracingShaderGroupCreateInfoKHR group{ VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR };
     group.anyHitShader = VK_SHADER_UNUSED_KHR;
     group.closestHitShader = VK_SHADER_UNUSED_KHR;
@@ -3435,98 +3389,60 @@ void MainApp::createRtPipeline()
     // Raygen
     group.type = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR;
     group.generalShader = eRaygen;
-    m_rtShaderGroups.push_back(group);
+    rtShaderGroups.push_back(group);
 
     // Miss
     group.type = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR;
     group.generalShader = eMiss;
-    m_rtShaderGroups.push_back(group);
+    rtShaderGroups.push_back(group);
 
     // Shadow Miss
     group.type = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR;
     group.generalShader = eMissShadow;
-    m_rtShaderGroups.push_back(group);
+    rtShaderGroups.push_back(group);
 
     // Closest Hit
     group.type = VK_RAY_TRACING_SHADER_GROUP_TYPE_TRIANGLES_HIT_GROUP_KHR;
     group.generalShader = VK_SHADER_UNUSED_KHR;
     group.closestHitShader = eClosestHit;
-    m_rtShaderGroups.push_back(group);
+    rtShaderGroups.push_back(group);
 
-    // Push constant: we want to be able to update constants used by the shaders
-    VkPushConstantRange pushConstant{ VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR,
-                                     0, sizeof(LightData) };
+    VkPushConstantRange pushConstantRange{ VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR, 0, sizeof(LightData) };
 
-
-    VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo{ VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
-    pipelineLayoutCreateInfo.pushConstantRangeCount = 1;
-    pipelineLayoutCreateInfo.pPushConstantRanges = &pushConstant;
-
-    // Descriptor sets: one specific to ray tracing and three shared with the rasterization pipeline
-    std::vector<VkDescriptorSetLayout> rtDescSetLayouts = { 
+    std::vector<VkDescriptorSetLayout> rtDescSetLayouts = {
         m_rtDescSetLayout->getHandle(),
         globalDescriptorSetLayout->getHandle(),
         objectDescriptorSetLayout->getHandle(),
         textureDescriptorSetLayout->getHandle()
     };
-    pipelineLayoutCreateInfo.setLayoutCount = to_u32(rtDescSetLayouts.size());
-    pipelineLayoutCreateInfo.pSetLayouts = rtDescSetLayouts.data();
 
-    vkCreatePipelineLayout(device->getHandle(), &pipelineLayoutCreateInfo, nullptr, &m_rtPipelineLayout);
+    std::vector<VkPushConstantRange> pushConstantRangeHandles{ pushConstantRange };
+    std::shared_ptr<RayTracingPipelineState> rayTracingPipelineState = std::make_shared<RayTracingPipelineState>(
+        std::make_unique<PipelineLayout>(*device, raytracingShaderModules, rtDescSetLayouts, pushConstantRangeHandles), rtShaderGroups
+    );
+    std::shared_ptr<RayTracingPipeline> rayTracingPipeline = std::make_shared<RayTracingPipeline>(*device, *rayTracingPipelineState, nullptr);
 
-    // Assemble the shader stages and recursion depth info into the ray tracing pipeline
-    VkRayTracingPipelineCreateInfoKHR rayPipelineInfo{ VK_STRUCTURE_TYPE_RAY_TRACING_PIPELINE_CREATE_INFO_KHR };
-    rayPipelineInfo.stageCount = to_u32(stages.size());  // Stages are shaders
-    rayPipelineInfo.pStages = stages.data();
-
-    // In this case, m_rtShaderGroups.size() == 4: we have one raygen group,
-    // two miss shader groups, and one hit group.
-    rayPipelineInfo.groupCount = to_u32(m_rtShaderGroups.size());
-    rayPipelineInfo.pGroups = m_rtShaderGroups.data();
-
-    // The ray tracing process can shoot rays from the camera, and a shadow ray can be shot from the
-    // hit points of the camera rays, hence a recursion level of 2. This number should be kept as low
-    // as possible for performance reasons. Even recursive ray tracing should be flattened into a loop
-    // in the ray generation to avoid deep recursion.
-    rayPipelineInfo.maxPipelineRayRecursionDepth = 2;  // Ray depth
-    rayPipelineInfo.layout = m_rtPipelineLayout;
-
-    vkCreateRayTracingPipelinesKHR(device->getHandle(), {}, {}, 1, &rayPipelineInfo, nullptr, &m_rtPipeline);
-
-
-    // Spec only guarantees 1 level of "recursion". Check for that sad possibility here.
-    if (device->getPhysicalDevice().getRayTracingPipelineProperties().maxRayRecursionDepth <= 1)
-    {
-        LOGEANDABORT("Device fails to support ray recursion (maxRayRecursionDepth <= 1)");
-    }
-
-    for (auto &s : stages)
-    {
-        vkDestroyShaderModule(device->getHandle(), s.module, nullptr);
-    }
+    pipelines.rayTracing.pipelineState = rayTracingPipelineState;
+    pipelines.rayTracing.pipeline = rayTracingPipeline;
 }
 
-//--------------------------------------------------------------------------------------------------
-// The Shader Binding Table (SBT)
-// - getting all shader handles and write them in a SBT buffer
-// - Besides exception, this could be always done like this
-//   See how the SBT buffer is used in run()
-//
+// Creating the Shader Binding Table (SBT)
 void MainApp::createRtShaderBindingTable()
 {
-    uint32_t     groupCount = to_u32(m_rtShaderGroups.size());  // 4 shaders: raygen, 2 miss, chit
+    RayTracingPipelineState *rayTracingPipelineState = dynamic_cast<RayTracingPipelineState *>(pipelines.rayTracing.pipelineState.get());
+    uint32_t groupCount = to_u32(rayTracingPipelineState->getRayTracingShaderGroups().size());  // 4 shaders: raygen, 2 miss, chit
     uint32_t groupHandleSize = device->getPhysicalDevice().getRayTracingPipelineProperties().shaderGroupHandleSize;            // Size of a program identifier
     // Compute the actual size needed per SBT entry (round-up to alignment needed).
     uint32_t groupSizeAligned = align_up(groupHandleSize, device->getPhysicalDevice().getRayTracingPipelineProperties().shaderGroupBaseAlignment);
     // Bytes needed for the SBT.
     VkDeviceSize sbtSize = groupCount * groupSizeAligned;
 
-    // Fetch all the shader handles used in the pipeline. This is opaque data,/ so we store it in a vector of bytes.
+    // Fetch all the shader handles used in the pipeline. This is opaque data so we store it in a vector of bytes.
     // The order of handles follow the stage entry.
     std::vector<uint8_t> shaderHandleStorage(sbtSize);
-    VK_CHECK(vkGetRayTracingShaderGroupHandlesKHR(device->getHandle(), m_rtPipeline, 0, groupCount, to_u32(sbtSize), shaderHandleStorage.data()));
+    VK_CHECK(vkGetRayTracingShaderGroupHandlesKHR(device->getHandle(), pipelines.rayTracing.pipeline->getHandle(), 0, groupCount, to_u32(sbtSize), shaderHandleStorage.data()));
 
-    // Allocate a buffer for storing the SBT. Give it a debug name for NSight.
+    // Allocate a buffer for storing the SBT
     VkBufferCreateInfo bufferInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
     bufferInfo.size = sbtSize;
     bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
@@ -3562,10 +3478,10 @@ void MainApp::raytrace()
         frameData.objectDescriptorSets[currentFrame]->getHandle(),
         textureDescriptorSet->getHandle()
     };
-    vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_rtPipeline);
-    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_rtPipelineLayout, 0,
+    vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, pipelines.rayTracing.pipeline->getHandle());
+    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, pipelines.rayTracing.pipelineState->getPipelineLayout().getHandle(), 0,
         to_u32(descSets.size()), descSets.data(), 0, nullptr);
-    vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), m_rtPipelineLayout,
+    vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.rayTracing.pipelineState->getPipelineLayout().getHandle(),
         VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR,
         0, sizeof(RaytracingPushConstant), &raytracingPushConstant);
 

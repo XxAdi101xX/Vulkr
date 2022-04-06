@@ -51,7 +51,7 @@ GraphicsPipelineState::GraphicsPipelineState(
 	DepthStencilState depthStencilState,
 	ColorBlendState colorBlendState,
 	std::vector<VkDynamicState> dynamicStates
-): 
+) : 
 	PipelineState{ std::move(pipelineLayout) },
 	renderPass{ renderPass },
 	vertexInputState{ vertexInputState },
@@ -116,5 +116,19 @@ uint32_t GraphicsPipelineState::getSubpassIndex() const
 
 /* ComputePipelineState methods */
 ComputePipelineState::ComputePipelineState(std::unique_ptr<PipelineLayout> &&pipelineLayout) : PipelineState{ std::move(pipelineLayout) } {}
+
+/* RayTracingPipelineState methods */
+RayTracingPipelineState::RayTracingPipelineState(
+	std::unique_ptr<PipelineLayout> &&pipelineLayout,
+	std::vector<VkRayTracingShaderGroupCreateInfoKHR> rayTracingShaderGroups
+) : 
+	PipelineState{ std::move(pipelineLayout) },
+	rayTracingShaderGroups{ rayTracingShaderGroups }
+{}
+
+const std::vector<VkRayTracingShaderGroupCreateInfoKHR> &RayTracingPipelineState::getRayTracingShaderGroups() const
+{
+	return rayTracingShaderGroups;
+}
 
 } // namespace vulkr

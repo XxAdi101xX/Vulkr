@@ -24,6 +24,7 @@
 #include "device.h"
 #include "render_pass.h"
 #include "pipeline_layout.h"
+#include "physical_device.h"
 
 #include "rendering/pipeline_state.h"
 #include "rendering/shader_module.h"
@@ -33,6 +34,7 @@
 namespace vulkr
 {
 
+// Pipeline
 Pipeline::Pipeline(Device &device, VkPipelineBindPoint bindPoint) : device{ device }, bindPoint{ bindPoint } {}
 
 Pipeline::~Pipeline()
@@ -58,6 +60,7 @@ VkPipelineBindPoint Pipeline::getBindPoint() const
 	return bindPoint;
 }
 
+// GraphicsPipeline
 GraphicsPipeline::GraphicsPipeline(Device &device, GraphicsPipelineState &pipelineState, VkPipelineCache pipelineCache) : Pipeline{ device, VK_PIPELINE_BIND_POINT_GRAPHICS }, pipelineState{ pipelineState }
 {
 	std::vector<VkPipelineShaderStageCreateInfo> shaderStageCreateInfos;
@@ -180,6 +183,7 @@ GraphicsPipeline::GraphicsPipeline(Device &device, GraphicsPipelineState &pipeli
 	}
 }
 
+// Compute Pipeline
 ComputePipeline::ComputePipeline(Device &device, ComputePipelineState &pipelineState, VkPipelineCache pipelineCache): Pipeline{ device, VK_PIPELINE_BIND_POINT_COMPUTE }, pipelineState{ pipelineState }
 {
 	if (pipelineState.getPipelineLayout().getShaderModules().size() != 1)
@@ -206,6 +210,49 @@ ComputePipeline::ComputePipeline(Device &device, ComputePipelineState &pipelineS
 	vkCreateComputePipelines(device.getHandle(), pipelineCache, 1, &computePipelineCreateInfo, nullptr, &handle);
 
 	vkDestroyShaderModule(device.getHandle(), shaderStageCreateInfo.module, nullptr);
+}
+
+// RayTracingPipeline
+RayTracingPipeline::RayTracingPipeline(Device &device, RayTracingPipelineState &pipelineState, VkPipelineCache pipelineCache) : Pipeline{ device, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR }, pipelineState{ pipelineState }
+{
+	// Spec only guarantees 1 level of ray recursion and we require atleast two to support shadow rays
+	if (device.getPhysicalDevice().getRayTracingPipelineProperties().maxRayRecursionDepth <= 1)
+	{
+		LOGEANDABORT("Device fails to support ray recursion as maxRayRecursionDepth <= 1");
+	}
+
+	std::vector<VkPipelineShaderStageCreateInfo> shaderStageCreateInfos;
+	shaderStageCreateInfos.reserve(pipelineState.getPipelineLayout().getShaderModules().size());
+
+	for (const ShaderModule &shaderModule : pipelineState.getPipelineLayout().getShaderModules())
+	{
+		VkPipelineShaderStageCreateInfo shaderStageCreateInfo{ VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO };
+		shaderStageCreateInfo.stage = shaderModule.getStage();
+
+		VkShaderModuleCreateInfo shaderModuleCreateInfo{ VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO };
+		shaderModuleCreateInfo.codeSize = shaderModule.getShaderSource().getData().size();
+		shaderModuleCreateInfo.pCode = reinterpret_cast<const uint32_t *>(shaderModule.getShaderSource().getData().data());
+		VK_CHECK(vkCreateShaderModule(device.getHandle(), &shaderModuleCreateInfo, nullptr, &shaderStageCreateInfo.module));
+
+		shaderStageCreateInfo.pName = shaderModule.getEntryPoint().c_str();
+		shaderStageCreateInfo.pSpecializationInfo = &shaderModule.getSpecializationInfo();
+		shaderStageCreateInfos.push_back(shaderStageCreateInfo);
+	}
+
+	VkRayTracingPipelineCreateInfoKHR rayPipelineInfo{ VK_STRUCTURE_TYPE_RAY_TRACING_PIPELINE_CREATE_INFO_KHR };
+	rayPipelineInfo.stageCount = to_u32(shaderStageCreateInfos.size());
+	rayPipelineInfo.pStages = shaderStageCreateInfos.data();
+	rayPipelineInfo.groupCount = to_u32(pipelineState.getRayTracingShaderGroups().size());
+	rayPipelineInfo.pGroups = pipelineState.getRayTracingShaderGroups().data();
+	rayPipelineInfo.maxPipelineRayRecursionDepth = 2;  
+	rayPipelineInfo.layout = pipelineState.getPipelineLayout().getHandle();
+
+	vkCreateRayTracingPipelinesKHR(device.getHandle(), {}, {}, 1, &rayPipelineInfo, nullptr, &handle);
+
+	for (auto shaderStageCreateInfo : shaderStageCreateInfos)
+	{
+		vkDestroyShaderModule(device.getHandle(), shaderStageCreateInfo.module, nullptr);
+	}
 }
 
 } // namespace vulkr

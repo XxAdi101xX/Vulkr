@@ -362,6 +362,7 @@ private:
         PipelineData compute;
         PipelineData computeParticleCalculate;
         PipelineData computeParticleIntegrate;
+        PipelineData rayTracing;
     } pipelines;
     std::vector<ObjModel> objModels;
     std::vector<Texture> textures;
@@ -497,13 +498,7 @@ private:
 
     void createRtPipeline();
 
-    std::vector<ShaderModule> raytracingShaderModules; // TODO: cleanup
-    std::vector<VkRayTracingShaderGroupCreateInfoKHR> m_rtShaderGroups;
-    VkPipelineLayout                                  m_rtPipelineLayout;
-    VkPipeline                                        m_rtPipeline;
-
-    // https://www.willusher.io/graphics/2019/11/20/the-sbt-three-ways is a great resource on how the SBT works and how we should be organizing our
-    // shaders into primary and occlusion hit groups
+    // https://www.willusher.io/graphics/2019/11/20/the-sbt-three-ways is a great resource on how the SBT works and how we should be organizing our shaders into primary and occlusion hit groups
     void createRtShaderBindingTable();
     std::unique_ptr<Buffer> m_rtSBTBuffer;
 

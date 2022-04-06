@@ -219,15 +219,29 @@ private:
 class ComputePipelineState final : public PipelineState
 {
 public:
-	ComputePipelineState(
-		std::unique_ptr<PipelineLayout> &&pipelineLayout
-	);
+	ComputePipelineState(std::unique_ptr<PipelineLayout> &&pipelineLayout);
 	~ComputePipelineState() = default;
 
 	ComputePipelineState(const ComputePipelineState &) = delete;
 	ComputePipelineState(ComputePipelineState &&) = delete;
 	ComputePipelineState &operator=(const ComputePipelineState &) = delete;
 	ComputePipelineState &operator=(ComputePipelineState &&) = delete;
+};
+
+class RayTracingPipelineState final : public PipelineState
+{
+public:
+	RayTracingPipelineState(std::unique_ptr<PipelineLayout> &&pipelineLayout, std::vector<VkRayTracingShaderGroupCreateInfoKHR> rayTracingShaderGroups);
+	~RayTracingPipelineState() = default;
+
+	RayTracingPipelineState(const RayTracingPipelineState &) = delete;
+	RayTracingPipelineState(RayTracingPipelineState &&) = delete;
+	RayTracingPipelineState &operator=(const RayTracingPipelineState &) = delete;
+	RayTracingPipelineState &operator=(RayTracingPipelineState &&) = delete;
+
+	const std::vector<VkRayTracingShaderGroupCreateInfoKHR> &getRayTracingShaderGroups() const;
+private:
+	std::vector<VkRayTracingShaderGroupCreateInfoKHR> rayTracingShaderGroups;
 };
 
 } // namespace vulkr
