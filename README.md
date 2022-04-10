@@ -17,7 +17,7 @@ The Vulkr renderer is able to accept wavefront object and material files (*.obj 
 - Triple buffering (pending GPU exposes atleast 3 swapchain images) with two sets of frame resources
 - Instanced object rendering
 - Navigating within the world using mouse controls you would see on typical graphics software like Blender
-- A single global light source that can be set as a directional (infinite) or point light with customizable intensity and position values
+- Multiple global light sources that can be set as a directional (infinite) or point light with customizable intensity and position values
 - Temporal Anti-Aliasing for static and dynamic scenes (rasterization only so far); implemented using techniques mentioned in the "[A Survey of Temporal Antialising Techniques](http://behindthepixels.io/assets/files/TemporalAA.pdf)" white paper and [Ziyad Barakat's TAA Blog Post](https://ziyadbarakat.wordpress.com/2020/07/28/temporal-anti-aliasing-step-by-step/)
 - A imgui debug window that provides access to altering the camera and light settings
 - Shadows (ray tracing only so far)
