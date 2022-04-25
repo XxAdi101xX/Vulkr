@@ -65,6 +65,9 @@
 #include <chrono>
 #include <algorithm>
 #include <random>
+#include <queue>
+#include <mutex>
+#include <condition_variable>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
@@ -101,6 +104,8 @@ constexpr std::array<glm::vec3, 6> attractors = {
     glm::vec3(0.0f, -8.0f, 0.0f),
 };
 
+// TODO: enabling multi-threaded loading tentatively works with rasterization but fails for the raytracing pipeline during the buildTlas second call; still a WIP
+// #define MULTI_THREAD
 bool raytracingEnabled{ false }; // Flag to enable ray tracing vs rasterization
 bool temporalAntiAliasingEnabled{ false }; // Flag to enable temporal anti-aliasing
 
@@ -355,6 +360,12 @@ private:
     std::unique_ptr<DescriptorSet> textureDescriptorSet;
     size_t currentFrame{ 0 };
 
+    std::mutex bufferMutex;
+    std::mutex commandPoolMutex;
+    std::condition_variable commandPoolCv;
+    std::vector<std::unique_ptr<CommandPool>> initCommandPools;
+    std::queue<uint8_t> initCommandPoolIds;
+
     struct Pipelines
     {
         PipelineData offscreen;
@@ -467,6 +478,10 @@ private:
     void resetFrameSinceViewChange();
     void updateTaaState();
     void initializeBufferData();
+
+    // TODO: These methods to allow command pool access for multiple threads are not in use at the moment and will need to be used when expanding multi threading capabilities
+    uint8_t getInitCommandPoolId();
+    void returnInitCommandPool(uint8_t commandPoolId);
 
     // Raytracing TODO: cleanup this section
     BlasInput objectToVkGeometryKHR(size_t objModelIndex);

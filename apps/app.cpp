@@ -23,7 +23,7 @@
 #include "app.h"
 #include "platform/platform.h"
 
-#include <format>
+#include <thread>
 
 // TODO move this into raytracing helpers file when it's created
 VkTransformMatrixKHR toTransformMatrixKHR(glm::mat4 matrix)
@@ -170,6 +170,11 @@ void MainApp::cleanupSwapchain()
         frameData.objectBuffers[i].reset();
         frameData.previousFrameObjectBuffers[i].reset();
         frameData.particleBuffers[i].reset();
+    }
+
+    for (uint8_t i = 0; i < std::thread::hardware_concurrency(); ++i)
+    {
+        initCommandPools[i].reset();
     }
 
     descriptorPool.reset();
@@ -1766,6 +1771,32 @@ void MainApp::createCommandPools()
         frameData.commandPools[i] = std::make_unique<CommandPool>(*device, graphicsQueue->getFamilyIndex(), VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT);
         setDebugUtilsObjectName(device->getHandle(), frameData.commandPools[i]->getHandle(), "commandPool for frame #" + std::to_string(i));
     }
+
+    for (uint8_t i = 0; i < std::thread::hardware_concurrency(); ++i)
+    {
+        initCommandPoolIds.push(i);
+        initCommandPools.push_back(std::make_unique<CommandPool>(*device, graphicsQueue->getFamilyIndex(), VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT));
+        setDebugUtilsObjectName(device->getHandle(), initCommandPools[i]->getHandle(), "initCommandPool #" + std::to_string(i));
+    }
+}
+
+uint8_t MainApp::getInitCommandPoolId()
+{
+    std::unique_lock<std::mutex> lock(commandPoolMutex);
+    commandPoolCv.wait(lock, [this]() {
+        return !initCommandPoolIds.empty();
+    });
+
+    uint8_t id = initCommandPoolIds.front();
+    initCommandPoolIds.pop();
+    lock.release();
+    commandPoolCv.notify_one();
+    return id;
+}
+void MainApp::returnInitCommandPool(uint8_t commandPoolId)
+{
+    std::unique_lock<std::mutex> lock(commandPoolMutex);
+    initCommandPoolIds.push(commandPoolId);
 }
 
 void MainApp::createCommandBuffers()
@@ -2513,6 +2544,9 @@ void MainApp::loadModel(const std::string &objFileName)
     objModel.verticesCount = to_u32(objLoader.vertices.size());
     objModel.indicesCount = to_u32(objLoader.indices.size());
 
+#ifdef MULTI_THREAD
+    std::scoped_lock<std::mutex> bufferLock(bufferMutex); // Lock
+#endif
     createVertexBuffer(objModel, objLoader);
     createIndexBuffer(objModel, objLoader);
     createMaterialBuffer(objModel, objLoader);
@@ -2559,7 +2593,7 @@ void MainApp::createSceneLights()
 {
     LightData l1;
     LightData l2;
-    l2.lightPosition = glm::vec3(10.0f, 5.0f, 4.5f);
+    l2.lightPosition = glm::vec3(10.0f, 5.0f, -20.0f);
     sceneLights.emplace_back(std::move(l1));
     sceneLights.emplace_back(std::move(l2));
 
@@ -2569,24 +2603,46 @@ void MainApp::createSceneLights()
 
 void MainApp::loadModels()
 {
-    // TODO: note that loading in the sphere models error out for raytracing so that needs to be resolved when it is used
-    loadModel("plane.obj");
-    loadModel("Medieval_building.obj");
-    loadModel("wuson.obj");
-    loadModel("cube.obj");
-    //loadModel("monkey_smooth.obj");
-    //loadModel("lost_empire.obj");
+    const std::array<std::string, 4> modelFiles {
+        "plane.obj",
+        "Medieval_building.obj",
+        "wuson.obj",
+        "cube.obj",
+        //"monkey_smooth.obj",
+        //"lost_empire.obj",
+    };
 
-    // Validate that models are only loaded once
+    // Validate that models are only to be loaded in once
     std::set<std::string> existingModels;
-    for (int i = 0; i < objModels.size(); ++i)
+    for (int i = 0; i < modelFiles.size(); ++i)
     {
-        if (existingModels.count(objModels[i].objFileName) != 0)
+        if (existingModels.count(modelFiles[i]) != 0)
         {
-            LOGEANDABORT("Duplicate models have been loaded!");
+            LOGEANDABORT("Duplicate models can not be loaded!");
         }
-        existingModels.insert(objModels[i].objFileName);
+        existingModels.insert(modelFiles[i]);
     }
+
+    objModels.reserve(modelFiles.size());
+
+#ifdef MULTI_THREAD
+    std::vector<std::thread> modelLoadThreads;
+#endif
+    for (const std::string &modelFile : modelFiles)
+    {
+#ifdef MULTI_THREAD
+        modelLoadThreads.push_back(std::thread(&MainApp::loadModel, this, modelFile));
+#else
+        loadModel(modelFile);
+#endif
+    }
+
+#ifdef MULTI_THREAD
+    for (auto &threads : modelLoadThreads)
+    {
+        threads.join();
+    }
+#endif
 }
 
 void MainApp::createScene()
