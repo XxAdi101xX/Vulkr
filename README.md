@@ -23,6 +23,9 @@ The Vulkr renderer is able to accept wavefront object and material files (*.obj 
 - Temporal Anti-Aliasing for static and dynamic scenes (rasterization only so far); implemented using techniques mentioned in the "[A Survey of Temporal Antialising Techniques](http://behindthepixels.io/assets/files/TemporalAA.pdf)" white paper and [Ziyad Barakat's TAA Blog Post](https://ziyadbarakat.wordpress.com/2020/07/28/temporal-anti-aliasing-step-by-step/)
 - A imgui debug window that provides access to altering the camera and light settings
 - Shadows (ray tracing only so far)
+- A particle system simulation
+
+https://user-images.githubusercontent.com/18451835/173991616-5825f922-1a45-4556-9cf3-51c6615e918b.mp4
 
 ## Credits
 A special thanks to Alexander Overvoorde's [Vulkan Tutorial](https://vulkan-tutorial.com/) for providing a great introduction to Vulkan as a whole and providing the base knowledge required to get started on this project. Additionally, Sascha Willems' [Vulkan Demos](https://github.com/SaschaWillems/Vulkan), [Vulkan Samples](https://github.com/KhronosGroup/Vulkan-Samples) provided by the KhronosGroup and the [Vulkan Ray Tracing Samples](https://github.com/nvpro-samples/vk_raytracing_tutorial_KHR) provided by NVIDIA have played an instrumental role into providing guidance into best practices, techniques and code samples for implementing various features using Vulkan. Finally, the discord and reddit communities on Vulkan and Graphics Programming have been very helpful with answering many of the questions that I've gotten along the way!
