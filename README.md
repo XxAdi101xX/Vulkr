@@ -2,6 +2,8 @@
 
 Vulkr is a personal Vulkan renderer project that I've taken up in order to solidify my knowledge of Vulkan and graphics programming as a whole.
 
+https://user-images.githubusercontent.com/18451835/173965410-b90e12f6-1137-4c0d-bb6b-b521f90e2a7d.mp4
+
 ## Build
 Clone the project with the `--recurse-submodules` option to grab all the necessary third party dependencies.
 
