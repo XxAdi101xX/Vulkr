@@ -1,4 +1,4 @@
-/* Copyright (c) 2020 Adithya Venkatarao
+/* Copyright (c) 2022 Adithya Venkatarao
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
@@ -77,8 +77,8 @@
 #include <backends/imgui_impl_vulkan.h>
 
 // Required for imgui integration, might be able to remove this if there's an alternate integration with volk
-VkInstance g_instance;
-PFN_vkVoidFunction loadFunction(const char *function_name, void *user_data) { return vkGetInstanceProcAddr(g_instance, function_name); }
+VkInstance g_instanceHandle;
+PFN_vkVoidFunction loadFunction(const char *function_name, void *user_data) { return vkGetInstanceProcAddr(g_instanceHandle, function_name); }
 
 namespace vulkr
 {
@@ -172,8 +172,8 @@ struct ObjModel
 
 struct PipelineData
 {
-    std::shared_ptr<Pipeline> pipeline;
-    std::shared_ptr<PipelineState> pipelineState;
+    std::unique_ptr<Pipeline> pipeline;
+    std::unique_ptr<PipelineState> pipelineState;
 };
 
 struct Texture
@@ -182,11 +182,23 @@ struct Texture
     std::unique_ptr<ImageView> imageview;
 };
 
-// Inputs used to build Bottom-level acceleration structure.
-// You manage the lifetime of the buffer(s) referenced by the
-// VkAccelerationStructureGeometryKHRs within. In particular, you must
-// make sure they are still valid and not being modified when the BLAS
-// is built or updated.
+struct AccelerationStructure
+{
+    AccelerationStructure(Device &device) : device(device)
+    {}
+
+    ~AccelerationStructure()
+    {
+        buffer.reset();
+        vkDestroyAccelerationStructureKHR(device.getHandle(), accelerationStuctureKHR, nullptr);
+    }
+
+    Device &device;
+    VkAccelerationStructureKHR accelerationStuctureKHR = VK_NULL_HANDLE;
+    std::unique_ptr<Buffer> buffer;
+};
+
+// Inputs used to build the bottom-level acceleration structure.
 struct BlasInput
 {
     // Data used to build acceleration structure geometry
@@ -194,45 +206,30 @@ struct BlasInput
     std::vector<VkAccelerationStructureBuildRangeInfoKHR> asBuildRangeInfo;
 };
 
-struct AccelKHR
-{
-    VkAccelerationStructureKHR accel = VK_NULL_HANDLE;
-    std::unique_ptr<Buffer> buffer;
-
-    Device &device;
-    AccelKHR(Device &device) : device(device)
-    {}
-    ~AccelKHR()
-    {
-        buffer.reset();
-        vkDestroyAccelerationStructureKHR(device.getHandle(), accel, nullptr);
-    }
-};
-
 // Bottom-level acceleration structure, along with the information needed to re-build it.
 struct BlasEntry
 {
-    // User-provided input.
+    BlasEntry(BlasInput input_) : input(input_)
+    {}
+
+    ~BlasEntry()
+    {
+        accelerationStructure.reset();
+    }
+
+    // User provided input.
     BlasInput input;
 
     // VkAccelerationStructureKHR plus extra info needed for our memory allocator.
-    std::unique_ptr<AccelKHR> as; // This struct should be initialized outside
+    std::unique_ptr<AccelerationStructure> accelerationStructure; // This struct will be initialized externally
 
     // Additional parameters for acceleration structure builds
     VkBuildAccelerationStructureFlagsKHR flags = 0;
-
-    BlasEntry() = default;
-    BlasEntry(BlasInput input_) : input(std::move(input_))
-    {}
-    ~BlasEntry()
-    {
-        as.reset();
-    }
 };
 
 struct Tlas
 {
-    std::unique_ptr<AccelKHR> as;
+    std::unique_ptr<AccelerationStructure> accelerationStructure;
     VkBuildAccelerationStructureFlagsKHR flags = 0;
 };
 
@@ -267,15 +264,15 @@ private:
         VK_KHR_SHADER_DRAW_PARAMETERS_EXTENSION_NAME
     };
 
-    std::unique_ptr<Instance> instance{ nullptr };
-    VkSurfaceKHR surface{ VK_NULL_HANDLE };
+    std::unique_ptr<Instance> m_instance{ nullptr };
+    VkSurfaceKHR m_surface{ VK_NULL_HANDLE };
     std::unique_ptr<Device> device{ nullptr };
-    Queue *graphicsQueue{ VK_NULL_HANDLE };
-    Queue *computeQueue{ VK_NULL_HANDLE };
-    Queue *presentQueue{ VK_NULL_HANDLE };
-    Queue *transferQueue{ VK_NULL_HANDLE }; // TODO: currently unused in code
-    uint32_t workGroupSize;
-    uint32_t shadedMemorySize;
+    Queue *m_graphicsQueue{ VK_NULL_HANDLE };
+    Queue *m_computeQueue{ VK_NULL_HANDLE };
+    Queue *m_presentQueue{ VK_NULL_HANDLE };
+    Queue *m_transferQueue{ VK_NULL_HANDLE }; // TODO: currently unused in code
+    uint32_t m_workGroupSize;
+    uint32_t m_shadedMemorySize;
 
     std::unique_ptr<Swapchain> swapchain{ nullptr };
 
@@ -483,39 +480,36 @@ private:
     uint8_t getInitCommandPoolId();
     void returnInitCommandPool(uint8_t commandPoolId);
 
-    // Raytracing TODO: cleanup this section
-    BlasInput objectToVkGeometryKHR(size_t objModelIndex);
-    void createBottomLevelAS();
-    std::unique_ptr<AccelKHR> createAcceleration(VkAccelerationStructureCreateInfoKHR &accel);
-    void buildBlas(const std::vector<BlasInput> &input, VkBuildAccelerationStructureFlagsKHR flags);
-    // Vector containing all the BLASes built in buildBlas (and referenced by the TLAS)
-    std::vector<BlasEntry> m_blas;
+    // Raytracing member variables
+    std::vector<BlasEntry> m_blas; // Vector containing all the BLASes built in buildBlas (and referenced by the TLAS)
+    std::unique_ptr<Tlas> m_tlas; // Top-level acceleration structure
+    std::vector<VkAccelerationStructureInstanceKHR> m_accelerationStructureInstances;
+    std::unique_ptr<Buffer> m_instBuffer; // Instance buffer containing the matrices and BLAS ids
 
-    void buildTlas(bool update);
-    // Top-level acceleration structure
-    std::unique_ptr<Tlas> m_tlas;
-    std::vector<VkAccelerationStructureInstanceKHR> accelerationStructureInstances;
-    VkBuildAccelerationStructureFlagsKHR rtFlags;
+    std::unique_ptr<DescriptorPool> m_rtDescPool;
+    std::unique_ptr<DescriptorSetLayout> m_rtDescSetLayout;
+
+    VkBuildAccelerationStructureFlagsKHR m_buildAccelerationStructureFlags = 0;
+    const VkBufferUsageFlags m_rayTracingBufferUsageFlags = VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+
+    std::unique_ptr<Buffer> m_rtSBTBuffer; // The raytracing shader binding table
+
+    // Raytracing helpers
     VkDeviceAddress getBlasDeviceAddress(uint32_t blasId);
-    // Instance buffer containing the matrices and BLAS ids
-    std::unique_ptr<Buffer> m_instBuffer;
+    BlasInput objectToVkGeometryKHR(size_t objModelIndex);
+    std::unique_ptr<AccelerationStructure> createAccelerationStructure(VkAccelerationStructureCreateInfoKHR &accelerationStructureInfo);
+
+    // Raytracing core methods
+    void buildBlas();
+    void buildTlas(bool update);
 
     void createRtDescriptorPool();
     void createRtDescriptorLayout();
     void createRtDescriptorSets();
 
-    std::unique_ptr<DescriptorPool> m_rtDescPool;
-    std::unique_ptr<DescriptorSetLayout> m_rtDescSetLayout;
-
-    VkBufferUsageFlags rayTracingFlags = VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
-
     void updateRtDescriptorSet();
-
     void createRtPipeline();
-
-    // https://www.willusher.io/graphics/2019/11/20/the-sbt-three-ways is a great resource on how the SBT works and how we should be organizing our shaders into primary and occlusion hit groups
-    void createRtShaderBindingTable();
-    std::unique_ptr<Buffer> m_rtSBTBuffer;
+    void createRtShaderBindingTable(); // https://www.willusher.io/graphics/2019/11/20/the-sbt-three-ways is a great resource on how the SBT works and how we should be organizing our shaders into primary and occlusion hit groups
 
     void raytrace();
 };
