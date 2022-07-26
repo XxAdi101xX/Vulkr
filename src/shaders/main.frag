@@ -4,7 +4,7 @@
 #extension GL_EXT_nonuniform_qualifier : enable
 #extension GL_EXT_scalar_block_layout : enable
 #extension GL_EXT_buffer_reference2 : require
-//#extension GL_EXT_debug_printf : enable
+#extension GL_EXT_debug_printf : enable
 #extension GL_GOOGLE_include_directive : enable
 
 #include "common.glsl"
@@ -42,6 +42,7 @@ layout(push_constant) uniform RasterizationPushConstant
 
 void main() {
     //debugPrintfEXT("the lightcount is %d", pushConstant.lightCount);
+    //debugPrintfEXT("the fragcoord is: %1.4v2f", gl_FragCoord.xy);
     ObjInstance objResource = objectBuffer.objects[baseInstance];
     Materials materials = Materials(objResource.materials);
     MaterialIndices matIndices = MaterialIndices(objResource.materialIndices);

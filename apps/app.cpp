@@ -56,6 +56,8 @@ MainApp::~MainApp()
     postProcessingDescriptorSetLayout.reset();
     taaDescriptorSetLayout.reset();
     particleComputeDescriptorSetLayout.reset();
+    fluidSimulationInputDescriptorSetLayout.reset();
+    fluidSimulationOutputDescriptorSetLayout.reset();
 
     for (auto &it : objModels)
     {
@@ -129,12 +131,14 @@ void MainApp::cleanupSwapchain()
     pipelines.offscreen.pipelineState.reset();
     pipelines.postProcess.pipeline.reset();
     pipelines.postProcess.pipelineState.reset();
-    pipelines.compute.pipeline.reset();
-    pipelines.compute.pipelineState.reset();
+    pipelines.computeModelAnimation.pipeline.reset();
+    pipelines.computeModelAnimation.pipelineState.reset();
     pipelines.computeParticleCalculate.pipeline.reset();
     pipelines.computeParticleCalculate.pipelineState.reset();
     pipelines.computeParticleIntegrate.pipeline.reset();
     pipelines.computeParticleIntegrate.pipelineState.reset();
+    pipelines.computeFluidAdvection.pipeline.reset();
+    pipelines.computeFluidAdvection.pipelineState.reset();
     pipelines.rayTracing.pipeline.reset();
     pipelines.rayTracing.pipelineState.reset();
 
@@ -170,6 +174,11 @@ void MainApp::cleanupSwapchain()
         frameData.objectBuffers[i].reset();
         frameData.previousFrameObjectBuffers[i].reset();
         frameData.particleBuffers[i].reset();
+
+        frameData.fluidVelocityInputTextures[i]->image.reset();
+        frameData.fluidVelocityInputTextures[i]->imageview.reset();
+        frameData.fluidVelocityOutputTextures[i]->image.reset();
+        frameData.fluidVelocityOutputTextures[i]->imageview.reset();
     }
 
     for (uint8_t i = 0; i < std::thread::hardware_concurrency(); ++i)
@@ -257,14 +266,16 @@ void MainApp::prepare()
 
     createDescriptorSetLayouts();
     createMainRasterizationPipeline();
-    createComputePipeline();
+    createModelAnimationComputePipeline();
     createPostProcessingPipeline();
     createTextureSampler();
     createUniformBuffers();
     createSSBOs();
     prepareParticleData();
+    initializeFluidSimulationResources();
     createParticleCalculateComputePipeline();
     createParticleIntegrateComputePipeline();
+    createFluidAdvectionComputePipeline();
     createDescriptorPool();
     createDescriptorSets();
     setupCamera();
@@ -326,7 +337,6 @@ void MainApp::update()
         computeParticlesPushConstant.deltaTime = static_cast<float>(drawingTimer->tick());
     }
     animateInstances();
-    //updateComputeDescriptorSet(); // TODO: is this even correct, i'm not sure whether we need to update descriptor sets really
     updateBuffersPerFrame();
     drawImGuiInterface();
     updateTaaState(); // must be called after drawingImGui
@@ -355,8 +365,8 @@ void MainApp::update()
 
     // Compute shader invocations
     computeParticles();
-    //animateWithCompute(); // Compute vertices with compute shader TODO: fix the validation errors that happen when this is enabled, might be due to incorrect sytnax with obj buffer
-    // in animate.comp or the fact that the objBuffer is readonly? Not totally sure.
+    computeFluidSimulation();
+    //animateWithCompute(); // Compute vertices with compute shader TODO: fix the validation errors that happen when this is enabled, might be due to incorrect sytnax with obj buffer in animate.comp or the fact that the objBuffer is readonly? Not totally sure.
 
     if (raytracingEnabled)
     {
@@ -551,7 +561,7 @@ void MainApp::recreateSwapchain()
     createPostRenderPass();
     createMainRasterizationPipeline();
     createPostProcessingPipeline();
-    createComputePipeline();
+    createModelAnimationComputePipeline();
     createDepthResources();
     createFramebuffers();
     createCommandBuffers();
@@ -714,7 +724,7 @@ void MainApp::animateWithCompute()
     computePushConstant.indexCount = objModels[wusonModelIndex].indicesCount;
     computePushConstant.time = std::chrono::duration<float, std::chrono::seconds::period>(drawingTimer->elapsed()).count();
 
-    PipelineData &pipelineData = pipelines.compute;
+    PipelineData &pipelineData = pipelines.computeModelAnimation;
     vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipeline->getHandle());
     vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipelineState->getPipelineLayout().getHandle(), 0, 1, &frameData.objectDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
     vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstant), &computePushConstant);
@@ -754,7 +764,7 @@ void MainApp::computeParticles()
     vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeParticleCalculate.pipeline->getBindPoint(), pipelines.computeParticleCalculate.pipeline->getHandle());
     vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeParticleCalculate.pipeline->getBindPoint(), pipelines.computeParticleCalculate.pipelineState->getPipelineLayout().getHandle(), 0, 1, &frameData.particleComputeDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
     vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeParticleCalculate.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputeParticlesPushConstant), &computeParticlesPushConstant);
-    vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), computeParticlesPushConstant.particleCount / m_workGroupSize, 1, 1);
+    vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), (computeParticlesPushConstant.particleCount / m_workGroupSize) + 1, 1, 1);
 
     // Add memory barrier to ensure that the computer shader has finished writing to the buffer
     VkMemoryBarrier memoryBarrier{ VK_STRUCTURE_TYPE_MEMORY_BARRIER };
@@ -776,7 +786,96 @@ void MainApp::computeParticles()
     vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeParticleIntegrate.pipeline->getBindPoint(), pipelines.computeParticleIntegrate.pipelineState->getPipelineLayout().getHandle(), 0, 1, &frameData.particleComputeDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
     vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeParticleIntegrate.pipeline->getBindPoint(), pipelines.computeParticleIntegrate.pipelineState->getPipelineLayout().getHandle(), 1, 1, &frameData.objectDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
     vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeParticleIntegrate.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputeParticlesPushConstant), &computeParticlesPushConstant);
+    vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), (computeParticlesPushConstant.particleCount / m_workGroupSize) + 1, 1, 1); // round up invocation
+
+    // Release
+    if (m_graphicsQueue->getFamilyIndex() != m_computeQueue->getFamilyIndex())
+    {
+        VkBufferMemoryBarrier bufferBarrier =
+        {
+            VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+            nullptr,
+            VK_ACCESS_SHADER_WRITE_BIT,
+            0,
+            m_computeQueue->getFamilyIndex(),
+            m_graphicsQueue->getFamilyIndex(),
+            frameData.particleBuffers[currentFrame]->getHandle(),
+            0,
+            particleBufferSize
+        };
+
+        vkCmdPipelineBarrier(
+            frameData.commandBuffers[currentFrame][0]->getHandle(),
+            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+            VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
+            0,
+            0, nullptr,
+            1, &bufferBarrier,
+            0, nullptr
+        );
+    }
+}
+
+void MainApp::computeFluidSimulation()
+{
+    // Acquire
+    if (m_graphicsQueue->getFamilyIndex() != m_computeQueue->getFamilyIndex())
+    {
+        VkBufferMemoryBarrier bufferBarrier =
+        {
+            VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+            nullptr,
+            0,
+            VK_ACCESS_SHADER_WRITE_BIT,
+            m_graphicsQueue->getFamilyIndex(),
+            m_computeQueue->getFamilyIndex(),
+            frameData.particleBuffers[currentFrame]->getHandle(),
+            0,
+            particleBufferSize
+        };
+
+        vkCmdPipelineBarrier(
+            frameData.commandBuffers[currentFrame][0]->getHandle(),
+            VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
+            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+            0,
+            0, nullptr,
+            1, &bufferBarrier,
+            0, nullptr
+        );
+    }
+
+    // First pass: Compute fluid advection
+    vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeFluidAdvection.pipeline->getBindPoint(), pipelines.computeFluidAdvection.pipeline->getHandle());
+    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeFluidAdvection.pipeline->getBindPoint(), pipelines.computeFluidAdvection.pipelineState->getPipelineLayout().getHandle(), 0, 1, &frameData.fluidSimulationInputDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
+    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeFluidAdvection.pipeline->getBindPoint(), pipelines.computeFluidAdvection.pipelineState->getPipelineLayout().getHandle(), 1, 1, &frameData.fluidSimulationOutputDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
+    //vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeFluidAdvection.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputeParticlesPushConstant), &computeParticlesPushConstant);
+    size_t fluidVelocityBufferSize = swapchain->getProperties().imageExtent.width * swapchain->getProperties().imageExtent.height;
+    vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), (fluidVelocityBufferSize / m_workGroupSize) + 1, 1, 1);
+
+    /*
+    // Add memory barrier to ensure that the computer shader has finished writing to the buffer
+    VkMemoryBarrier memoryBarrier{ VK_STRUCTURE_TYPE_MEMORY_BARRIER };
+    memoryBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    memoryBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+    vkCmdPipelineBarrier(
+        frameData.commandBuffers[currentFrame][0]->getHandle(),
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+        0,
+        1, &memoryBarrier,
+        0, nullptr,
+        0, nullptr
+    );
+
+    // Second pass: Integrate particles
+    vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeParticleIntegrate.pipeline->getBindPoint(), pipelines.computeParticleIntegrate.pipeline->getHandle());
+    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeParticleIntegrate.pipeline->getBindPoint(), pipelines.computeParticleIntegrate.pipelineState->getPipelineLayout().getHandle(), 0, 1, &frameData.particleComputeDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
+    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeParticleIntegrate.pipeline->getBindPoint(), pipelines.computeParticleIntegrate.pipelineState->getPipelineLayout().getHandle(), 1, 1, &frameData.objectDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
+    vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeParticleIntegrate.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputeParticlesPushConstant), &computeParticlesPushConstant);
     vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), computeParticlesPushConstant.particleCount / m_workGroupSize, 1, 1);
+    */
 
     // Release
     if (m_graphicsQueue->getFamilyIndex() != m_computeQueue->getFamilyIndex())
@@ -862,8 +961,7 @@ void MainApp::updateBuffersPerFrame()
 }
 
 // TODO: as opposed to doing slot based binding of descriptor sets which leads to multiple vkCmdBindDescriptorSets calls per drawcall, you can use
-// frequency based descriptor sets and use dynamicOffsetCount: see https://zeux.io/2020/02/27/writing-an-efficient-vulkan-renderer/, or just bindless
-// decriptors altogether
+// frequency based descriptor sets and use dynamicOffsetCount: see https://zeux.io/2020/02/27/writing-an-efficient-vulkan-renderer/, or just bindless decriptors altogether
 void MainApp::rasterize()
 {
     debugUtilBeginLabel(frameData.commandBuffers[currentFrame][0]->getHandle(), "Rasterize");
@@ -1327,6 +1425,28 @@ void MainApp::createDescriptorSetLayouts()
 
     std::vector<VkDescriptorSetLayoutBinding> particleComputeDescriptorSetLayoutBindings{ particleBufferLayoutBinding };
     particleComputeDescriptorSetLayout = std::make_unique<DescriptorSetLayout>(*device, particleComputeDescriptorSetLayoutBindings);
+
+    // Fluid simulation input descriptor set layout
+    VkDescriptorSetLayoutBinding fluidSimulationInputLayoutBinding{};
+    fluidSimulationInputLayoutBinding.binding = 0;
+    fluidSimulationInputLayoutBinding.descriptorCount = 1;
+    fluidSimulationInputLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    fluidSimulationInputLayoutBinding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    fluidSimulationInputLayoutBinding.pImmutableSamplers = nullptr;
+
+    std::vector<VkDescriptorSetLayoutBinding> fluidSimulationInputDescriptorSetLayoutBindings{ fluidSimulationInputLayoutBinding };
+    fluidSimulationInputDescriptorSetLayout = std::make_unique<DescriptorSetLayout>(*device, fluidSimulationInputDescriptorSetLayoutBindings);
+
+    // Fluid simulation output descriptor set layout
+    VkDescriptorSetLayoutBinding fluidSimulationOutputLayoutBinding{};
+    fluidSimulationOutputLayoutBinding.binding = 0;
+    fluidSimulationOutputLayoutBinding.descriptorCount = 1;
+    fluidSimulationOutputLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    fluidSimulationOutputLayoutBinding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    fluidSimulationOutputLayoutBinding.pImmutableSamplers = nullptr;
+
+    std::vector<VkDescriptorSetLayoutBinding> fluidSimulationOutputDescriptorSetLayoutBindings{ fluidSimulationOutputLayoutBinding };
+    fluidSimulationOutputDescriptorSetLayout = std::make_unique<DescriptorSetLayout>(*device, fluidSimulationOutputDescriptorSetLayoutBindings);
 }
 
 void MainApp::createMainRasterizationPipeline()
@@ -1608,7 +1728,7 @@ void MainApp::createPostProcessingPipeline()
     pipelines.postProcess.pipeline = std::move(postProcessingPipeline);
 }
 
-void MainApp::createComputePipeline()
+void MainApp::createModelAnimationComputePipeline()
 {
     std::shared_ptr<ShaderSource> animationComputeShader = std::make_shared<ShaderSource>("animate.comp.spv");
 
@@ -1644,8 +1764,8 @@ void MainApp::createComputePipeline()
     );
     std::unique_ptr<ComputePipeline> animationComputePipeline = std::make_unique<ComputePipeline>(*device, *animationComputePipelineState, nullptr);
 
-    pipelines.compute.pipelineState = std::move(animationComputePipelineState);
-    pipelines.compute.pipeline = std::move(animationComputePipeline);
+    pipelines.computeModelAnimation.pipelineState = std::move(animationComputePipelineState);
+    pipelines.computeModelAnimation.pipeline = std::move(animationComputePipeline);
 }
 
 void MainApp::createParticleCalculateComputePipeline()
@@ -1737,6 +1857,51 @@ void MainApp::createParticleIntegrateComputePipeline()
 
     pipelines.computeParticleIntegrate.pipelineState = std::move(particleIntegrateComputePipelineState);
     pipelines.computeParticleIntegrate.pipeline = std::move(particleIntegrateComputePipeline);
+}
+
+void MainApp::createFluidAdvectionComputePipeline()
+{
+    std::shared_ptr<ShaderSource> particleIntegrateComputeShader = std::make_shared<ShaderSource>("fluidAdvection.comp.spv");
+
+    struct SpecializationData {
+        uint32_t workGroupSize;
+        uint32_t fluidVelocityBufferWidth;
+        uint32_t fluidVelocityBufferHeight;
+    } specializationData;
+    const VkSpecializationMapEntry entries[] =
+    {
+        { 0u, offsetof(SpecializationData, workGroupSize), sizeof(uint32_t) },
+        { 1u, offsetof(SpecializationData, fluidVelocityBufferWidth), sizeof(uint32_t) },
+        { 2u, offsetof(SpecializationData, fluidVelocityBufferHeight), sizeof(uint32_t) },
+    };
+    specializationData.workGroupSize = m_workGroupSize;
+    specializationData.fluidVelocityBufferWidth = swapchain->getProperties().imageExtent.width;
+    specializationData.fluidVelocityBufferHeight = swapchain->getProperties().imageExtent.height;
+
+    VkSpecializationInfo specializationInfo =
+    {
+        3u,
+        entries,
+        to_u32(sizeof(SpecializationData)),
+        &specializationData
+    };
+
+    std::vector<ShaderModule> shaderModules;
+    shaderModules.emplace_back(*device, VK_SHADER_STAGE_COMPUTE_BIT, specializationInfo, particleIntegrateComputeShader);
+
+    std::vector<VkDescriptorSetLayout> descriptorSetLayoutHandles{ fluidSimulationInputDescriptorSetLayout->getHandle(), fluidSimulationOutputDescriptorSetLayout->getHandle() };
+
+    std::vector<VkPushConstantRange> pushConstantRangeHandles;
+    //VkPushConstantRange computePushConstantRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputeParticlesPushConstant) };
+    //pushConstantRangeHandles.push_back(computePushConstantRange);
+
+    std::unique_ptr<ComputePipelineState> fluidAdvectionComputePipelineState = std::make_unique<ComputePipelineState>(
+        std::make_unique<PipelineLayout>(*device, shaderModules, descriptorSetLayoutHandles, pushConstantRangeHandles)
+    );
+    std::unique_ptr<ComputePipeline> fluidAdvectionComputePipeline = std::make_unique<ComputePipeline>(*device, *fluidAdvectionComputePipelineState, nullptr);
+
+    pipelines.computeFluidAdvection.pipelineState = std::move(fluidAdvectionComputePipelineState);
+    pipelines.computeFluidAdvection.pipeline = std::move(fluidAdvectionComputePipeline);
 }
 
 void MainApp::createFramebuffers()
@@ -1857,6 +2022,63 @@ void MainApp::createDepthResources()
     setDebugUtilsObjectName(device->getHandle(), depthImageView->getHandle(), "depthImageView");
 }
 
+std::unique_ptr<Image> MainApp::createTextureImage(uint32_t texWidth, uint32_t texHeight, bool isStorageImage)
+{
+    VkDeviceSize imageSize{ static_cast<VkDeviceSize>(texWidth * texHeight * 16 ) }; /* Since our format is VK_FORMAT_R32G32B32A32_SFLOAT, we allocate 4 bytes per channel  */
+    VkBufferCreateInfo bufferInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+    bufferInfo.size = imageSize;
+    bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+    VmaAllocationCreateInfo memoryInfo{};
+    memoryInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
+
+    std::vector<float> initialData(imageSize, 2.7f);
+    initialData[0] = 13.5f;
+    initialData[1] = 13.5f;
+    initialData[4] = 13.5f;
+    std::unique_ptr<Buffer> stagingBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
+
+    void *mappedData = stagingBuffer->map();
+    memcpy(mappedData, initialData.data(), static_cast<size_t>(imageSize));
+    stagingBuffer->unmap();
+
+    VkExtent3D extent{ texWidth, texHeight, 1u };
+    std::unique_ptr<Image> textureImage = std::make_unique<Image>(*device, VK_FORMAT_R32G32B32A32_SFLOAT, extent, isStorageImage ? (VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT) : (VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT), VMA_MEMORY_USAGE_GPU_ONLY /* default values for remaining params */);
+
+    VkImageSubresourceRange subresourceRange = {};
+    subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    subresourceRange.baseMipLevel = 0;
+    subresourceRange.levelCount = 1;
+    subresourceRange.baseArrayLayer = 0;
+    subresourceRange.layerCount = 1;
+    // Transition the texture image to be prepared as a destination target
+    std::unique_ptr<CommandBuffer> commandBuffer = std::make_unique<CommandBuffer>(*frameData.commandPools[currentFrame], VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+    commandBuffer->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
+    textureImage->transitionImageLayout(*commandBuffer, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, subresourceRange);
+    commandBuffer->end();
+
+    VkSubmitInfo submitInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &commandBuffer->getHandle();
+    vkQueueSubmit(m_graphicsQueue->getHandle(), 1, &submitInfo, VK_NULL_HANDLE);
+    vkQueueWaitIdle(m_graphicsQueue->getHandle());
+
+    copyBufferToImage(*stagingBuffer, *textureImage, texWidth, texHeight);
+
+    // Transition the texture image to be prepared to be read and written to by shaders
+    commandBuffer->reset();
+    commandBuffer->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
+    textureImage->transitionImageLayout(*commandBuffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL, subresourceRange);
+    commandBuffer->end();
+
+    // Use the same submit info
+    vkQueueSubmit(m_graphicsQueue->getHandle(), 1, &submitInfo, VK_NULL_HANDLE);
+    vkQueueWaitIdle(m_graphicsQueue->getHandle());
+
+    return textureImage;
+}
+
 std::unique_ptr<Image> MainApp::createTextureImage(const std::string &filename)
 {
     int texWidth, texHeight, texChannels;
@@ -1921,7 +2143,7 @@ std::unique_ptr<Image> MainApp::createTextureImage(const std::string &filename)
 
 std::unique_ptr<ImageView> MainApp::createTextureImageView(const Image &textureImage)
 {
-    return std::make_unique<ImageView>(textureImage, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, VK_FORMAT_R8G8B8A8_SRGB);
+    return std::make_unique<ImageView>(textureImage, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, textureImage.getFormat());
 }
 
 void MainApp::createTextureSampler()
@@ -2222,6 +2444,25 @@ void MainApp::prepareParticleData()
     }
 }
 
+// Initialize the fluid simulation buffers
+void MainApp::initializeFluidSimulationResources()
+{
+    for (uint32_t i = 0; i < maxFramesInFlight; ++i)
+    {
+        frameData.fluidVelocityInputTextures[i] = std::make_unique<Texture>();
+        frameData.fluidVelocityInputTextures[i]->image = createTextureImage(swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, false);
+        frameData.fluidVelocityInputTextures[i]->imageview = createTextureImageView(*(frameData.fluidVelocityInputTextures[i]->image));
+        setDebugUtilsObjectName(device->getHandle(), frameData.fluidVelocityInputTextures[i]->image->getHandle(), "fluidVelocityInputTexture image for frame #" + std::to_string(i));
+        setDebugUtilsObjectName(device->getHandle(), frameData.fluidVelocityInputTextures[i]->imageview->getHandle(), "fluidVelocityInputTexture imageView for frame #" + std::to_string(i));
+
+        frameData.fluidVelocityOutputTextures[i] = std::make_unique<Texture>();
+        frameData.fluidVelocityOutputTextures[i]->image = createTextureImage(swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, true);
+        frameData.fluidVelocityOutputTextures[i]->imageview = createTextureImageView(*(frameData.fluidVelocityOutputTextures[i]->image));
+        setDebugUtilsObjectName(device->getHandle(), frameData.fluidVelocityOutputTextures[i]->image->getHandle(), "fluidVelocityOutputTexture image for frame #" + std::to_string(i));
+        setDebugUtilsObjectName(device->getHandle(), frameData.fluidVelocityOutputTextures[i]->imageview->getHandle(), "fluidVelocityOutputTexture imageView for frame #" + std::to_string(i));
+    }
+}
+
 void MainApp::createDescriptorPool()
 {
     std::vector<VkDescriptorPoolSize> poolSizes{};
@@ -2235,7 +2476,9 @@ void MainApp::createDescriptorPool()
     poolSizes[3].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     poolSizes[3].descriptorCount = 1;
 
-    descriptorPool = std::make_unique<DescriptorPool>(*device, poolSizes, 11u, 0);
+
+    uint32_t maxSets = 31u; // we are allocating more space than currenly used
+    descriptorPool = std::make_unique<DescriptorPool>(*device, poolSizes, maxSets, 0);
 }
 
 void MainApp::createDescriptorSets()
@@ -2418,8 +2661,59 @@ void MainApp::createDescriptorSets()
         writeParticleComputeStorageBufferDescriptorSet.pImageInfo = nullptr;
         writeParticleComputeStorageBufferDescriptorSet.pTexelBufferView = nullptr;
 
+        // Fluid Simulation Input Descriptor Set
+        VkDescriptorSetAllocateInfo fluidSimulationInputDescriptorSetAllocateInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+        fluidSimulationInputDescriptorSetAllocateInfo.descriptorPool = descriptorPool->getHandle();
+        fluidSimulationInputDescriptorSetAllocateInfo.descriptorSetCount = 1;
+        fluidSimulationInputDescriptorSetAllocateInfo.pSetLayouts = &fluidSimulationInputDescriptorSetLayout->getHandle();
+        frameData.fluidSimulationInputDescriptorSets[i] = std::make_unique<DescriptorSet>(*device, fluidSimulationInputDescriptorSetAllocateInfo);
+        setDebugUtilsObjectName(device->getHandle(), frameData.fluidSimulationInputDescriptorSets[i]->getHandle(), "fluidSimulationInputDescriptorSets for frame #" + std::to_string(i));
+
+        // Binding 0 is the fluid velocity input texture
+        VkDescriptorImageInfo fluidVelocityInputTextureInfo{};
+        fluidVelocityInputTextureInfo.sampler = textureSampler->getHandle();
+        fluidVelocityInputTextureInfo.imageView = frameData.fluidVelocityInputTextures[i]->imageview->getHandle();
+        fluidVelocityInputTextureInfo.imageLayout = frameData.fluidVelocityInputTextures[i]->image->getLayout();
+        std::array<VkDescriptorImageInfo, 1> fluidSimulationInputTextureInfos{ fluidVelocityInputTextureInfo };
+
+        VkWriteDescriptorSet writeFluidSimulationInputDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        writeFluidSimulationInputDescriptorSet.dstSet = frameData.fluidSimulationInputDescriptorSets[i]->getHandle();
+        writeFluidSimulationInputDescriptorSet.dstBinding = 0;
+        writeFluidSimulationInputDescriptorSet.dstArrayElement = 0;
+        writeFluidSimulationInputDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writeFluidSimulationInputDescriptorSet.descriptorCount = fluidSimulationInputTextureInfos.size();
+        writeFluidSimulationInputDescriptorSet.pImageInfo = fluidSimulationInputTextureInfos.data();
+        writeFluidSimulationInputDescriptorSet.pBufferInfo = nullptr;
+        writeFluidSimulationInputDescriptorSet.pTexelBufferView = nullptr;
+
+
+        // Fluid Simulation Output Descriptor Set
+        VkDescriptorSetAllocateInfo fluidSimulationOutputDescriptorSetAllocateInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+        fluidSimulationOutputDescriptorSetAllocateInfo.descriptorPool = descriptorPool->getHandle();
+        fluidSimulationOutputDescriptorSetAllocateInfo.descriptorSetCount = 1;
+        fluidSimulationOutputDescriptorSetAllocateInfo.pSetLayouts = &fluidSimulationOutputDescriptorSetLayout->getHandle();
+        frameData.fluidSimulationOutputDescriptorSets[i] = std::make_unique<DescriptorSet>(*device, fluidSimulationOutputDescriptorSetAllocateInfo);
+        setDebugUtilsObjectName(device->getHandle(), frameData.fluidSimulationOutputDescriptorSets[i]->getHandle(), "fluidSimulationOutputDescriptorSets for frame #" + std::to_string(i));
+
+        // Binding 0 is the fluid velocity texture
+        VkDescriptorImageInfo fluidVelocityOutputTextureInfo{};
+        fluidVelocityOutputTextureInfo.sampler = VK_NULL_HANDLE;
+        fluidVelocityOutputTextureInfo.imageView = frameData.fluidVelocityOutputTextures[i]->imageview->getHandle();
+        fluidVelocityOutputTextureInfo.imageLayout = frameData.fluidVelocityOutputTextures[i]->image->getLayout();
+        std::array<VkDescriptorImageInfo, 1> fluidSimulationOutputTextureInfos{ fluidVelocityOutputTextureInfo };
+
+        VkWriteDescriptorSet writeFluidSimulationOutputDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        writeFluidSimulationOutputDescriptorSet.dstSet = frameData.fluidSimulationOutputDescriptorSets[i]->getHandle();
+        writeFluidSimulationOutputDescriptorSet.dstBinding = 0;
+        writeFluidSimulationOutputDescriptorSet.dstArrayElement = 0;
+        writeFluidSimulationOutputDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        writeFluidSimulationOutputDescriptorSet.descriptorCount = fluidSimulationOutputTextureInfos.size();
+        writeFluidSimulationOutputDescriptorSet.pImageInfo = fluidSimulationOutputTextureInfos.data();
+        writeFluidSimulationOutputDescriptorSet.pBufferInfo = nullptr;
+        writeFluidSimulationOutputDescriptorSet.pTexelBufferView = nullptr;
+
         // Write descriptor sets
-        std::array<VkWriteDescriptorSet, 8> writeDescriptorSets {
+        std::array<VkWriteDescriptorSet, 10> writeDescriptorSets {
             writeGlobalDescriptorSet,
             writeObjectDescriptorSet,
 
@@ -2430,7 +2724,10 @@ void MainApp::createDescriptorSets()
             writeTaaUniformBufferDescriptorSet,
             writeTaaStorageBufferDescriptorSet,
 
-            writeParticleComputeStorageBufferDescriptorSet
+            writeParticleComputeStorageBufferDescriptorSet,
+
+            writeFluidSimulationInputDescriptorSet,
+            writeFluidSimulationOutputDescriptorSet
         };
         vkUpdateDescriptorSets(device->getHandle(), to_u32(writeDescriptorSets.size()), writeDescriptorSets.data(), 0, nullptr);
     }
@@ -2466,28 +2763,6 @@ void MainApp::createDescriptorSets()
 
     std::array<VkWriteDescriptorSet, 1> writeToDescriptorSets{ writeTextureDescriptorSet };
     vkUpdateDescriptorSets(device->getHandle(), to_u32(writeToDescriptorSets.size()), writeToDescriptorSets.data(), 0, nullptr);
-}
-
-void MainApp::updateComputeDescriptorSet()
-{
-    VkDescriptorBufferInfo currentFrameObjectBufferInfo{};
-    currentFrameObjectBufferInfo.buffer = frameData.objectBuffers[currentFrame]->getHandle();
-    currentFrameObjectBufferInfo.offset = 0;
-    currentFrameObjectBufferInfo.range = sizeof(ObjInstance) * maxInstanceCount;
-    std::array<VkDescriptorBufferInfo, 1> storageImageInfos{ currentFrameObjectBufferInfo };
-
-    VkWriteDescriptorSet writeObjectDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-    writeObjectDescriptorSet.dstSet = frameData.objectDescriptorSets[currentFrame]->getHandle();
-    writeObjectDescriptorSet.dstBinding = 0;
-    writeObjectDescriptorSet.dstArrayElement = 0;
-    writeObjectDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    writeObjectDescriptorSet.descriptorCount = storageImageInfos.size();
-    writeObjectDescriptorSet.pBufferInfo = storageImageInfos.data();
-    writeObjectDescriptorSet.pImageInfo = nullptr;
-    writeObjectDescriptorSet.pTexelBufferView = nullptr;
-
-    std::array<VkWriteDescriptorSet, 1> writes{ writeObjectDescriptorSet };
-    vkUpdateDescriptorSets(device->getHandle(), to_u32(writes.size()), writes.data(), 0, nullptr);
 }
 
 void MainApp::createSemaphoreAndFencePools()

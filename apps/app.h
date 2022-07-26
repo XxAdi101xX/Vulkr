@@ -296,6 +296,8 @@ private:
     std::unique_ptr<DescriptorSetLayout> postProcessingDescriptorSetLayout{ nullptr };
     std::unique_ptr<DescriptorSetLayout> taaDescriptorSetLayout{ nullptr };
     std::unique_ptr<DescriptorSetLayout> particleComputeDescriptorSetLayout{ nullptr };
+    std::unique_ptr<DescriptorSetLayout> fluidSimulationInputDescriptorSetLayout{ nullptr };
+    std::unique_ptr<DescriptorSetLayout> fluidSimulationOutputDescriptorSetLayout{ nullptr };
     std::unique_ptr<DescriptorPool> descriptorPool;
     std::unique_ptr<DescriptorPool> imguiPool;
 
@@ -340,6 +342,8 @@ private:
         std::array<std::unique_ptr<DescriptorSet>, maxFramesInFlight> postProcessingDescriptorSets;
         std::array<std::unique_ptr<DescriptorSet>, maxFramesInFlight> taaDescriptorSets;
         std::array<std::unique_ptr<DescriptorSet>, maxFramesInFlight> particleComputeDescriptorSets;
+        std::array<std::unique_ptr<DescriptorSet>, maxFramesInFlight> fluidSimulationInputDescriptorSets;
+        std::array<std::unique_ptr<DescriptorSet>, maxFramesInFlight> fluidSimulationOutputDescriptorSets;
         std::array<std::unique_ptr<DescriptorSet>, maxFramesInFlight> rtDescriptorSets;
 
         std::array<std::unique_ptr<Buffer>, maxFramesInFlight> cameraBuffers;
@@ -348,6 +352,9 @@ private:
         std::array<std::unique_ptr<Buffer>, maxFramesInFlight> objectBuffers;
         std::array<std::unique_ptr<Buffer>, maxFramesInFlight> previousFrameObjectBuffers;
         std::array<std::unique_ptr<Buffer>, maxFramesInFlight> particleBuffers;
+
+        std::array<std::unique_ptr<Texture>, maxFramesInFlight> fluidVelocityInputTextures;
+        std::array<std::unique_ptr<Texture>, maxFramesInFlight> fluidVelocityOutputTextures;
     } frameData;
 
     std::vector<VkClearValue> offscreenFramebufferClearValues;
@@ -367,9 +374,10 @@ private:
     {
         PipelineData offscreen;
         PipelineData postProcess;
-        PipelineData compute;
+        PipelineData computeModelAnimation;
         PipelineData computeParticleCalculate;
         PipelineData computeParticleIntegrate;
+        PipelineData computeFluidAdvection;
         PipelineData rayTracing;
     } pipelines;
     std::vector<ObjModel> objModels;
@@ -423,6 +431,7 @@ private:
     void animateInstances();
     void animateWithCompute();
     void computeParticles();
+    void computeFluidSimulation();
     void updateBuffersPerFrame();
     void rasterize();
     void postProcess();
@@ -437,15 +446,17 @@ private:
     void createDescriptorSetLayouts();
     void createMainRasterizationPipeline();
     void createPostProcessingPipeline();
-    void createComputePipeline();
+    void createModelAnimationComputePipeline();
     void createParticleCalculateComputePipeline();
     void createParticleIntegrateComputePipeline();
+    void createFluidAdvectionComputePipeline();
     void createFramebuffers();
     void createCommandPools();
     void createCommandBuffers();
     void copyBufferToImage(const Buffer &srcBuffer, const Image &dstImage, uint32_t width, uint32_t height);
     void createDepthResources();
-    std::unique_ptr<Image> createTextureImage(const std::string &filename);
+    std::unique_ptr<Image> createTextureImage(uint32_t texWidth, uint32_t texHeight, bool isStorageImage); // Create an empty texture image
+    std::unique_ptr<Image> createTextureImage(const std::string &filename); // Reads a texture file and populate the texture image with the contents
     std::unique_ptr<ImageView> createTextureImageView(const Image &image);
     void createTextureSampler();
     void loadTextureImages(const std::vector<std::string> &textureFiles);
@@ -457,9 +468,9 @@ private:
     void createUniformBuffers();
     void createSSBOs();
     void prepareParticleData();
+    void initializeFluidSimulationResources();
     void createDescriptorPool();
     void createDescriptorSets();
-    void updateComputeDescriptorSet();
     void createSceneLights();
     void loadModel(const std::string &objFileName);
     void createInstance(const std::string &objFileName, glm::mat4 transform);
@@ -499,7 +510,7 @@ private:
     BlasInput objectToVkGeometryKHR(size_t objModelIndex);
     std::unique_ptr<AccelerationStructure> createAccelerationStructure(VkAccelerationStructureCreateInfoKHR &accelerationStructureInfo);
 
-    // Raytracing core methods
+    // Raytracing core subroutines
     void buildBlas();
     void buildTlas(bool update);
 
