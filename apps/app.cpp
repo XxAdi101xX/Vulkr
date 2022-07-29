@@ -139,6 +139,8 @@ void MainApp::cleanupSwapchain()
     pipelines.computeParticleIntegrate.pipelineState.reset();
     pipelines.computeFluidAdvection.pipeline.reset();
     pipelines.computeFluidAdvection.pipelineState.reset();
+    pipelines.computeJacobi.pipeline.reset();
+    pipelines.computeJacobi.pipelineState.reset();
     pipelines.rayTracing.pipeline.reset();
     pipelines.rayTracing.pipelineState.reset();
 
@@ -276,6 +278,7 @@ void MainApp::prepare()
     createParticleCalculateComputePipeline();
     createParticleIntegrateComputePipeline();
     createFluidAdvectionComputePipeline();
+    createJacobiComputePipeline();
     createDescriptorPool();
     createDescriptorSets();
     setupCamera();
@@ -736,6 +739,7 @@ void MainApp::computeParticles()
     // Acquire
     if (m_graphicsQueue->getFamilyIndex() != m_computeQueue->getFamilyIndex())
     {
+        LOGEANDABORT("Gotta verify this logic since we have assumed that computeQueue == graphicsQueue so far");
         VkBufferMemoryBarrier bufferBarrier =
         {
             VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
@@ -791,6 +795,7 @@ void MainApp::computeParticles()
     // Release
     if (m_graphicsQueue->getFamilyIndex() != m_computeQueue->getFamilyIndex())
     {
+        LOGEANDABORT("Gotta verify this logic since we have assumed that computeQueue == graphicsQueue so far");
         VkBufferMemoryBarrier bufferBarrier =
         {
             VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
@@ -821,6 +826,7 @@ void MainApp::computeFluidSimulation()
     // Acquire
     if (m_graphicsQueue->getFamilyIndex() != m_computeQueue->getFamilyIndex())
     {
+        LOGEANDABORT("Gotta verify this logic since we have assumed that computeQueue == graphicsQueue so far");
         VkBufferMemoryBarrier bufferBarrier =
         {
             VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
@@ -859,6 +865,7 @@ void MainApp::computeFluidSimulation()
     memoryBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
     memoryBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 
+    // TODO: fix this, this assumes compute will run next, but we need to transition image layout and copy images
     vkCmdPipelineBarrier(
         frameData.commandBuffers[currentFrame][0]->getHandle(),
         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
@@ -869,17 +876,20 @@ void MainApp::computeFluidSimulation()
         0, nullptr
     );
 
-    // Second pass: Integrate particles
-    vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeParticleIntegrate.pipeline->getBindPoint(), pipelines.computeParticleIntegrate.pipeline->getHandle());
-    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeParticleIntegrate.pipeline->getBindPoint(), pipelines.computeParticleIntegrate.pipelineState->getPipelineLayout().getHandle(), 0, 1, &frameData.particleComputeDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
-    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeParticleIntegrate.pipeline->getBindPoint(), pipelines.computeParticleIntegrate.pipelineState->getPipelineLayout().getHandle(), 1, 1, &frameData.objectDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
-    vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeParticleIntegrate.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputeParticlesPushConstant), &computeParticlesPushConstant);
-    vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), computeParticlesPushConstant.particleCount / m_workGroupSize, 1, 1);
+    // TODO: we need to copy fluidVelocityOutputTextureImage to fluidVelocityInputTextureImage and use the appropriate synchronization. Currently the pipeline barriers assume that we're running one compute after another
+    // Second pass: Compute Jacobi Iteration
+
+    // TODO We need to specify a iteration count (maybe 20) and run this dispatch call that many times per frame
+    vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeJacobi.pipeline->getBindPoint(), pipelines.computeJacobi.pipeline->getHandle());
+    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeJacobi.pipeline->getBindPoint(), pipelines.computeJacobi.pipelineState->getPipelineLayout().getHandle(), 0, 1, &frameData.fluidSimulationInputDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
+    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeJacobi.pipeline->getBindPoint(), pipelines.computeJacobi.pipelineState->getPipelineLayout().getHandle(), 1, 1, &frameData.fluidSimulationOutputDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
+    vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), (fluidVelocityBufferSize / m_workGroupSize) + 1, 1, 1);
     */
 
     // Release
     if (m_graphicsQueue->getFamilyIndex() != m_computeQueue->getFamilyIndex())
     {
+        LOGEANDABORT("Gotta verify this logic since we have assumed that computeQueue == graphicsQueue so far");
         VkBufferMemoryBarrier bufferBarrier =
         {
             VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
@@ -1730,7 +1740,7 @@ void MainApp::createPostProcessingPipeline()
 
 void MainApp::createModelAnimationComputePipeline()
 {
-    std::shared_ptr<ShaderSource> animationComputeShader = std::make_shared<ShaderSource>("animate.comp.spv");
+    std::shared_ptr<ShaderSource> computeShader = std::make_shared<ShaderSource>("animate.comp.spv");
 
     const VkSpecializationMapEntry entries[] =
     {
@@ -1751,7 +1761,7 @@ void MainApp::createModelAnimationComputePipeline()
     };
 
     std::vector<ShaderModule> shaderModules;
-    shaderModules.emplace_back(*device, VK_SHADER_STAGE_COMPUTE_BIT, specializationInfo, animationComputeShader);
+    shaderModules.emplace_back(*device, VK_SHADER_STAGE_COMPUTE_BIT, specializationInfo, computeShader);
 
     std::vector<VkDescriptorSetLayout> descriptorSetLayoutHandles{ objectDescriptorSetLayout->getHandle() };
 
@@ -1759,18 +1769,18 @@ void MainApp::createModelAnimationComputePipeline()
     VkPushConstantRange computePushConstantRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstant) };
     pushConstantRangeHandles.push_back(computePushConstantRange);
 
-    std::unique_ptr<ComputePipelineState> animationComputePipelineState = std::make_unique<ComputePipelineState>(
+    std::unique_ptr<ComputePipelineState> computePipelineState = std::make_unique<ComputePipelineState>(
         std::make_unique<PipelineLayout>(*device, shaderModules, descriptorSetLayoutHandles, pushConstantRangeHandles)
     );
-    std::unique_ptr<ComputePipeline> animationComputePipeline = std::make_unique<ComputePipeline>(*device, *animationComputePipelineState, nullptr);
+    std::unique_ptr<ComputePipeline> computePipeline = std::make_unique<ComputePipeline>(*device, *computePipelineState, nullptr);
 
-    pipelines.computeModelAnimation.pipelineState = std::move(animationComputePipelineState);
-    pipelines.computeModelAnimation.pipeline = std::move(animationComputePipeline);
+    pipelines.computeModelAnimation.pipelineState = std::move(computePipelineState);
+    pipelines.computeModelAnimation.pipeline = std::move(computePipeline);
 }
 
 void MainApp::createParticleCalculateComputePipeline()
 {
-    std::shared_ptr<ShaderSource> particleCalculateComputeShader = std::make_shared<ShaderSource>("particleCalculate.comp.spv");
+    std::shared_ptr<ShaderSource> computeShader = std::make_shared<ShaderSource>("particleCalculate.comp.spv");
 
     struct SpecializationData {
         uint32_t workGroupSize;
@@ -1802,7 +1812,7 @@ void MainApp::createParticleCalculateComputePipeline()
     };
 
     std::vector<ShaderModule> shaderModules;
-    shaderModules.emplace_back(*device, VK_SHADER_STAGE_COMPUTE_BIT, specializationInfo, particleCalculateComputeShader);
+    shaderModules.emplace_back(*device, VK_SHADER_STAGE_COMPUTE_BIT, specializationInfo, computeShader);
 
     std::vector<VkDescriptorSetLayout> descriptorSetLayoutHandles{ particleComputeDescriptorSetLayout->getHandle() };
 
@@ -1810,18 +1820,18 @@ void MainApp::createParticleCalculateComputePipeline()
     VkPushConstantRange computePushConstantRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputeParticlesPushConstant) };
     pushConstantRangeHandles.push_back(computePushConstantRange);
 
-    std::unique_ptr<ComputePipelineState> particleCalculateComputePipelineState = std::make_unique<ComputePipelineState>(
+    std::unique_ptr<ComputePipelineState> computePipelineState = std::make_unique<ComputePipelineState>(
         std::make_unique<PipelineLayout>(*device, shaderModules, descriptorSetLayoutHandles, pushConstantRangeHandles)
     );
-    std::unique_ptr<ComputePipeline> particleCalculateComputePipeline = std::make_unique<ComputePipeline>(*device, *particleCalculateComputePipelineState, nullptr);
+    std::unique_ptr<ComputePipeline> computePipeline = std::make_unique<ComputePipeline>(*device, *computePipelineState, nullptr);
 
-    pipelines.computeParticleCalculate.pipelineState = std::move(particleCalculateComputePipelineState);
-    pipelines.computeParticleCalculate.pipeline = std::move(particleCalculateComputePipeline);
+    pipelines.computeParticleCalculate.pipelineState = std::move(computePipelineState);
+    pipelines.computeParticleCalculate.pipeline = std::move(computePipeline);
 }
 
 void MainApp::createParticleIntegrateComputePipeline()
 {
-    std::shared_ptr<ShaderSource> particleIntegrateComputeShader = std::make_shared<ShaderSource>("particleIntegrate.comp.spv");
+    std::shared_ptr<ShaderSource> computeShader = std::make_shared<ShaderSource>("particleIntegrate.comp.spv");
 
     const VkSpecializationMapEntry entries[] =
     {
@@ -1842,7 +1852,7 @@ void MainApp::createParticleIntegrateComputePipeline()
     };
 
     std::vector<ShaderModule> shaderModules;
-    shaderModules.emplace_back(*device, VK_SHADER_STAGE_COMPUTE_BIT, specializationInfo, particleIntegrateComputeShader);
+    shaderModules.emplace_back(*device, VK_SHADER_STAGE_COMPUTE_BIT, specializationInfo, computeShader);
 
     std::vector<VkDescriptorSetLayout> descriptorSetLayoutHandles{ particleComputeDescriptorSetLayout->getHandle(), objectDescriptorSetLayout->getHandle()};
 
@@ -1850,18 +1860,18 @@ void MainApp::createParticleIntegrateComputePipeline()
     VkPushConstantRange computePushConstantRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputeParticlesPushConstant) };
     pushConstantRangeHandles.push_back(computePushConstantRange);
 
-    std::unique_ptr<ComputePipelineState> particleIntegrateComputePipelineState = std::make_unique<ComputePipelineState>(
+    std::unique_ptr<ComputePipelineState> computePipelineState = std::make_unique<ComputePipelineState>(
         std::make_unique<PipelineLayout>(*device, shaderModules, descriptorSetLayoutHandles, pushConstantRangeHandles)
     );
-    std::unique_ptr<ComputePipeline> particleIntegrateComputePipeline = std::make_unique<ComputePipeline>(*device, *particleIntegrateComputePipelineState, nullptr);
+    std::unique_ptr<ComputePipeline> computePipeline = std::make_unique<ComputePipeline>(*device, *computePipelineState, nullptr);
 
-    pipelines.computeParticleIntegrate.pipelineState = std::move(particleIntegrateComputePipelineState);
-    pipelines.computeParticleIntegrate.pipeline = std::move(particleIntegrateComputePipeline);
+    pipelines.computeParticleIntegrate.pipelineState = std::move(computePipelineState);
+    pipelines.computeParticleIntegrate.pipeline = std::move(computePipeline);
 }
 
 void MainApp::createFluidAdvectionComputePipeline()
 {
-    std::shared_ptr<ShaderSource> particleIntegrateComputeShader = std::make_shared<ShaderSource>("fluidAdvection.comp.spv");
+    std::shared_ptr<ShaderSource> computeShader = std::make_shared<ShaderSource>("fluidAdvection.comp.spv");
 
     struct SpecializationData {
         uint32_t workGroupSize;
@@ -1887,21 +1897,68 @@ void MainApp::createFluidAdvectionComputePipeline()
     };
 
     std::vector<ShaderModule> shaderModules;
-    shaderModules.emplace_back(*device, VK_SHADER_STAGE_COMPUTE_BIT, specializationInfo, particleIntegrateComputeShader);
+    shaderModules.emplace_back(*device, VK_SHADER_STAGE_COMPUTE_BIT, specializationInfo, computeShader);
 
     std::vector<VkDescriptorSetLayout> descriptorSetLayoutHandles{ fluidSimulationInputDescriptorSetLayout->getHandle(), fluidSimulationOutputDescriptorSetLayout->getHandle() };
 
     std::vector<VkPushConstantRange> pushConstantRangeHandles;
-    //VkPushConstantRange computePushConstantRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputeParticlesPushConstant) };
-    //pushConstantRangeHandles.push_back(computePushConstantRange);
 
-    std::unique_ptr<ComputePipelineState> fluidAdvectionComputePipelineState = std::make_unique<ComputePipelineState>(
+    std::unique_ptr<ComputePipelineState> computePipelineState = std::make_unique<ComputePipelineState>(
         std::make_unique<PipelineLayout>(*device, shaderModules, descriptorSetLayoutHandles, pushConstantRangeHandles)
     );
-    std::unique_ptr<ComputePipeline> fluidAdvectionComputePipeline = std::make_unique<ComputePipeline>(*device, *fluidAdvectionComputePipelineState, nullptr);
+    std::unique_ptr<ComputePipeline> computePipeline = std::make_unique<ComputePipeline>(*device, *computePipelineState, nullptr);
 
-    pipelines.computeFluidAdvection.pipelineState = std::move(fluidAdvectionComputePipelineState);
-    pipelines.computeFluidAdvection.pipeline = std::move(fluidAdvectionComputePipeline);
+    pipelines.computeFluidAdvection.pipelineState = std::move(computePipelineState);
+    pipelines.computeFluidAdvection.pipeline = std::move(computePipeline);
+}
+
+void MainApp::createJacobiComputePipeline()
+{
+    std::shared_ptr<ShaderSource> computeShader = std::make_shared<ShaderSource>("jacobi.comp.spv");
+
+    struct SpecializationData {
+        uint32_t workGroupSize;
+        uint32_t fluidVelocityBufferWidth;
+        uint32_t fluidVelocityBufferHeight;
+        float alpha;
+        float reciprocalBeta;
+    } specializationData;
+    const VkSpecializationMapEntry entries[] =
+    {
+        { 0u, offsetof(SpecializationData, workGroupSize), sizeof(uint32_t) },
+        { 1u, offsetof(SpecializationData, fluidVelocityBufferWidth), sizeof(uint32_t) },
+        { 2u, offsetof(SpecializationData, fluidVelocityBufferHeight), sizeof(uint32_t) },
+        { 3u, offsetof(SpecializationData, alpha), sizeof(float) },
+        { 4u, offsetof(SpecializationData, reciprocalBeta), sizeof(float) },
+    };
+    specializationData.workGroupSize = m_workGroupSize;
+    specializationData.fluidVelocityBufferWidth = swapchain->getProperties().imageExtent.width;
+    specializationData.fluidVelocityBufferHeight = swapchain->getProperties().imageExtent.height;
+    specializationData.alpha = -1.0f / (swapchain->getProperties().imageExtent.width * swapchain->getProperties().imageExtent.height);
+    specializationData.reciprocalBeta = 1.0f / 4.0f;
+
+    VkSpecializationInfo specializationInfo =
+    {
+        3u,
+        entries,
+        to_u32(sizeof(SpecializationData)),
+        &specializationData
+    };
+
+    std::vector<ShaderModule> shaderModules;
+    shaderModules.emplace_back(*device, VK_SHADER_STAGE_COMPUTE_BIT, specializationInfo, computeShader);
+
+    std::vector<VkDescriptorSetLayout> descriptorSetLayoutHandles{ fluidSimulationInputDescriptorSetLayout->getHandle(), fluidSimulationOutputDescriptorSetLayout->getHandle() };
+
+    std::vector<VkPushConstantRange> pushConstantRangeHandles;
+
+    std::unique_ptr<ComputePipelineState> computePipelineState = std::make_unique<ComputePipelineState>(
+        std::make_unique<PipelineLayout>(*device, shaderModules, descriptorSetLayoutHandles, pushConstantRangeHandles)
+        );
+    std::unique_ptr<ComputePipeline> computePipeline = std::make_unique<ComputePipeline>(*device, *computePipelineState, nullptr);
+
+    pipelines.computeJacobi.pipelineState = std::move(computePipelineState);
+    pipelines.computeJacobi.pipeline = std::move(computePipeline);
 }
 
 void MainApp::createFramebuffers()

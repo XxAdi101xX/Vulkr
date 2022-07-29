@@ -378,6 +378,7 @@ private:
         PipelineData computeParticleCalculate;
         PipelineData computeParticleIntegrate;
         PipelineData computeFluidAdvection;
+        PipelineData computeJacobi;
         PipelineData rayTracing;
     } pipelines;
     std::vector<ObjModel> objModels;
@@ -450,6 +451,7 @@ private:
     void createParticleCalculateComputePipeline();
     void createParticleIntegrateComputePipeline();
     void createFluidAdvectionComputePipeline();
+    void createJacobiComputePipeline();
     void createFramebuffers();
     void createCommandPools();
     void createCommandBuffers();

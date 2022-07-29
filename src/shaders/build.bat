@@ -13,3 +13,4 @@
 %VULKAN_SDK%/Bin/glslc.exe --target-env=vulkan1.2 particleIntegrate.comp -o spv/particleIntegrate.comp.spv -g
 
 %VULKAN_SDK%/Bin/glslc.exe --target-env=vulkan1.2 fluidAdvection.comp -o spv/fluidAdvection.comp.spv -g
+%VULKAN_SDK%/Bin/glslc.exe --target-env=vulkan1.2 jacobi.comp -o spv/jacobi.comp.spv -g
