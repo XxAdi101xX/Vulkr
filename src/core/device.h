@@ -1,4 +1,4 @@
-/* Copyright (c) 2020 Adithya Venkatarao
+/* Copyright (c) 2022 Adithya Venkatarao
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the

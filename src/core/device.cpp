@@ -1,4 +1,4 @@
-/* Copyright (c) 2020 Adithya Venkatarao
+/* Copyright (c) 2022 Adithya Venkatarao
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
@@ -85,13 +85,16 @@ Device::Device(std::unique_ptr<PhysicalDevice> &&selectedPhysicalDevice, VkSurfa
 		queueCreateInfos.emplace_back(queueCreateInfo);
 	}
 
-	// Create the device
-	const VkPhysicalDeviceFeatures &requestedFeatures = this->physicalDevice->getRequestedFeatures();
+	
 
+	// Required for usage of the LocalSizeId variable in compute shaders
+	VkPhysicalDeviceMaintenance4Features maintenance4Features{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_4_FEATURES };
+	maintenance4Features.maintenance4 = VK_TRUE;
 	// Enabling the descriptor indexing features, host query reset features, acceleration structure features, ray tracing features and buffer device address features
 	VkPhysicalDeviceDescriptorIndexingFeatures descriptorIndexingFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES };
 	descriptorIndexingFeatures.shaderSampledImageArrayNonUniformIndexing = getPhysicalDevice().getDescriptorIndexingFeatures().shaderSampledImageArrayNonUniformIndexing;
 	descriptorIndexingFeatures.runtimeDescriptorArray = getPhysicalDevice().getDescriptorIndexingFeatures().runtimeDescriptorArray;
+	descriptorIndexingFeatures.pNext = &maintenance4Features;
 	VkPhysicalDeviceHostQueryResetFeatures hostQueryResetFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_HOST_QUERY_RESET_FEATURES };
 	hostQueryResetFeatures.hostQueryReset = getPhysicalDevice().getHostQueryResetFeatures().hostQueryReset;
 	hostQueryResetFeatures.pNext = &descriptorIndexingFeatures;
@@ -109,8 +112,9 @@ Device::Device(std::unique_ptr<PhysicalDevice> &&selectedPhysicalDevice, VkSurfa
 	VkPhysicalDeviceBufferDeviceAddressFeatures bufferDeviceAddressFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES };
 	bufferDeviceAddressFeatures.bufferDeviceAddress = getPhysicalDevice().getBufferDeviceAddressFeatures().bufferDeviceAddress;
 	bufferDeviceAddressFeatures.pNext = &rayTracingPipelineFeatures;
+
 	VkPhysicalDeviceFeatures2 features2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
-	features2.features = requestedFeatures;
+	features2.features = this->physicalDevice->getRequestedFeatures(); // These features are specified in app.h
 	features2.pNext = &bufferDeviceAddressFeatures;
 
 	VkDeviceCreateInfo createInfo { VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
@@ -118,9 +122,10 @@ Device::Device(std::unique_ptr<PhysicalDevice> &&selectedPhysicalDevice, VkSurfa
 	createInfo.pQueueCreateInfos = queueCreateInfos.data();
 	createInfo.enabledExtensionCount = to_u32(enabledExtensions.size());
 	createInfo.ppEnabledExtensionNames = enabledExtensions.data();
-	// createInfo.pEnabledFeatures = &requestedFeatures; // We are enabling the features through feature2 since VMA requires that
+	// createInfo.pEnabledFeatures = &this->physicalDevice->getRequestedFeatures(); // We are enabling the features through feature2
 	createInfo.pNext = &features2;
 
+	// Create the device
 	VK_CHECK(vkCreateDevice(this->physicalDevice->getHandle(), &createInfo, nullptr, &handle));
 
 	// Create queues
@@ -136,7 +141,7 @@ Device::Device(std::unique_ptr<PhysicalDevice> &&selectedPhysicalDevice, VkSurfa
 		}
 	}
 
-	// Load device-related Vulkan entrypoints directly from the driver to prevent the dispatch overhead incurred from supporting multiple VkDevice objects (see Volk docs)
+	// Load device related Vulkan entrypoints directly from the driver to prevent the dispatch overhead incurred from supporting multiple VkDevice objects (see Volk docs)
     volkLoadDevice(handle);
 
 	// Setup VMA

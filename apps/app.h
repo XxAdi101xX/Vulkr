@@ -249,9 +249,7 @@ public:
 
     virtual void handleInputEvents(const InputEvent& inputEvent) override;
 private:
-    /* 
-    IMPORTANT NOTICE: To enable/disable features, it is not adequate to add the extension name to the device extensions array below. You must also go into device.cpp to manually enable these features through VkPhysicalDeviceFeatures2 pNext chain
-    */
+    /* IMPORTANT NOTICE: To enable/disable features, depending on whether it's core or packed into another feature extension struct, you might have to go into device.cpp to enabled them through another struct using the pNext chain */
     const std::vector<const char *> deviceExtensions {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME, // Required to have access to the swapchain and render images to the screen
 #ifndef RENDERDOC_DEBUG
