@@ -59,5 +59,4 @@ void main()
 	float bC = texture(fluidVelocityInputTextureImage /* bTex */, scaledScreenSpaceCoords).r;
 
 	imageStore(fluidVelocityOutputTextureImage, imageIndex, vec4((xL + xR + xB + xT + alpha * bC) * reciprocalBeta, 0.0, 0.0, 0.0));
-
 }

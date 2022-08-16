@@ -146,6 +146,8 @@ Device::Device(std::unique_ptr<PhysicalDevice> &&selectedPhysicalDevice, VkSurfa
 
 	// Setup VMA
 	VmaVulkanFunctions vmaVulkanFunctions{};
+	vmaVulkanFunctions.vkGetInstanceProcAddr = vkGetInstanceProcAddr;
+	vmaVulkanFunctions.vkGetDeviceProcAddr = vkGetDeviceProcAddr;
 	vmaVulkanFunctions.vkGetPhysicalDeviceProperties = vkGetPhysicalDeviceProperties;
 	vmaVulkanFunctions.vkGetPhysicalDeviceMemoryProperties = vkGetPhysicalDeviceMemoryProperties;
 	vmaVulkanFunctions.vkAllocateMemory = vkAllocateMemory;
@@ -189,12 +191,13 @@ Device::~Device()
 {
 	if (memoryAllocator != VK_NULL_HANDLE)
 	{
-		VmaStats stats;
-		vmaCalculateStats(memoryAllocator, &stats);
+		VmaTotalStatistics stats;
+		vmaCalculateStatistics(memoryAllocator, &stats);
 
-		if (stats.total.usedBytes > 0)
+		VkDeviceSize unusedBytes = stats.total.statistics.blockBytes - stats.total.statistics.allocationBytes;
+		if (unusedBytes > 0)
 		{
-			std::cerr << "Total device memory leaked: " << stats.total.usedBytes << " bytes\n";
+			std::cerr << "Total device memory leaked: " << unusedBytes << " bytes\n";
 		}
 
 		vmaDestroyAllocator(memoryAllocator);
