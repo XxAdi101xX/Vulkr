@@ -368,44 +368,52 @@ void MainApp::update()
 
     // Compute shader invocations
     computeParticles();
-    computeFluidSimulation();
+    //computeFluidSimulation();
     //animateWithCompute(); // Compute vertices with compute shader TODO: fix the validation errors that happen when this is enabled, might be due to incorrect sytnax with obj buffer in animate.comp or the fact that the objBuffer is readonly? Not totally sure.
 
     if (raytracingEnabled)
     {
         // Add memory barrier to ensure that the particleIntegrate computer shader has finished writing to the currentFrameObjectBuffer
-        VkMemoryBarrier memoryBarrier{ VK_STRUCTURE_TYPE_MEMORY_BARRIER };
-        memoryBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-        memoryBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        VkMemoryBarrier2 memoryBarrier{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
+        memoryBarrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+        memoryBarrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+        memoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        memoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
 
-        vkCmdPipelineBarrier(
-            frameData.commandBuffers[currentFrame][0]->getHandle(),
-            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-            VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR,
-            0,
-            1, &memoryBarrier,
-            0, nullptr,
-            0, nullptr
-        );
+        VkDependencyInfo dependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+        dependencyInfo.pNext = nullptr;
+        dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+        dependencyInfo.memoryBarrierCount = 1u;
+        dependencyInfo.pMemoryBarriers = &memoryBarrier;
+        dependencyInfo.bufferMemoryBarrierCount = 0u;
+        dependencyInfo.pBufferMemoryBarriers = nullptr;
+        dependencyInfo.imageMemoryBarrierCount = 0u;
+        dependencyInfo.pImageMemoryBarriers = nullptr;
+
+        vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame][0]->getHandle(), &dependencyInfo);
 
         raytrace();
     }
     else
     {
         // Add memory barrier to ensure that the particleIntegrate computer shader has finished writing to the currentFrameObjectBuffer
-        VkMemoryBarrier memoryBarrier{ VK_STRUCTURE_TYPE_MEMORY_BARRIER };
-        memoryBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-        memoryBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        VkMemoryBarrier2 memoryBarrier{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
+        memoryBarrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+        memoryBarrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+        memoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        memoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT;
 
-        vkCmdPipelineBarrier(
-            frameData.commandBuffers[currentFrame][0]->getHandle(),
-            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-            VK_PIPELINE_STAGE_VERTEX_SHADER_BIT,
-            0,
-            1, &memoryBarrier,
-            0, nullptr,
-            0, nullptr
-        );
+        VkDependencyInfo dependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+        dependencyInfo.pNext = nullptr;
+        dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+        dependencyInfo.memoryBarrierCount = 1u;
+        dependencyInfo.pMemoryBarriers = &memoryBarrier;
+        dependencyInfo.bufferMemoryBarrierCount = 0u;
+        dependencyInfo.pBufferMemoryBarriers = nullptr;
+        dependencyInfo.imageMemoryBarrierCount = 0u;
+        dependencyInfo.pImageMemoryBarriers = nullptr;
+
+        vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame][0]->getHandle(), &dependencyInfo);
 
         frameData.commandBuffers[currentFrame][0]->beginRenderPass(*mainRenderPass.renderPass, *(frameData.offscreenFramebuffers[currentFrame]), swapchain->getProperties().imageExtent, offscreenFramebufferClearValues, VK_SUBPASS_CONTENTS_INLINE);
         rasterize();
@@ -416,19 +424,35 @@ void MainApp::update()
     frameData.commandBuffers[currentFrame][0]->end();
 
     // I have setup a subpass dependency to ensure that the render pass waits for the swapchain to finish reading from the image before accessing it
-    // hence I don't need to set the wait stages to VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT 
-    std::array<VkPipelineStageFlags, 1> offscreenWaitStages{ VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
-    std::array<VkSemaphore, 1> offscreenWaitSemaphores{ frameData.imageAvailableSemaphores[currentFrame] };
-    std::array<VkSemaphore, 1> offscreenSignalSemaphores{ frameData.offscreenRenderingFinishedSemaphores[currentFrame] };
+    // hence I don't need to set the wait stages to VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT 
+    VkCommandBufferSubmitInfo offscreenCommandBufferSubmitInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO };
+    offscreenCommandBufferSubmitInfo.pNext = nullptr;
+    offscreenCommandBufferSubmitInfo.commandBuffer = frameData.commandBuffers[currentFrame][0]->getHandle();
+    offscreenCommandBufferSubmitInfo.deviceMask = 0u;
 
-    VkSubmitInfo offscreenPassSubmitInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
-    offscreenPassSubmitInfo.waitSemaphoreCount = to_u32(offscreenWaitSemaphores.size());
-    offscreenPassSubmitInfo.pWaitSemaphores = offscreenWaitSemaphores.data();
-    offscreenPassSubmitInfo.pWaitDstStageMask = offscreenWaitStages.data();
-    offscreenPassSubmitInfo.commandBufferCount = 1;
-    offscreenPassSubmitInfo.pCommandBuffers = &frameData.commandBuffers[currentFrame][0]->getHandle();
-    offscreenPassSubmitInfo.signalSemaphoreCount = to_u32(offscreenSignalSemaphores.size());
-    offscreenPassSubmitInfo.pSignalSemaphores = offscreenSignalSemaphores.data();
+    VkSemaphoreSubmitInfo offScreenWaitSemaphoreSubmitInfo{ VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
+    offScreenWaitSemaphoreSubmitInfo.pNext = nullptr;
+    offScreenWaitSemaphoreSubmitInfo.semaphore = frameData.imageAvailableSemaphores[currentFrame];
+    offScreenWaitSemaphoreSubmitInfo.value = 0u; // Optional: ignored since this isn't a timeline semaphore
+    offScreenWaitSemaphoreSubmitInfo.stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+    offScreenWaitSemaphoreSubmitInfo.deviceIndex = 0u; // replaces VkDeviceGroupSubmitInfo but we don't have that in our pNext chain so not used.
+    
+    VkSemaphoreSubmitInfo offScreenSignalSemaphoreSubmitInfo{ VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
+    offScreenSignalSemaphoreSubmitInfo.pNext = nullptr;
+    offScreenSignalSemaphoreSubmitInfo.semaphore = frameData.offscreenRenderingFinishedSemaphores[currentFrame];
+    offScreenSignalSemaphoreSubmitInfo.value = 0u; // Optional: ignored since this isn't a timeline semaphore
+    offScreenSignalSemaphoreSubmitInfo.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    offScreenSignalSemaphoreSubmitInfo.deviceIndex = 0u; // replaces VkDeviceGroupSubmitInfo but we don't have that in our pNext chain so not used.
+
+    VkSubmitInfo2 offscreenPassSubmitInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO_2 };
+    offscreenPassSubmitInfo.pNext = nullptr;
+    offscreenPassSubmitInfo.flags = 0u;
+    offscreenPassSubmitInfo.waitSemaphoreInfoCount = 1u;
+    offscreenPassSubmitInfo.pWaitSemaphoreInfos = &offScreenWaitSemaphoreSubmitInfo;
+    offscreenPassSubmitInfo.commandBufferInfoCount = 1u;
+    offscreenPassSubmitInfo.pCommandBufferInfos = &offscreenCommandBufferSubmitInfo;
+    offscreenPassSubmitInfo.signalSemaphoreInfoCount = 1u;
+    offscreenPassSubmitInfo.pSignalSemaphoreInfos = &offScreenSignalSemaphoreSubmitInfo;
 
     // Begin command buffer for post process pass
     frameData.commandBuffers[currentFrame][1]->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
@@ -448,19 +472,35 @@ void MainApp::update()
 
     // Wait on postProcess pass to complete before copy operations
     // I have setup a subpass dependency to ensure that the render pass waits for the swapchain to finish reading from the image before accessing it
-    // hence I don't need to set the wait stages to VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT 
-    std::array<VkPipelineStageFlags, 1> postProcessWaitStages{ VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
-    std::array<VkSemaphore, 1> postProcessWaitSemaphores{ frameData.offscreenRenderingFinishedSemaphores[currentFrame] };
-    std::array<VkSemaphore, 1> postProcessSignalSemaphores{ frameData.postProcessRenderingFinishedSemaphores[currentFrame] };
+    // hence I don't need to set the wait stages to VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT 
+    VkCommandBufferSubmitInfo postProcessCommandBufferSubmitInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO };
+    postProcessCommandBufferSubmitInfo.pNext = nullptr;
+    postProcessCommandBufferSubmitInfo.commandBuffer = frameData.commandBuffers[currentFrame][1]->getHandle();
+    postProcessCommandBufferSubmitInfo.deviceMask = 0u;
 
-    VkSubmitInfo postProcessSubmitInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
-    postProcessSubmitInfo.waitSemaphoreCount = to_u32(postProcessWaitSemaphores.size());
-    postProcessSubmitInfo.pWaitSemaphores = postProcessWaitSemaphores.data();
-    postProcessSubmitInfo.pWaitDstStageMask = postProcessWaitStages.data();
-    postProcessSubmitInfo.commandBufferCount = 1;
-    postProcessSubmitInfo.pCommandBuffers = &frameData.commandBuffers[currentFrame][1]->getHandle();
-    postProcessSubmitInfo.signalSemaphoreCount = to_u32(postProcessSignalSemaphores.size());
-    postProcessSubmitInfo.pSignalSemaphores = postProcessSignalSemaphores.data();
+    VkSemaphoreSubmitInfo postProcessWaitSemaphoreSubmitInfo{ VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
+    postProcessWaitSemaphoreSubmitInfo.pNext = nullptr;
+    postProcessWaitSemaphoreSubmitInfo.semaphore = frameData.offscreenRenderingFinishedSemaphores[currentFrame];
+    postProcessWaitSemaphoreSubmitInfo.value = 0u; // Optional: ignored since this isn't a timeline semaphore
+    postProcessWaitSemaphoreSubmitInfo.stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+    postProcessWaitSemaphoreSubmitInfo.deviceIndex = 0u; // replaces VkDeviceGroupSubmitInfo but we don't have that in our pNext chain so not used.
+
+    VkSemaphoreSubmitInfo postProcessSignalSemaphoreSubmitInfo{ VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
+    postProcessSignalSemaphoreSubmitInfo.pNext = nullptr;
+    postProcessSignalSemaphoreSubmitInfo.semaphore = frameData.postProcessRenderingFinishedSemaphores[currentFrame];
+    postProcessSignalSemaphoreSubmitInfo.value = 0u; // Optional: ignored since this isn't a timeline semaphore
+    postProcessSignalSemaphoreSubmitInfo.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    postProcessSignalSemaphoreSubmitInfo.deviceIndex = 0u; // replaces VkDeviceGroupSubmitInfo but we don't have that in our pNext chain so not used.
+
+    VkSubmitInfo2 postProcessPassSubmitInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO_2 };
+    postProcessPassSubmitInfo.pNext = nullptr;
+    postProcessPassSubmitInfo.flags = 0u;
+    postProcessPassSubmitInfo.waitSemaphoreInfoCount = 1u;
+    postProcessPassSubmitInfo.pWaitSemaphoreInfos = &postProcessWaitSemaphoreSubmitInfo;
+    postProcessPassSubmitInfo.commandBufferInfoCount = 1u;
+    postProcessPassSubmitInfo.pCommandBufferInfos = &postProcessCommandBufferSubmitInfo;
+    postProcessPassSubmitInfo.signalSemaphoreInfoCount = 1u;
+    postProcessPassSubmitInfo.pSignalSemaphoreInfos = &postProcessSignalSemaphoreSubmitInfo;
 
     // Begin command buffer for outputImage copy operations to swapchain and history buffer
     frameData.commandBuffers[currentFrame][2]->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
@@ -511,25 +551,43 @@ void MainApp::update()
     // End command buffer for copy operations
     frameData.commandBuffers[currentFrame][2]->end();
 
-    std::array<VkPipelineStageFlags, 1> outputImageTransferWaitStages{ VK_PIPELINE_STAGE_TRANSFER_BIT };
-    std::array<VkSemaphore, 1> outputImageTransferWaitSemaphores{ frameData.postProcessRenderingFinishedSemaphores[currentFrame] };
-    std::array<VkSemaphore, 1> outputImageTransferSignalSemaphores{ frameData.outputImageCopyFinishedSemaphores[currentFrame] };
+    // Wait on post process pass before doing any transfer on resources written to during the previous stages
+    VkCommandBufferSubmitInfo outputImageTransferCommandBufferSubmitInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO };
+    outputImageTransferCommandBufferSubmitInfo.pNext = nullptr;
+    outputImageTransferCommandBufferSubmitInfo.commandBuffer = frameData.commandBuffers[currentFrame][2]->getHandle();
+    outputImageTransferCommandBufferSubmitInfo.deviceMask = 0u;
 
-    VkSubmitInfo outputImageTransferSubmitInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
-    outputImageTransferSubmitInfo.waitSemaphoreCount = to_u32(outputImageTransferWaitSemaphores.size());
-    outputImageTransferSubmitInfo.pWaitSemaphores = outputImageTransferWaitSemaphores.data();
-    outputImageTransferSubmitInfo.pWaitDstStageMask = outputImageTransferWaitStages.data();
-    outputImageTransferSubmitInfo.commandBufferCount = 1;
-    outputImageTransferSubmitInfo.pCommandBuffers = &frameData.commandBuffers[currentFrame][2]->getHandle();
-    outputImageTransferSubmitInfo.signalSemaphoreCount = to_u32(outputImageTransferSignalSemaphores.size());
-    outputImageTransferSubmitInfo.pSignalSemaphores = outputImageTransferSignalSemaphores.data();
+    VkSemaphoreSubmitInfo outputImageTransferWaitSemaphoreSubmitInfo{ VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
+    outputImageTransferWaitSemaphoreSubmitInfo.pNext = nullptr;
+    outputImageTransferWaitSemaphoreSubmitInfo.semaphore = frameData.postProcessRenderingFinishedSemaphores[currentFrame];
+    outputImageTransferWaitSemaphoreSubmitInfo.value = 0u; // Optional: ignored since this isn't a timeline semaphore
+    outputImageTransferWaitSemaphoreSubmitInfo.stageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+    outputImageTransferWaitSemaphoreSubmitInfo.deviceIndex = 0u; // replaces VkDeviceGroupSubmitInfo but we don't have that in our pNext chain so not used.
 
-    std::array<VkSubmitInfo, 3> submitInfo{ offscreenPassSubmitInfo, postProcessSubmitInfo, outputImageTransferSubmitInfo };
-    VK_CHECK(vkQueueSubmit(m_graphicsQueue->getHandle(), submitInfo.size(), submitInfo.data(), frameData.inFlightFences[currentFrame]));
+    VkSemaphoreSubmitInfo outputImageTransferSemaphoreSubmitInfo{ VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
+    outputImageTransferSemaphoreSubmitInfo.pNext = nullptr;
+    outputImageTransferSemaphoreSubmitInfo.semaphore = frameData.outputImageCopyFinishedSemaphores[currentFrame];
+    outputImageTransferSemaphoreSubmitInfo.value = 0u; // Optional: ignored since this isn't a timeline semaphore
+    outputImageTransferSemaphoreSubmitInfo.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    outputImageTransferSemaphoreSubmitInfo.deviceIndex = 0u; // replaces VkDeviceGroupSubmitInfo but we don't have that in our pNext chain so not used.
+
+    VkSubmitInfo2 outputImageTransferPassSubmitInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO_2 };
+    outputImageTransferPassSubmitInfo.pNext = nullptr;
+    outputImageTransferPassSubmitInfo.flags = 0u;
+    outputImageTransferPassSubmitInfo.waitSemaphoreInfoCount = 1u;
+    outputImageTransferPassSubmitInfo.pWaitSemaphoreInfos = &outputImageTransferWaitSemaphoreSubmitInfo;
+    outputImageTransferPassSubmitInfo.commandBufferInfoCount = 1u;
+    outputImageTransferPassSubmitInfo.pCommandBufferInfos = &outputImageTransferCommandBufferSubmitInfo;
+    outputImageTransferPassSubmitInfo.signalSemaphoreInfoCount = 1u;
+    outputImageTransferPassSubmitInfo.pSignalSemaphoreInfos = &outputImageTransferSemaphoreSubmitInfo;
+
+    std::array<VkSubmitInfo2, 3> submitInfo{ offscreenPassSubmitInfo, postProcessPassSubmitInfo, outputImageTransferPassSubmitInfo };
+
+    VK_CHECK(vkQueueSubmit2KHR(m_graphicsQueue->getHandle(), submitInfo.size(), submitInfo.data(), frameData.inFlightFences[currentFrame]));
 
     VkPresentInfoKHR presentInfo{ VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
-    presentInfo.waitSemaphoreCount = to_u32(outputImageTransferSignalSemaphores.size());
-    presentInfo.pWaitSemaphores = outputImageTransferSignalSemaphores.data();
+    presentInfo.waitSemaphoreCount = 1u;
+    presentInfo.pWaitSemaphores = &frameData.outputImageCopyFinishedSemaphores[currentFrame];
 
     std::array<VkSwapchainKHR, 1> swapchains{ swapchain->getHandle() };
     presentInfo.swapchainCount = to_u32(swapchains.size());
@@ -722,6 +780,7 @@ void MainApp::animateInstances()
 
 void MainApp::animateWithCompute()
 {
+    // TODO: we might require a buffer memory barrier similar to the code in the other compute workflows
     const uint64_t wusonModelIndex{ getObjModelIndex("wuson.obj") };
 
     computePushConstant.indexCount = objModels[wusonModelIndex].indicesCount;
@@ -740,28 +799,28 @@ void MainApp::computeParticles()
     if (m_graphicsQueue->getFamilyIndex() != m_computeQueue->getFamilyIndex())
     {
         LOGEANDABORT("Gotta verify this logic since we have assumed that computeQueue == graphicsQueue so far");
-        VkBufferMemoryBarrier bufferBarrier =
-        {
-            VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-            nullptr,
-            0,
-            VK_ACCESS_SHADER_WRITE_BIT,
-            m_graphicsQueue->getFamilyIndex(),
-            m_computeQueue->getFamilyIndex(),
-            frameData.particleBuffers[currentFrame]->getHandle(),
-            0,
-            particleBufferSize
-        };
+        VkBufferMemoryBarrier2 bufferMemoryBarrier{ VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2 };
+        bufferMemoryBarrier.srcAccessMask = VK_ACCESS_2_NONE;
+        bufferMemoryBarrier.dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+        bufferMemoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_VERTEX_INPUT_BIT;
+        bufferMemoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        bufferMemoryBarrier.srcQueueFamilyIndex = m_graphicsQueue->getFamilyIndex();
+        bufferMemoryBarrier.dstQueueFamilyIndex = m_computeQueue->getFamilyIndex();
+        bufferMemoryBarrier.buffer = frameData.particleBuffers[currentFrame]->getHandle();
+        bufferMemoryBarrier.offset = 0;
+        bufferMemoryBarrier.size = particleBufferSize;
 
-        vkCmdPipelineBarrier(
-            frameData.commandBuffers[currentFrame][0]->getHandle(),
-            VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
-            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-            0,
-            0, nullptr,
-            1, &bufferBarrier,
-            0, nullptr
-        );
+        VkDependencyInfo dependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+        dependencyInfo.pNext = nullptr;
+        dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+        dependencyInfo.memoryBarrierCount = 0u;
+        dependencyInfo.pMemoryBarriers = nullptr;
+        dependencyInfo.bufferMemoryBarrierCount = 1u;
+        dependencyInfo.pBufferMemoryBarriers = &bufferMemoryBarrier;
+        dependencyInfo.imageMemoryBarrierCount = 0u;
+        dependencyInfo.pImageMemoryBarriers = nullptr;
+
+        vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame][0]->getHandle(), &dependencyInfo);
     }
 
     // First pass: Calculate particle movement
@@ -771,19 +830,23 @@ void MainApp::computeParticles()
     vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), (computeParticlesPushConstant.particleCount / m_workGroupSize) + 1, 1, 1);
 
     // Add memory barrier to ensure that the computer shader has finished writing to the buffer
-    VkMemoryBarrier memoryBarrier{ VK_STRUCTURE_TYPE_MEMORY_BARRIER };
-    memoryBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-    memoryBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    VkMemoryBarrier2 memoryBarrier{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
+    memoryBarrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+    memoryBarrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+    memoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    memoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
 
-    vkCmdPipelineBarrier(
-        frameData.commandBuffers[currentFrame][0]->getHandle(),
-        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-        0,
-        1, &memoryBarrier,
-        0, nullptr,
-        0, nullptr
-    );
+    VkDependencyInfo dependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+    dependencyInfo.pNext = nullptr;
+    dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+    dependencyInfo.memoryBarrierCount = 1u;
+    dependencyInfo.pMemoryBarriers = &memoryBarrier;
+    dependencyInfo.bufferMemoryBarrierCount = 0u;
+    dependencyInfo.pBufferMemoryBarriers = nullptr;
+    dependencyInfo.imageMemoryBarrierCount = 0u;
+    dependencyInfo.pImageMemoryBarriers = nullptr;
+
+    vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame][0]->getHandle(), &dependencyInfo);
 
     // Second pass: Integrate particles
     vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeParticleIntegrate.pipeline->getBindPoint(), pipelines.computeParticleIntegrate.pipeline->getHandle());
@@ -796,28 +859,28 @@ void MainApp::computeParticles()
     if (m_graphicsQueue->getFamilyIndex() != m_computeQueue->getFamilyIndex())
     {
         LOGEANDABORT("Gotta verify this logic since we have assumed that computeQueue == graphicsQueue so far");
-        VkBufferMemoryBarrier bufferBarrier =
-        {
-            VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-            nullptr,
-            VK_ACCESS_SHADER_WRITE_BIT,
-            0,
-            m_computeQueue->getFamilyIndex(),
-            m_graphicsQueue->getFamilyIndex(),
-            frameData.particleBuffers[currentFrame]->getHandle(),
-            0,
-            particleBufferSize
-        };
+        VkBufferMemoryBarrier2 bufferMemoryBarrier{ VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2 };
+        bufferMemoryBarrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+        bufferMemoryBarrier.dstAccessMask = VK_ACCESS_2_NONE;
+        bufferMemoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        bufferMemoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR | VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT; // TODO: is this correct
+        bufferMemoryBarrier.srcQueueFamilyIndex = m_computeQueue->getFamilyIndex();
+        bufferMemoryBarrier.dstQueueFamilyIndex = m_graphicsQueue->getFamilyIndex();
+        bufferMemoryBarrier.buffer = frameData.particleBuffers[currentFrame]->getHandle();
+        bufferMemoryBarrier.offset = 0;
+        bufferMemoryBarrier.size = particleBufferSize;
 
-        vkCmdPipelineBarrier(
-            frameData.commandBuffers[currentFrame][0]->getHandle(),
-            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-            VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
-            0,
-            0, nullptr,
-            1, &bufferBarrier,
-            0, nullptr
-        );
+        VkDependencyInfo dependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+        dependencyInfo.pNext = nullptr;
+        dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+        dependencyInfo.memoryBarrierCount = 0u;
+        dependencyInfo.pMemoryBarriers = nullptr;
+        dependencyInfo.bufferMemoryBarrierCount = 1u;
+        dependencyInfo.pBufferMemoryBarriers = &bufferMemoryBarrier;
+        dependencyInfo.imageMemoryBarrierCount = 0u;
+        dependencyInfo.pImageMemoryBarriers = nullptr;
+
+        vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame][0]->getHandle(), &dependencyInfo);
     }
 }
 
@@ -827,28 +890,51 @@ void MainApp::computeFluidSimulation()
     if (m_graphicsQueue->getFamilyIndex() != m_computeQueue->getFamilyIndex())
     {
         LOGEANDABORT("Gotta verify this logic since we have assumed that computeQueue == graphicsQueue so far");
-        VkBufferMemoryBarrier bufferBarrier =
-        {
-            VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-            nullptr,
-            0,
-            VK_ACCESS_SHADER_WRITE_BIT,
-            m_graphicsQueue->getFamilyIndex(),
-            m_computeQueue->getFamilyIndex(),
-            frameData.particleBuffers[currentFrame]->getHandle(),
-            0,
-            particleBufferSize
-        };
+        // TODO this code has not been tested or verified
+        VkImageSubresourceRange subresourceRange = {};
+        subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        subresourceRange.baseMipLevel = 0;
+        subresourceRange.levelCount = 1;
+        subresourceRange.baseArrayLayer = 0;
+        subresourceRange.layerCount = 1;
 
-        vkCmdPipelineBarrier(
-            frameData.commandBuffers[currentFrame][0]->getHandle(),
-            VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
-            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-            0,
-            0, nullptr,
-            1, &bufferBarrier,
-            0, nullptr
-        );
+        VkImageMemoryBarrier2 fluidVelocityInputTextureImageMemoryBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+        fluidVelocityInputTextureImageMemoryBarrier.srcAccessMask = VK_ACCESS_2_NONE;
+        fluidVelocityInputTextureImageMemoryBarrier.dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+        fluidVelocityInputTextureImageMemoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_VERTEX_INPUT_BIT;
+        fluidVelocityInputTextureImageMemoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        fluidVelocityInputTextureImageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+        fluidVelocityInputTextureImageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+        fluidVelocityInputTextureImageMemoryBarrier.srcQueueFamilyIndex = m_graphicsQueue->getFamilyIndex();
+        fluidVelocityInputTextureImageMemoryBarrier.dstQueueFamilyIndex = m_computeQueue->getFamilyIndex();
+        fluidVelocityInputTextureImageMemoryBarrier.image = frameData.fluidVelocityInputTextures[currentFrame]->image->getHandle();
+        fluidVelocityInputTextureImageMemoryBarrier.subresourceRange = subresourceRange;
+
+        VkImageMemoryBarrier2 fluidVelocityOutputTextureImageMemoryBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+        fluidVelocityOutputTextureImageMemoryBarrier.srcAccessMask = VK_ACCESS_2_NONE;
+        fluidVelocityOutputTextureImageMemoryBarrier.dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+        fluidVelocityOutputTextureImageMemoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_VERTEX_INPUT_BIT;
+        fluidVelocityOutputTextureImageMemoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        fluidVelocityOutputTextureImageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+        fluidVelocityOutputTextureImageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+        fluidVelocityOutputTextureImageMemoryBarrier.srcQueueFamilyIndex = m_graphicsQueue->getFamilyIndex();
+        fluidVelocityOutputTextureImageMemoryBarrier.dstQueueFamilyIndex = m_computeQueue->getFamilyIndex();
+        fluidVelocityOutputTextureImageMemoryBarrier.image = frameData.fluidVelocityOutputTextures[currentFrame]->image->getHandle();
+        fluidVelocityOutputTextureImageMemoryBarrier.subresourceRange = subresourceRange;
+
+        std::array<VkImageMemoryBarrier2, 2> imageMemoryBarriers{ fluidVelocityInputTextureImageMemoryBarrier, fluidVelocityOutputTextureImageMemoryBarrier };
+
+        VkDependencyInfo dependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+        dependencyInfo.pNext = nullptr;
+        dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+        dependencyInfo.memoryBarrierCount = 0u;
+        dependencyInfo.pMemoryBarriers = nullptr;
+        dependencyInfo.bufferMemoryBarrierCount = 0u;
+        dependencyInfo.pBufferMemoryBarriers = nullptr;
+        dependencyInfo.imageMemoryBarrierCount = to_u32(imageMemoryBarriers.size());
+        dependencyInfo.pImageMemoryBarriers = imageMemoryBarriers.data();
+
+        vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame][0]->getHandle(), &dependencyInfo);
     }
 
     // First pass: Compute fluid advection
@@ -861,20 +947,23 @@ void MainApp::computeFluidSimulation()
 
     /*
     // Add memory barrier to ensure that the computer shader has finished writing to the buffer
-    VkMemoryBarrier memoryBarrier{ VK_STRUCTURE_TYPE_MEMORY_BARRIER };
-    memoryBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-    memoryBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    VkMemoryBarrier2 memoryBarrier{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
+    memoryBarrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+    memoryBarrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+    memoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    memoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
 
-    // TODO: fix this, this assumes compute will run next, but we need to transition image layout and copy images
-    vkCmdPipelineBarrier(
-        frameData.commandBuffers[currentFrame][0]->getHandle(),
-        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-        0,
-        1, &memoryBarrier,
-        0, nullptr,
-        0, nullptr
-    );
+    VkDependencyInfo dependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+    dependencyInfo.pNext = nullptr;
+    dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+    dependencyInfo.memoryBarrierCount = 1u;
+    dependencyInfo.pMemoryBarriers = &memoryBarrier;
+    dependencyInfo.bufferMemoryBarrierCount = 0u;
+    dependencyInfo.pBufferMemoryBarriers = nullptr;
+    dependencyInfo.imageMemoryBarrierCount = 0u;
+    dependencyInfo.pImageMemoryBarriers = nullptr;
+
+    vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame][0]->getHandle(), &dependencyInfo);
 
     // TODO: we need to copy fluidVelocityOutputTextureImage to fluidVelocityInputTextureImage and use the appropriate synchronization. Currently the pipeline barriers assume that we're running one compute after another
     // Second pass: Compute Jacobi Iteration
@@ -890,28 +979,51 @@ void MainApp::computeFluidSimulation()
     if (m_graphicsQueue->getFamilyIndex() != m_computeQueue->getFamilyIndex())
     {
         LOGEANDABORT("Gotta verify this logic since we have assumed that computeQueue == graphicsQueue so far");
-        VkBufferMemoryBarrier bufferBarrier =
-        {
-            VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-            nullptr,
-            VK_ACCESS_SHADER_WRITE_BIT,
-            0,
-            m_computeQueue->getFamilyIndex(),
-            m_graphicsQueue->getFamilyIndex(),
-            frameData.particleBuffers[currentFrame]->getHandle(),
-            0,
-            particleBufferSize
-        };
 
-        vkCmdPipelineBarrier(
-            frameData.commandBuffers[currentFrame][0]->getHandle(),
-            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-            VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
-            0,
-            0, nullptr,
-            1, &bufferBarrier,
-            0, nullptr
-        );
+        // TODO this code has not been tested or verified
+        VkImageSubresourceRange subresourceRange = {};
+        subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        subresourceRange.baseMipLevel = 0;
+        subresourceRange.levelCount = 1;
+        subresourceRange.baseArrayLayer = 0;
+        subresourceRange.layerCount = 1;
+
+        VkImageMemoryBarrier2 fluidVelocityInputTextureImageMemoryBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+        fluidVelocityInputTextureImageMemoryBarrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+        fluidVelocityInputTextureImageMemoryBarrier.dstAccessMask = VK_ACCESS_2_NONE;
+        fluidVelocityInputTextureImageMemoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        fluidVelocityInputTextureImageMemoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR | VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT; // TODO: is this correct
+        fluidVelocityInputTextureImageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+        fluidVelocityInputTextureImageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+        fluidVelocityInputTextureImageMemoryBarrier.srcQueueFamilyIndex = m_computeQueue->getFamilyIndex();
+        fluidVelocityInputTextureImageMemoryBarrier.dstQueueFamilyIndex = m_graphicsQueue->getFamilyIndex();
+        fluidVelocityInputTextureImageMemoryBarrier.image = frameData.fluidVelocityInputTextures[currentFrame]->image->getHandle();
+        fluidVelocityInputTextureImageMemoryBarrier.subresourceRange = subresourceRange;
+
+        VkImageMemoryBarrier2 fluidVelocityOutputTextureImageMemoryBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+        fluidVelocityOutputTextureImageMemoryBarrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+        fluidVelocityOutputTextureImageMemoryBarrier.dstAccessMask = VK_ACCESS_2_NONE;
+        fluidVelocityOutputTextureImageMemoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        fluidVelocityOutputTextureImageMemoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR | VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT; // TODO: is this correct
+        fluidVelocityOutputTextureImageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+        fluidVelocityOutputTextureImageMemoryBarrier.srcQueueFamilyIndex = m_computeQueue->getFamilyIndex();
+        fluidVelocityOutputTextureImageMemoryBarrier.dstQueueFamilyIndex = m_graphicsQueue->getFamilyIndex();
+        fluidVelocityOutputTextureImageMemoryBarrier.image = frameData.fluidVelocityOutputTextures[currentFrame]->image->getHandle();
+        fluidVelocityOutputTextureImageMemoryBarrier.subresourceRange = subresourceRange;
+
+        std::array<VkImageMemoryBarrier2, 2> imageMemoryBarriers{ fluidVelocityInputTextureImageMemoryBarrier, fluidVelocityOutputTextureImageMemoryBarrier };
+
+        VkDependencyInfo dependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+        dependencyInfo.pNext = nullptr;
+        dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+        dependencyInfo.memoryBarrierCount = 0u;
+        dependencyInfo.pMemoryBarriers = nullptr;
+        dependencyInfo.bufferMemoryBarrierCount = 0u;
+        dependencyInfo.pBufferMemoryBarriers = nullptr;
+        dependencyInfo.imageMemoryBarrierCount = to_u32(imageMemoryBarriers.size());
+        dependencyInfo.pImageMemoryBarriers = imageMemoryBarriers.data();
+
+        vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame][0]->getHandle(), &dependencyInfo);
     }
 }
 
@@ -1156,9 +1268,11 @@ void MainApp::createMainRenderPass()
     outputImageAttachment.finalLayout = VK_IMAGE_LAYOUT_GENERAL;
     attachments.push_back(outputImageAttachment);
 
-    VkAttachmentReference outputImageAttachmentRef{};
-    outputImageAttachmentRef.attachment = 0;
+    VkAttachmentReference2 outputImageAttachmentRef{ VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2 };
+    outputImageAttachmentRef.pNext = nullptr;
+    outputImageAttachmentRef.attachment = 0u;
     outputImageAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    outputImageAttachmentRef.aspectMask = 0u;
     mainRenderPass.colorAttachments.push_back(outputImageAttachmentRef);
 
     Attachment copyOutputImageAttachment{}; // copyOutputImage
@@ -1172,9 +1286,11 @@ void MainApp::createMainRenderPass()
     copyOutputImageAttachment.finalLayout = VK_IMAGE_LAYOUT_GENERAL;
     attachments.push_back(copyOutputImageAttachment);
 
-    VkAttachmentReference copyOutputImageAttachmentRef{};
-    copyOutputImageAttachmentRef.attachment = 1;
+    VkAttachmentReference2 copyOutputImageAttachmentRef{ VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2 };
+    copyOutputImageAttachmentRef.pNext = nullptr;
+    copyOutputImageAttachmentRef.attachment = 1u;
     copyOutputImageAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    copyOutputImageAttachmentRef.aspectMask = 0u;
     mainRenderPass.colorAttachments.push_back(copyOutputImageAttachmentRef);
 
     Attachment velocityImageAttachment{}; // velocityImage
@@ -1188,9 +1304,11 @@ void MainApp::createMainRenderPass()
     velocityImageAttachment.finalLayout = VK_IMAGE_LAYOUT_GENERAL;
     attachments.push_back(velocityImageAttachment);
 
-    VkAttachmentReference velocityImageAttachmentRef{};
-    velocityImageAttachmentRef.attachment = 2;
+    VkAttachmentReference2 velocityImageAttachmentRef{ VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2 };
+    velocityImageAttachmentRef.pNext = nullptr;
+    velocityImageAttachmentRef.attachment = 2u;
     velocityImageAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    velocityImageAttachmentRef.aspectMask = 0u;
     mainRenderPass.colorAttachments.push_back(velocityImageAttachmentRef);
 
     Attachment depthAttachment{};
@@ -1204,9 +1322,11 @@ void MainApp::createMainRenderPass()
     depthAttachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
     attachments.push_back(depthAttachment);
 
-    VkAttachmentReference depthAttachmentRef{};
-    depthAttachmentRef.attachment = 3;
+    VkAttachmentReference2 depthAttachmentRef{ VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2 };
+    depthAttachmentRef.pNext = nullptr;
+    depthAttachmentRef.attachment = 3u;
     depthAttachmentRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+    depthAttachmentRef.aspectMask = 0u;
     mainRenderPass.depthStencilAttachments.push_back(depthAttachmentRef);
 
     mainRenderPass.subpasses.emplace_back(
@@ -1218,26 +1338,42 @@ void MainApp::createMainRenderPass()
         VK_PIPELINE_BIND_POINT_GRAPHICS
     );
 
-    std::vector<VkSubpassDependency> dependencies;
+    std::vector<VkSubpassDependency2> dependencies;
     dependencies.resize(2);
 
     // TODO: verify these subpass dependencies are correct
     // Only need a dependency coming in to ensure that the first layout transition happens at the right time.
     // Second external dependency is implied by having a different finalLayout and subpass layout.
+    VkMemoryBarrier2 memoryBarrier1 = {
+        .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2_KHR,
+        .pNext = nullptr,
+        .srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
+        .srcAccessMask = 0u, // We don't have anything that we need to flush
+        .dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
+        .dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT
+    };
+
+    dependencies[0].sType = VK_STRUCTURE_TYPE_SUBPASS_DEPENDENCY_2;
+    dependencies[0].pNext = &memoryBarrier1;
     dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
-    dependencies[0].dstSubpass = 0; // References the subpass index in the subpasses array
-    dependencies[0].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-    dependencies[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-    dependencies[0].srcAccessMask = 0; // We don't have anything that we need to flush
-    dependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    dependencies[0].dstSubpass = 0u; // References the subpass index in the subpasses array
+    // srcStageMask, dstStageMask, srcAccessMask and dstAccessMask on subpassDependency2 are ignored since we're passing in a memory barrier
     dependencies[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
 
-    dependencies[1].srcSubpass = 0;
+    VkMemoryBarrier2 memoryBarrier2 = {
+        .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2_KHR,
+        .pNext = nullptr,
+        .srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+        .srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+        .dstStageMask = VK_PIPELINE_STAGE_2_NONE,
+        .dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT
+    };
+
+    dependencies[1].sType = VK_STRUCTURE_TYPE_SUBPASS_DEPENDENCY_2;
+    dependencies[1].pNext = &memoryBarrier2;
+    dependencies[1].srcSubpass = 0u;
     dependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
-    dependencies[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    dependencies[1].dstStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
-    dependencies[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-    dependencies[1].dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
+    // srcStageMask, dstStageMask, srcAccessMask and dstAccessMask on subpassDependency2 are ignored since we're passing in a memory barrier
     dependencies[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
 
     // Normally, we would need an external dependency at the end as well since we are changing layout in finalLayout,
@@ -1262,9 +1398,11 @@ void MainApp::createPostRenderPass()
     colorAttachment.finalLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
     attachments.push_back(colorAttachment);
 
-    VkAttachmentReference colorAttachmentRef{};
-    colorAttachmentRef.attachment = 0;
+    VkAttachmentReference2 colorAttachmentRef{ VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2 };
+    colorAttachmentRef.pNext = nullptr;
+    colorAttachmentRef.attachment = 0u;
     colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    colorAttachmentRef.aspectMask = 0u;
     postRenderPass.colorAttachments.push_back(colorAttachmentRef);
 
     Attachment depthAttachment{};
@@ -1278,8 +1416,9 @@ void MainApp::createPostRenderPass()
     depthAttachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
     attachments.push_back(depthAttachment);
 
-    VkAttachmentReference depthAttachmentRef{};
-    depthAttachmentRef.attachment = 1;
+    VkAttachmentReference2 depthAttachmentRef{ VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2 };
+    depthAttachmentRef.pNext = nullptr;
+    depthAttachmentRef.attachment = 1u;
     depthAttachmentRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
     postRenderPass.depthStencilAttachments.push_back(depthAttachmentRef);
 
@@ -1292,31 +1431,47 @@ void MainApp::createPostRenderPass()
         VK_PIPELINE_BIND_POINT_GRAPHICS
     );
 
-    std::vector<VkSubpassDependency> dependencies;
+    std::vector<VkSubpassDependency2> dependencies;
     dependencies.resize(2);
 
     // TODO: verify these subpass dependencies are correct
     // Only need a dependency coming in to ensure that the first layout transition happens at the right time.
     // Second external dependency is implied by having a different finalLayout and subpass layout.
+    VkMemoryBarrier2 memoryBarrier1 = {
+    .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2_KHR,
+    .pNext = nullptr,
+    .srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
+    .srcAccessMask = 0, // we don't have anything to flush
+    .dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
+    .dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT // The clear on depth counts as a write operation I believe so we need appropriate access masks
+    };
+
+    dependencies[0].sType = VK_STRUCTURE_TYPE_SUBPASS_DEPENDENCY_2;
+    dependencies[0].pNext = &memoryBarrier1;
     dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
-    dependencies[0].dstSubpass = 0; // References the subpass index in the subpasses array
-    dependencies[0].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-    dependencies[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-    dependencies[0].srcAccessMask = 0; // We don't have anything that we need to flush
-    dependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    dependencies[0].dstSubpass = 0u; // References the subpass index in the subpasses array
+    // srcStageMask, dstStageMask, srcAccessMask and dstAccessMask on subpassDependency2 are ignored since we're passing in a memory barrier
     dependencies[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
 
-    dependencies[1].srcSubpass = 0;
+    VkMemoryBarrier2 memoryBarrier2 = {
+        .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2_KHR,
+        .pNext = nullptr,
+        .srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+        .srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+        .dstStageMask = VK_PIPELINE_STAGE_2_NONE,
+        .dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT
+    };
+
+    dependencies[1].sType = VK_STRUCTURE_TYPE_SUBPASS_DEPENDENCY_2;
+    dependencies[1].pNext = &memoryBarrier2;
+    dependencies[1].srcSubpass = 0u;
     dependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
-    dependencies[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    dependencies[1].dstStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
-    dependencies[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-    dependencies[1].dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
+    // srcStageMask, dstStageMask, srcAccessMask and dstAccessMask on subpassDependency2 are ignored since we're passing in a memory barrier
     dependencies[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
 
     // Normally, we would need an external dependency at the end as well since we are changing layout in finalLayout,
     // but since we are signalling a semaphore, we can rely on Vulkan's default behavior,
-    // which injects an external dependency here with dstStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, dstAccessMask = 0. 
+    // which injects an external dependency here with dstStageMask = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, dstAccessMask = 0. 
 
     postRenderPass.renderPass = std::make_unique<RenderPass>(*device, attachments, postRenderPass.subpasses, dependencies);
     setDebugUtilsObjectName(device->getHandle(), postRenderPass.renderPass->getHandle(), "postProcessRenderPass");
@@ -2059,11 +2214,21 @@ void MainApp::copyBufferToImage(const Buffer &srcBuffer, const Image &dstImage, 
 
     commandBuffer->end();
 
-    VkSubmitInfo submitInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
-    submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &commandBuffer->getHandle();
+    VkCommandBufferSubmitInfo commandBufferSubmitInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO };
+    commandBufferSubmitInfo.pNext = nullptr;
+    commandBufferSubmitInfo.commandBuffer = commandBuffer->getHandle();
+    commandBufferSubmitInfo.deviceMask = 0u;
 
-    vkQueueSubmit(m_graphicsQueue->getHandle(), 1, &submitInfo, VK_NULL_HANDLE);
+    VkSubmitInfo2 submitInfo = { VK_STRUCTURE_TYPE_SUBMIT_INFO_2 };
+    submitInfo.pNext = nullptr;
+    submitInfo.waitSemaphoreInfoCount = 0u;
+    submitInfo.pWaitSemaphoreInfos = nullptr;
+    submitInfo.commandBufferInfoCount = 1u;
+    submitInfo.pCommandBufferInfos = &commandBufferSubmitInfo;
+    submitInfo.signalSemaphoreInfoCount = 0u;
+    submitInfo.pSignalSemaphoreInfos = nullptr;
+
+    VK_CHECK(vkQueueSubmit2KHR(m_graphicsQueue->getHandle(), 1, &submitInfo, VK_NULL_HANDLE));
     vkQueueWaitIdle(m_graphicsQueue->getHandle());
 }
 
@@ -2115,10 +2280,21 @@ std::unique_ptr<Image> MainApp::createTextureImage(uint32_t texWidth, uint32_t t
     textureImage->transitionImageLayout(*commandBuffer, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, subresourceRange);
     commandBuffer->end();
 
-    VkSubmitInfo submitInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
-    submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &commandBuffer->getHandle();
-    vkQueueSubmit(m_graphicsQueue->getHandle(), 1, &submitInfo, VK_NULL_HANDLE);
+    VkCommandBufferSubmitInfo commandBufferSubmitInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO };
+    commandBufferSubmitInfo.pNext = nullptr;
+    commandBufferSubmitInfo.commandBuffer = commandBuffer->getHandle();
+    commandBufferSubmitInfo.deviceMask = 0u;
+
+    VkSubmitInfo2 submitInfo = { VK_STRUCTURE_TYPE_SUBMIT_INFO_2 };
+    submitInfo.pNext = nullptr;
+    submitInfo.waitSemaphoreInfoCount = 0u;
+    submitInfo.pWaitSemaphoreInfos = nullptr;
+    submitInfo.commandBufferInfoCount = 1u;
+    submitInfo.pCommandBufferInfos = &commandBufferSubmitInfo;
+    submitInfo.signalSemaphoreInfoCount = 0u;
+    submitInfo.pSignalSemaphoreInfos = nullptr;
+
+    VK_CHECK(vkQueueSubmit2KHR(m_graphicsQueue->getHandle(), 1, &submitInfo, VK_NULL_HANDLE));
     vkQueueWaitIdle(m_graphicsQueue->getHandle());
 
     copyBufferToImage(*stagingBuffer, *textureImage, texWidth, texHeight);
@@ -2130,7 +2306,7 @@ std::unique_ptr<Image> MainApp::createTextureImage(uint32_t texWidth, uint32_t t
     commandBuffer->end();
 
     // Use the same submit info
-    vkQueueSubmit(m_graphicsQueue->getHandle(), 1, &submitInfo, VK_NULL_HANDLE);
+    VK_CHECK(vkQueueSubmit2KHR(m_graphicsQueue->getHandle(), 1, &submitInfo, VK_NULL_HANDLE));
     vkQueueWaitIdle(m_graphicsQueue->getHandle());
 
     return textureImage;
@@ -2177,10 +2353,21 @@ std::unique_ptr<Image> MainApp::createTextureImage(const std::string &filename)
     textureImage->transitionImageLayout(*commandBuffer, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, subresourceRange);
     commandBuffer->end();
 
-    VkSubmitInfo submitInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
-    submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &commandBuffer->getHandle();
-    vkQueueSubmit(m_graphicsQueue->getHandle(), 1, &submitInfo, VK_NULL_HANDLE);
+    VkCommandBufferSubmitInfo commandBufferSubmitInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO };
+    commandBufferSubmitInfo.pNext = nullptr;
+    commandBufferSubmitInfo.commandBuffer = commandBuffer->getHandle();
+    commandBufferSubmitInfo.deviceMask = 0u;
+
+    VkSubmitInfo2 submitInfo = { VK_STRUCTURE_TYPE_SUBMIT_INFO_2 };
+    submitInfo.pNext = nullptr;
+    submitInfo.waitSemaphoreInfoCount = 0u;
+    submitInfo.pWaitSemaphoreInfos = nullptr;
+    submitInfo.commandBufferInfoCount = 1u;
+    submitInfo.pCommandBufferInfos = &commandBufferSubmitInfo;
+    submitInfo.signalSemaphoreInfoCount = 0u;
+    submitInfo.pSignalSemaphoreInfos = nullptr;
+
+    VK_CHECK(vkQueueSubmit2KHR(m_graphicsQueue->getHandle(), 1, &submitInfo, VK_NULL_HANDLE));
     vkQueueWaitIdle(m_graphicsQueue->getHandle());
 
     copyBufferToImage(*stagingBuffer, *textureImage, to_u32(texWidth), to_u32(texHeight));
@@ -2192,7 +2379,7 @@ std::unique_ptr<Image> MainApp::createTextureImage(const std::string &filename)
     commandBuffer->end();
 
     // Use the same submit info
-    vkQueueSubmit(m_graphicsQueue->getHandle(), 1, &submitInfo, VK_NULL_HANDLE);
+    VK_CHECK(vkQueueSubmit2KHR(m_graphicsQueue->getHandle(), 1, &submitInfo, VK_NULL_HANDLE));
     vkQueueWaitIdle(m_graphicsQueue->getHandle());
 
     return textureImage;
@@ -2240,36 +2427,48 @@ void MainApp::copyBufferToBuffer(const Buffer &srcBuffer, const Buffer &dstBuffe
     {
         LOGEANDABORT("Cases when the graphics and transfer queue are not the same are not supported yet. This logic requires verification as well.");
 
-        VkBufferMemoryBarrier bufferBarrier =
-        {
-            VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-            nullptr,
-            VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT,
-            0,
-            m_graphicsQueue->getFamilyIndex(),
-            m_transferQueue->getFamilyIndex(),
-            srcBuffer.getHandle(),
-            0,
-            size
-        };
+        VkBufferMemoryBarrier2 bufferMemoryBarrier{ VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2 };
+        bufferMemoryBarrier.pNext = nullptr;
+        bufferMemoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_VERTEX_INPUT_BIT;
+        bufferMemoryBarrier.srcAccessMask = VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT;
+        bufferMemoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        bufferMemoryBarrier.dstAccessMask = 0u;
+        bufferMemoryBarrier.srcQueueFamilyIndex = m_graphicsQueue->getFamilyIndex();
+        bufferMemoryBarrier.dstQueueFamilyIndex = m_graphicsQueue->getFamilyIndex();
+        bufferMemoryBarrier.buffer = srcBuffer.getHandle();
+        bufferMemoryBarrier.offset = 0u;
+        bufferMemoryBarrier.size = size;
 
-        vkCmdPipelineBarrier(
-            commandBuffer->getHandle(),
-            VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
-            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-            0,
-            0, nullptr,
-            1, &bufferBarrier,
-            0, nullptr);
+        VkDependencyInfo dependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+        dependencyInfo.pNext = nullptr;
+        dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+        dependencyInfo.memoryBarrierCount = 0u;
+        dependencyInfo.pMemoryBarriers = nullptr;
+        dependencyInfo.bufferMemoryBarrierCount = 1u;
+        dependencyInfo.pBufferMemoryBarriers = &bufferMemoryBarrier;
+        dependencyInfo.imageMemoryBarrierCount = 0u;
+        dependencyInfo.pImageMemoryBarriers = nullptr;
+
+        vkCmdPipelineBarrier2KHR(commandBuffer->getHandle(), &dependencyInfo);
     }
 
     commandBuffer->end();
 
-    VkSubmitInfo submitInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
-    submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &commandBuffer->getHandle();
+    VkCommandBufferSubmitInfo commandBufferSubmitInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO };
+    commandBufferSubmitInfo.pNext = nullptr;
+    commandBufferSubmitInfo.commandBuffer = commandBuffer->getHandle();
+    commandBufferSubmitInfo.deviceMask = 0u;
 
-    vkQueueSubmit(m_graphicsQueue->getHandle(), 1, &submitInfo, VK_NULL_HANDLE);
+    VkSubmitInfo2 submitInfo = { VK_STRUCTURE_TYPE_SUBMIT_INFO_2 };
+    submitInfo.pNext = nullptr;
+    submitInfo.waitSemaphoreInfoCount = 0u;
+    submitInfo.pWaitSemaphoreInfos = nullptr;
+    submitInfo.commandBufferInfoCount = 1u;
+    submitInfo.pCommandBufferInfos = &commandBufferSubmitInfo;
+    submitInfo.signalSemaphoreInfoCount = 0u;
+    submitInfo.pSignalSemaphoreInfos = nullptr;
+
+    VK_CHECK(vkQueueSubmit2KHR(m_graphicsQueue->getHandle(), 1, &submitInfo, VK_NULL_HANDLE));
     vkQueueWaitIdle(m_graphicsQueue->getHandle());
 }
 
@@ -3074,11 +3273,21 @@ void MainApp::initializeImGui()
 
     commandBuffer->end();
 
-    VkSubmitInfo submitInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
-    submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &commandBuffer->getHandle();
+    VkCommandBufferSubmitInfo commandBufferSubmitInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO };
+    commandBufferSubmitInfo.pNext = nullptr;
+    commandBufferSubmitInfo.commandBuffer = commandBuffer->getHandle();
+    commandBufferSubmitInfo.deviceMask = 0u;
 
-    vkQueueSubmit(m_graphicsQueue->getHandle(), 1, &submitInfo, VK_NULL_HANDLE);
+    VkSubmitInfo2 submitInfo = { VK_STRUCTURE_TYPE_SUBMIT_INFO_2 };
+    submitInfo.pNext = nullptr;
+    submitInfo.waitSemaphoreInfoCount = 0u;
+    submitInfo.pWaitSemaphoreInfos = nullptr;
+    submitInfo.commandBufferInfoCount = 1u;
+    submitInfo.pCommandBufferInfos = &commandBufferSubmitInfo;
+    submitInfo.signalSemaphoreInfoCount = 0u;
+    submitInfo.pSignalSemaphoreInfos = nullptr;
+
+    VK_CHECK(vkQueueSubmit2KHR(m_graphicsQueue->getHandle(), 1, &submitInfo, VK_NULL_HANDLE));
     vkQueueWaitIdle(m_graphicsQueue->getHandle());
 
     // Clear font data on CPU
@@ -3149,10 +3358,22 @@ void MainApp::createImageResourcesForFrames()
         frameData.velocityImages[i]->transitionImageLayout(*commandBuffer, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresourceRange);
         commandBuffer->end();
 
-        VkSubmitInfo submitInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
-        submitInfo.commandBufferCount = 1;
-        submitInfo.pCommandBuffers = &commandBuffer->getHandle();
-        vkQueueSubmit(m_graphicsQueue->getHandle(), 1, &submitInfo, VK_NULL_HANDLE);
+        VkCommandBufferSubmitInfo commandBufferSubmitInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO };
+        commandBufferSubmitInfo.pNext = nullptr;
+        commandBufferSubmitInfo.commandBuffer = commandBuffer->getHandle();
+        commandBufferSubmitInfo.deviceMask = 0u;
+
+        VkSubmitInfo2 submitInfo = { VK_STRUCTURE_TYPE_SUBMIT_INFO_2 };
+        submitInfo.pNext = nullptr;
+        submitInfo.flags = 0u;
+        submitInfo.waitSemaphoreInfoCount = 0u;
+        submitInfo.pWaitSemaphoreInfos = nullptr;
+        submitInfo.commandBufferInfoCount = 1u;
+        submitInfo.pCommandBufferInfos = &commandBufferSubmitInfo;
+        submitInfo.signalSemaphoreInfoCount = 0u;
+        submitInfo.pSignalSemaphoreInfos = nullptr;
+
+        VK_CHECK(vkQueueSubmit2KHR(m_graphicsQueue->getHandle(), 1, &submitInfo, VK_NULL_HANDLE));
         vkQueueWaitIdle(m_graphicsQueue->getHandle());
     }
 }
@@ -3351,13 +3572,24 @@ void MainApp::buildBlas()
         // Building the AS
         vkCmdBuildAccelerationStructuresKHR(cmdBuf->getHandle(), 1, &buildInfos[idx], pBuildOffset.data());
 
-        // Since the scratch buffer is reused across builds, we need a barrier to ensure one build
-        // is finished before starting the next one
-        VkMemoryBarrier barrier{ VK_STRUCTURE_TYPE_MEMORY_BARRIER };
-        barrier.srcAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
-        barrier.dstAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR;
-        vkCmdPipelineBarrier(cmdBuf->getHandle(), VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
-            VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, 0, 1, &barrier, 0, nullptr, 0, nullptr);
+        // Since the scratch buffer is reused across builds, we need a barrier to ensure one build is finished before starting the next one
+        VkMemoryBarrier2 memoryBarrier{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
+        memoryBarrier.srcAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
+        memoryBarrier.dstAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR;
+        memoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
+        memoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
+
+        VkDependencyInfo dependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+        dependencyInfo.pNext = nullptr;
+        dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+        dependencyInfo.memoryBarrierCount = 1u;
+        dependencyInfo.pMemoryBarriers = &memoryBarrier;
+        dependencyInfo.bufferMemoryBarrierCount = 0u;
+        dependencyInfo.pBufferMemoryBarriers = nullptr;
+        dependencyInfo.imageMemoryBarrierCount = 0u;
+        dependencyInfo.pImageMemoryBarriers = nullptr;
+
+        vkCmdPipelineBarrier2KHR(cmdBuf->getHandle(), &dependencyInfo);
 
         // Write compacted size to query number idx.
         if (doCompaction)
@@ -3370,16 +3602,29 @@ void MainApp::buildBlas()
     }
 
     // submit and wait
-    std::vector<VkCommandBuffer> handles;
+    std::vector<VkCommandBufferSubmitInfo> commandBufferSubmitInfos;
     for (uint32_t idx = 0; idx < allCmdBufs.size(); idx++)
     {
         allCmdBufs[idx]->end();
-        handles.push_back(allCmdBufs[idx]->getHandle());
+
+        VkCommandBufferSubmitInfo commandBufferSubmitInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO };
+        commandBufferSubmitInfo.pNext = nullptr;
+        commandBufferSubmitInfo.commandBuffer = allCmdBufs[idx]->getHandle();
+        commandBufferSubmitInfo.deviceMask = 0u;
+
+        commandBufferSubmitInfos.push_back(commandBufferSubmitInfo);
     }
-    VkSubmitInfo submitInfo = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
-    submitInfo.pCommandBuffers = handles.data();
-    submitInfo.commandBufferCount = to_u32(handles.size());
-    VK_CHECK(vkQueueSubmit(m_graphicsQueue->getHandle(), 1, &submitInfo, VK_NULL_HANDLE));
+
+    VkSubmitInfo2 submitInfo = { VK_STRUCTURE_TYPE_SUBMIT_INFO_2 };
+    submitInfo.pNext = nullptr;
+    submitInfo.waitSemaphoreInfoCount = 0u;
+    submitInfo.pWaitSemaphoreInfos = nullptr;
+    submitInfo.commandBufferInfoCount = to_u32(commandBufferSubmitInfos.size());
+    submitInfo.pCommandBufferInfos = commandBufferSubmitInfos.data();
+    submitInfo.signalSemaphoreInfoCount = 0u;
+    submitInfo.pSignalSemaphoreInfos = nullptr;
+
+    VK_CHECK(vkQueueSubmit2KHR(m_graphicsQueue->getHandle(), 1, &submitInfo, VK_NULL_HANDLE));
     vkQueueWaitIdle(m_graphicsQueue->getHandle());
     allCmdBufs.clear();
 
@@ -3425,10 +3670,21 @@ void MainApp::buildBlas()
 
         // submitandwaitidle
         cmdBuf->end();
-        VkSubmitInfo submitInfo = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
-        submitInfo.pCommandBuffers = &cmdBuf->getHandle();
-        submitInfo.commandBufferCount = 1u;
-        VK_CHECK(vkQueueSubmit(m_graphicsQueue->getHandle(), 1, &submitInfo, VK_NULL_HANDLE));
+
+        VkCommandBufferSubmitInfo commandBufferSubmitInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO };
+        commandBufferSubmitInfo.pNext = nullptr;
+        commandBufferSubmitInfo.commandBuffer = cmdBuf->getHandle();
+        commandBufferSubmitInfo.deviceMask = 0u;
+
+        VkSubmitInfo2 submitInfo = { VK_STRUCTURE_TYPE_SUBMIT_INFO_2 };
+        submitInfo.pNext = nullptr;
+        submitInfo.waitSemaphoreInfoCount = 0u;
+        submitInfo.pWaitSemaphoreInfos = nullptr;
+        submitInfo.commandBufferInfoCount = 1u;
+        submitInfo.pCommandBufferInfos = &commandBufferSubmitInfo;
+        submitInfo.signalSemaphoreInfoCount = 0u;
+        submitInfo.pSignalSemaphoreInfos = nullptr;
+        VK_CHECK(vkQueueSubmit2KHR(m_graphicsQueue->getHandle(), 1, &submitInfo, VK_NULL_HANDLE));
         vkQueueWaitIdle(m_graphicsQueue->getHandle());
 
         LOGD(
@@ -3525,10 +3781,23 @@ void MainApp::buildTlas(bool update)
     VkDeviceAddress instanceAddress = vkGetBufferDeviceAddress(device->getHandle(), &bufferDeviceAddressInfo);
 
     // Make sure the copy of the instance buffer are copied before triggering the acceleration structure build
-    VkMemoryBarrier barrier{ VK_STRUCTURE_TYPE_MEMORY_BARRIER };
-    barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    barrier.dstAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
-    vkCmdPipelineBarrier(cmdBuf->getHandle(), VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, 0, 1, &barrier, 0, nullptr, 0, nullptr);
+    VkMemoryBarrier2 memoryBarrier{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
+    memoryBarrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    memoryBarrier.dstAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
+    memoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+    memoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
+
+    VkDependencyInfo dependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+    dependencyInfo.pNext = nullptr;
+    dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+    dependencyInfo.memoryBarrierCount = 1u;
+    dependencyInfo.pMemoryBarriers = &memoryBarrier;
+    dependencyInfo.bufferMemoryBarrierCount = 0u;
+    dependencyInfo.pBufferMemoryBarriers = nullptr;
+    dependencyInfo.imageMemoryBarrierCount = 0u;
+    dependencyInfo.pImageMemoryBarriers = nullptr;
+
+    vkCmdPipelineBarrier2KHR(cmdBuf->getHandle(), &dependencyInfo);
 
     // Create VkAccelerationStructureGeometryInstancesDataKHR; this wraps a device pointer to the above uploaded instances.
     VkAccelerationStructureGeometryInstancesDataKHR instancesVk{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR };
@@ -3590,10 +3859,22 @@ void MainApp::buildTlas(bool update)
 
     // submitandwaitidle
     cmdBuf->end();
-    VkSubmitInfo submitInfo = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
-    submitInfo.pCommandBuffers = &cmdBuf->getHandle();
-    submitInfo.commandBufferCount = 1u;
-    VK_CHECK(vkQueueSubmit(m_graphicsQueue->getHandle(), 1, &submitInfo, VK_NULL_HANDLE));
+
+    VkCommandBufferSubmitInfo commandBufferSubmitInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO };
+    commandBufferSubmitInfo.pNext = nullptr;
+    commandBufferSubmitInfo.commandBuffer = cmdBuf->getHandle();
+    commandBufferSubmitInfo.deviceMask = 0u;
+
+    VkSubmitInfo2 submitInfo = { VK_STRUCTURE_TYPE_SUBMIT_INFO_2 };
+    submitInfo.pNext = nullptr;
+    submitInfo.waitSemaphoreInfoCount = 0u;
+    submitInfo.pWaitSemaphoreInfos = nullptr;
+    submitInfo.commandBufferInfoCount = 1u;
+    submitInfo.pCommandBufferInfos = &commandBufferSubmitInfo;
+    submitInfo.signalSemaphoreInfoCount = 0u;
+    submitInfo.pSignalSemaphoreInfos = nullptr;
+
+    VK_CHECK(vkQueueSubmit2KHR(m_graphicsQueue->getHandle(), 1, &submitInfo, VK_NULL_HANDLE));
     vkQueueWaitIdle(m_graphicsQueue->getHandle());
 }
 

@@ -31,7 +31,7 @@
 namespace vulkr
 {
 
-RenderPass::RenderPass(Device &device, const std::vector<Attachment> &attachments, const std::vector<Subpass> &subpasses, const std::vector<VkSubpassDependency> subpassDependencies) :
+RenderPass::RenderPass(Device &device, const std::vector<Attachment> &attachments, const std::vector<Subpass> &subpasses, const std::vector<VkSubpassDependency2> subpassDependencies) :
 	device{ device },
 	attachments{ attachments },
 	subpasses{ subpasses }
@@ -41,12 +41,14 @@ RenderPass::RenderPass(Device &device, const std::vector<Attachment> &attachment
 		LOGEANDABORT("There are no associated subpasses for a render pass");
 	}
 
-	std::vector<VkAttachmentDescription> attachmentDescriptions;
+	std::vector<VkAttachmentDescription2> attachmentDescriptions;
 	attachmentDescriptions.reserve(attachments.size());
 
 	for (const auto &attachement : attachments)
 	{
-		VkAttachmentDescription attachmentDescription{};
+		VkAttachmentDescription2 attachmentDescription{ VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_2 };
+		attachmentDescription.pNext = nullptr;
+		attachmentDescription.flags = 0u;
 		attachmentDescription.format = attachement.format;
 		attachmentDescription.samples = attachement.samples;
 		attachmentDescription.loadOp = attachement.loadOp;
@@ -59,12 +61,13 @@ RenderPass::RenderPass(Device &device, const std::vector<Attachment> &attachment
 		attachmentDescriptions.push_back(std::move(attachmentDescription));
 	}
 
-	std::vector<VkSubpassDescription> subpassDescriptions;
+	std::vector<VkSubpassDescription2> subpassDescriptions;
 	subpassDescriptions.reserve(subpasses.size());
 
 	for (const auto &subpass : subpasses)
 	{
-		VkSubpassDescription subpassDescription;
+		VkSubpassDescription2 subpassDescription{ VK_STRUCTURE_TYPE_SUBPASS_DESCRIPTION_2 };
+		subpassDescription.pNext = nullptr;
 		subpassDescription.flags = subpass.getDescriptionFlags();
 		subpassDescription.pipelineBindPoint = subpass.getBindPoint();
 		subpassDescription.inputAttachmentCount = to_u32(subpass.getInputAttachments().size());
@@ -84,7 +87,7 @@ RenderPass::RenderPass(Device &device, const std::vector<Attachment> &attachment
 		LOGEANDABORT("TODO: check if we need to setup subpass dependencies between more than one subpass");
 	}
 	// TODO: check if we need to set subpass dependencies between subpasses when we have more subpasses
-	//std::vector<VkSubpassDependency> dependencies;
+	//std::vector<VkSubpassDependency2> dependencies;
 	//dependencies.reserve(subpasses.size() - 1);
 
 	//for (uint32_t i = 0; i < dependencies.size(); ++i)
@@ -92,16 +95,17 @@ RenderPass::RenderPass(Device &device, const std::vector<Attachment> &attachment
 	//	// Transition input attachments from color attachment to shader read
 	//	dependencies[i].srcSubpass = i;
 	//	dependencies[i].dstSubpass = i + 1;
-	//	dependencies[i].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-	//	dependencies[i].dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-	//	dependencies[i].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-	//	dependencies[i].dstAccessMask = VK_ACCESS_INPUT_ATTACHMENT_READ_BIT;
+	//	dependencies[i].srcStageMask = VK_PIPELINE_2_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	//	dependencies[i].dstStageMask = VK_PIPELINE_2_STAGE_FRAGMENT_SHADER_BIT;
+	//	dependencies[i].srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+	//	dependencies[i].dstAccessMask = VK_ACCESS_2_INPUT_ATTACHMENT_READ_BIT;
 	//	dependencies[i].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
 	//}
 
 	// Create render pass
-	VkRenderPassCreateInfo renderPassInfo{ VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO };
-
+	VkRenderPassCreateInfo2 renderPassInfo{ VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO_2 };
+	renderPassInfo.pNext = nullptr;
+	renderPassInfo.flags = 0u;
 	renderPassInfo.attachmentCount = to_u32(attachmentDescriptions.size());
 	renderPassInfo.pAttachments = attachmentDescriptions.data();
 	renderPassInfo.subpassCount = to_u32(subpasses.size());
@@ -109,7 +113,7 @@ RenderPass::RenderPass(Device &device, const std::vector<Attachment> &attachment
 	renderPassInfo.dependencyCount = to_u32(subpassDependencies.size());
 	renderPassInfo.pDependencies = subpassDependencies.data();
 
-	VK_CHECK(vkCreateRenderPass(device.getHandle(), &renderPassInfo, nullptr, &handle));
+	VK_CHECK(vkCreateRenderPass2(device.getHandle(), &renderPassInfo, nullptr, &handle));
 }
 
 RenderPass::~RenderPass()

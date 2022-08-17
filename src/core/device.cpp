@@ -85,11 +85,13 @@ Device::Device(std::unique_ptr<PhysicalDevice> &&selectedPhysicalDevice, VkSurfa
 		queueCreateInfos.emplace_back(queueCreateInfo);
 	}
 
-	
-
-	// Required for usage of the LocalSizeId variable in compute shaders
+	// Enable synchronization2
+	VkPhysicalDeviceSynchronization2Features synchronization2Features{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES };
+	synchronization2Features.synchronization2 = VK_TRUE;
+	// Enable maintenance4 features; required for usage of the LocalSizeId variable in compute shaders
 	VkPhysicalDeviceMaintenance4Features maintenance4Features{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_4_FEATURES };
 	maintenance4Features.maintenance4 = VK_TRUE;
+	maintenance4Features.pNext = &synchronization2Features;
 	// Enabling the descriptor indexing features, host query reset features, acceleration structure features, ray tracing features and buffer device address features
 	VkPhysicalDeviceDescriptorIndexingFeatures descriptorIndexingFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES };
 	descriptorIndexingFeatures.shaderSampledImageArrayNonUniformIndexing = getPhysicalDevice().getDescriptorIndexingFeatures().shaderSampledImageArrayNonUniformIndexing;
@@ -177,6 +179,12 @@ Device::Device(std::unique_ptr<PhysicalDevice> &&selectedPhysicalDevice, VkSurfa
 		vmaVulkanFunctions.vkGetBufferMemoryRequirements2KHR = vkGetBufferMemoryRequirements2KHR;
 		vmaVulkanFunctions.vkGetImageMemoryRequirements2KHR = vkGetImageMemoryRequirements2KHR;
 	}
+
+	vmaVulkanFunctions.vkBindBufferMemory2KHR = vkBindBufferMemory2KHR;
+	vmaVulkanFunctions.vkBindImageMemory2KHR = vkBindImageMemory2KHR;
+	vmaVulkanFunctions.vkGetPhysicalDeviceMemoryProperties2KHR = vkGetPhysicalDeviceMemoryProperties2KHR;
+	vmaVulkanFunctions.vkGetDeviceBufferMemoryRequirements = vkGetDeviceBufferMemoryRequirements;
+	vmaVulkanFunctions.vkGetDeviceImageMemoryRequirements = vkGetDeviceImageMemoryRequirements;
 
 	// VK_KHR_buffer_device_address has been core as of vulkan 1.2
 	allocatorInfo.flags |= VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;

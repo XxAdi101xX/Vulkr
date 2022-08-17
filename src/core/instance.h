@@ -64,7 +64,8 @@ private:
 
 	/* The required validation layers */
 	const std::vector<const char *> requiredValidationLayers = {
-		"VK_LAYER_KHRONOS_validation"
+		"VK_LAYER_KHRONOS_validation",
+		"VK_LAYER_KHRONOS_synchronization2"
 	};
 
 #ifdef VULKR_DEBUG

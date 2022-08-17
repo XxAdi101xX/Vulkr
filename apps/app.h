@@ -259,7 +259,8 @@ private:
 #endif
         VK_EXT_HOST_QUERY_RESET_EXTENSION_NAME, // Provides access to vkResetQueryPool
         VK_KHR_SHADER_NON_SEMANTIC_INFO_EXTENSION_NAME, // Required to use debugPrintfEXT in shaders
-        VK_KHR_SHADER_DRAW_PARAMETERS_EXTENSION_NAME
+        VK_KHR_SHADER_DRAW_PARAMETERS_EXTENSION_NAME,
+        VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME
     };
 
     std::unique_ptr<Instance> m_instance{ nullptr };
@@ -278,10 +279,10 @@ private:
     {
         std::unique_ptr<RenderPass> renderPass{ nullptr };
         std::vector<Subpass> subpasses;
-        std::vector<VkAttachmentReference> inputAttachments;
-        std::vector<VkAttachmentReference> colorAttachments;
-        std::vector<VkAttachmentReference> resolveAttachments;
-        std::vector<VkAttachmentReference> depthStencilAttachments;
+        std::vector<VkAttachmentReference2> inputAttachments;
+        std::vector<VkAttachmentReference2> colorAttachments;
+        std::vector<VkAttachmentReference2> resolveAttachments;
+        std::vector<VkAttachmentReference2> depthStencilAttachments;
         std::vector<uint32_t> preserveAttachments;
     };
 

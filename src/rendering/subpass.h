@@ -31,10 +31,10 @@ class Subpass
 {
 public:
 	Subpass(
-		std::vector<VkAttachmentReference> &inputAttachments,
-		std::vector<VkAttachmentReference> &colorAttachments,
-		std::vector<VkAttachmentReference> &resolveAttachments,
-		std::vector<VkAttachmentReference> &depthStencilAttachments,
+		std::vector<VkAttachmentReference2> &inputAttachments,
+		std::vector<VkAttachmentReference2> &colorAttachments,
+		std::vector<VkAttachmentReference2> &resolveAttachments,
+		std::vector<VkAttachmentReference2> &depthStencilAttachments,
 		std::vector<uint32_t> &preserveAttachments,
 		VkPipelineBindPoint bindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
 		VkSubpassDescriptionFlags descriptionFlags = 0u
@@ -46,18 +46,18 @@ public:
 	Subpass &operator=(const Subpass &) = delete;
 	Subpass &operator=(Subpass &&) = delete;
 
-	std::vector<VkAttachmentReference> &getInputAttachments() const;
-	std::vector<VkAttachmentReference> &getColorAttachments() const;
-	std::vector<VkAttachmentReference> &getResolveAttachments() const;
-	std::vector<VkAttachmentReference> &getDepthStencilAttachments() const;
+	std::vector<VkAttachmentReference2> &getInputAttachments() const;
+	std::vector<VkAttachmentReference2> &getColorAttachments() const;
+	std::vector<VkAttachmentReference2> &getResolveAttachments() const;
+	std::vector<VkAttachmentReference2> &getDepthStencilAttachments() const;
 	std::vector<uint32_t> &getPreserveAttachments() const;
 	VkPipelineBindPoint getBindPoint() const;
 	VkSubpassDescriptionFlags getDescriptionFlags() const;
 private:
-	std::vector<VkAttachmentReference> &inputAttachments;
-	std::vector<VkAttachmentReference> &colorAttachments;
-	std::vector<VkAttachmentReference> &resolveAttachments;
-	std::vector<VkAttachmentReference> &depthStencilAttachments;
+	std::vector<VkAttachmentReference2> &inputAttachments;
+	std::vector<VkAttachmentReference2> &colorAttachments;
+	std::vector<VkAttachmentReference2> &resolveAttachments;
+	std::vector<VkAttachmentReference2> &depthStencilAttachments;
 	std::vector<uint32_t> &preserveAttachments;
 	VkPipelineBindPoint bindPoint;
 	VkSubpassDescriptionFlags descriptionFlags;

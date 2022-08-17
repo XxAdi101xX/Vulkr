@@ -35,21 +35,21 @@ VkPipelineStageFlags pipelineStageForLayout(VkImageLayout layout)
 	{
 	case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
 	case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
-		return VK_PIPELINE_STAGE_TRANSFER_BIT;
+		return VK_PIPELINE_STAGE_2_TRANSFER_BIT;
 	case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
-		return VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+		return VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
 	case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
-		LOGW("You should manually return VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT for graphics queues but this currently returns VK_PIPELINE_STAGE_ALL_COMMANDS_BIT to support non-graphics queues");
-		return VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;  // We do this to allow queue other than graphic
-													// return VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+		LOGW("You should manually return VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT for graphics queues but this currently returns VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT to support non-graphics queues");
+		return VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;  // We do this to allow queue other than graphic
+													// return VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT;
 	case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
-		LOGW("You should manually return VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT for graphics queues but this currently returns VK_PIPELINE_STAGE_ALL_COMMANDS_BIT to support non-graphics queues");
-		return VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;  // We do this to allow queue other than graphic
-													// return VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+		LOGW("You should manually return VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT for graphics queues but this currently returns VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT to support non-graphics queues");
+		return VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;  // We do this to allow queue other than graphic
+													// return VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
 	case VK_IMAGE_LAYOUT_PREINITIALIZED:
-		return VK_PIPELINE_STAGE_HOST_BIT;
+		return VK_PIPELINE_STAGE_2_HOST_BIT;
 	case VK_IMAGE_LAYOUT_UNDEFINED:
-		return VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+		return VK_PIPELINE_STAGE_2_NONE;
 	default:
 		LOGEANDABORT("Unhandled image layout to set VkPipelineStageFlags");
 	}
@@ -219,8 +219,8 @@ void Image::unmap()
 
 void Image::transitionImageLayout(CommandBuffer &commandBuffer, VkImageLayout oldLayout, VkImageLayout newLayout, VkImageSubresourceRange subresourceRange)
 {
-	VkImageMemoryBarrier imageMemoryBarrier{};
-	imageMemoryBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+	VkImageMemoryBarrier2 imageMemoryBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+	imageMemoryBarrier.pNext = nullptr;
 	imageMemoryBarrier.oldLayout = oldLayout;
 	imageMemoryBarrier.newLayout = newLayout;
 	imageMemoryBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
@@ -232,48 +232,46 @@ void Image::transitionImageLayout(CommandBuffer &commandBuffer, VkImageLayout ol
 	imageMemoryBarrier.subresourceRange.baseArrayLayer = 0;
 	imageMemoryBarrier.subresourceRange.layerCount = 1;
 
-	VkPipelineStageFlags sourceStage;
-	VkPipelineStageFlags destinationStage;
 
 	if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED && newLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
 	{
-		sourceStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-		destinationStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+		imageMemoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_NONE;
+		imageMemoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
 	}
 	else if (oldLayout == VK_IMAGE_LAYOUT_GENERAL && newLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
 	{
-		sourceStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-		destinationStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+		imageMemoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_NONE;
+		imageMemoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
 	}
 	else if (oldLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL && newLayout == VK_IMAGE_LAYOUT_GENERAL)
 	{
-		sourceStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-		destinationStage = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+		imageMemoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+		imageMemoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_NONE;
 	}
 	else if (oldLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL && newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
 	{
-		sourceStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-		destinationStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+		imageMemoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+		imageMemoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
 	}
 	else if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED && newLayout == VK_IMAGE_LAYOUT_GENERAL)
 	{
-		sourceStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-		destinationStage = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+		imageMemoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_NONE;
+		imageMemoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_NONE;
 	}
 	else if (oldLayout == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL && newLayout == VK_IMAGE_LAYOUT_GENERAL)
 	{
-		sourceStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-		destinationStage = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+		imageMemoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+		imageMemoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_NONE;
 	}
 	else if (oldLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL && newLayout == VK_IMAGE_LAYOUT_PRESENT_SRC_KHR)
 	{
-		sourceStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-		destinationStage = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+		imageMemoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+		imageMemoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_NONE;
 	}
 	else if (oldLayout == VK_IMAGE_LAYOUT_GENERAL && newLayout == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
 	{
-		sourceStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-		destinationStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+		imageMemoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_NONE;
+		imageMemoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
 	}
 	else
 	{
@@ -290,44 +288,44 @@ void Image::transitionImageLayout(CommandBuffer &commandBuffer, VkImageLayout ol
 		// Image layout is undefined or general
 		// Only valid as initial layout
 		// No flags required, listed only for completeness
-		imageMemoryBarrier.srcAccessMask = 0;
+		imageMemoryBarrier.srcAccessMask = VK_ACCESS_2_NONE;
 		break;
 
 	case VK_IMAGE_LAYOUT_PREINITIALIZED:
 		// Image is preinitialized
 		// Only valid as initial layout for linear images, preserves memory contents
 		// Make sure host writes have been finished
-		imageMemoryBarrier.srcAccessMask = VK_ACCESS_HOST_WRITE_BIT;
+		imageMemoryBarrier.srcAccessMask = VK_ACCESS_2_HOST_WRITE_BIT;
 		break;
 
 	case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
 		// Image is a color attachment
 		// Make sure any writes to the color buffer have been finished
-		imageMemoryBarrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+		imageMemoryBarrier.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
 		break;
 
 	case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
 		// Image is a depth/stencil attachment
 		// Make sure any writes to the depth/stencil buffer have been finished
-		imageMemoryBarrier.srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+		imageMemoryBarrier.srcAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 		break;
 
 	case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
 		// Image is a transfer source
 		// Make sure any reads from the image have been finished
-		imageMemoryBarrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+		imageMemoryBarrier.srcAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
 		break;
 
 	case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
 		// Image is a transfer destination
 		// Make sure any writes to the image have been finished
-		imageMemoryBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+		imageMemoryBarrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
 		break;
 
 	case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
 		// Image is read by a shader
 		// Make sure any shader reads from the image have been finished
-		imageMemoryBarrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+		imageMemoryBarrier.srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
 		break;
 	default:
 		LOGEANDABORT("Unhandled oldImageLayout encountered");
@@ -344,54 +342,57 @@ void Image::transitionImageLayout(CommandBuffer &commandBuffer, VkImageLayout ol
 	case VK_IMAGE_LAYOUT_PRESENT_SRC_KHR: // Do nothing?
 	case VK_IMAGE_LAYOUT_GENERAL:
 		// Image will be general so there isn't a specific destination mask
-		imageMemoryBarrier.dstAccessMask = 0;
+		imageMemoryBarrier.dstAccessMask = VK_ACCESS_2_NONE;
 		break;
 	case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
 		// Image will be used as a transfer destination
 		// Make sure any writes to the image have been finished
-		imageMemoryBarrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+		imageMemoryBarrier.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
 		break;
 
 	case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
 		// Image will be used as a transfer source
 		// Make sure any reads from the image have been finished
-		imageMemoryBarrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+		imageMemoryBarrier.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
 		break;
 
 	case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
 		// Image will be used as a color attachment
 		// Make sure any writes to the color buffer have been finished
-		imageMemoryBarrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+		imageMemoryBarrier.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
 		break;
 
 	case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
 		// Image layout will be used as a depth/stencil attachment
 		// Make sure any writes to depth/stencil buffer have been finished
-		imageMemoryBarrier.dstAccessMask = imageMemoryBarrier.dstAccessMask | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+		imageMemoryBarrier.dstAccessMask = imageMemoryBarrier.dstAccessMask | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 		break;
 
 	case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
 		// Image will be read in a shader (sampler, input attachment)
 		// Make sure any writes to the image have been finished
-		if (imageMemoryBarrier.srcAccessMask == 0)
+		if (imageMemoryBarrier.srcAccessMask == VK_ACCESS_2_NONE)
 		{
-			imageMemoryBarrier.srcAccessMask = VK_ACCESS_HOST_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT;
+			imageMemoryBarrier.srcAccessMask = VK_ACCESS_2_HOST_WRITE_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT;
 		}
-		imageMemoryBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+		imageMemoryBarrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
 		break;
 	default:
 		LOGEANDABORT("Unhandled newImageLayout encountered");
 		break;
 	}
 
-	vkCmdPipelineBarrier(
-		commandBuffer.getHandle(),
-		sourceStage, destinationStage,
-		0,
-		0, nullptr,
-		0, nullptr,
-		1, &imageMemoryBarrier
-	);
+	VkDependencyInfo dependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+	dependencyInfo.pNext = nullptr;
+	dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+	dependencyInfo.memoryBarrierCount = 0u;
+	dependencyInfo.pMemoryBarriers = nullptr;
+	dependencyInfo.bufferMemoryBarrierCount = 0u;
+	dependencyInfo.pBufferMemoryBarriers = nullptr;
+	dependencyInfo.imageMemoryBarrierCount = 1u;
+	dependencyInfo.pImageMemoryBarriers = &imageMemoryBarrier;
+
+	vkCmdPipelineBarrier2KHR(commandBuffer.getHandle(), &dependencyInfo);
 
 	layout = newLayout;
 }
