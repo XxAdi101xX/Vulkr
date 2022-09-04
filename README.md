@@ -1,20 +1,23 @@
 # Vulkr
 
-Vulkr is a personal Vulkan renderer project that I've taken up in order to solidify my knowledge of Vulkan and graphics programming as a whole.
+A Vulkan rendering engine that I've taken upon building in order to solidify my knowledge of Vulkan and graphics programming as a whole by implementing interesting graphics features and applications.
+
+The engine runs on `Vulkan 1.3` using `VK_KHR_synchronization2` and the code is written for the `C++20` standard. This project is being built on `Windows 10, x64` using `Visual Studio 2022` and as such, can not be expected to work on Linux or MacOS. However, all third-party libraries used are cross platform and platform-specific components like the windowing system could be easily supported in the future. 
 
 https://user-images.githubusercontent.com/18451835/173965410-b90e12f6-1137-4c0d-bb6b-b521f90e2a7d.mp4
 
 ## Build
 Clone the project with the `--recurse-submodules` option to grab all the necessary third party dependencies.
 
-CMake is the build tool of choice for this project running the following commands from the root folder level will build the project.
+With CMake installed, running the following commands from the root folder level will build the project.
 ```
 cmake -S . -B build
 cmake --build build
 ```
+For optimal performance, ensure that the `VULKR_DEBUG` flag is not defined in `vulkan_common.h`. If you wish to debug the engine using RenderDoc, be sure to enable the `RENDERDOC_DEBUG` flag also located in `vulkan_common.h` so that unsupported extensions like `VK_KHR_ray_tracing` are disabled to prevent RenderDoc from complaining about them. NSight Systems and NSight Graphics should work without this flag.
 
 ## Features
-The Vulkr renderer is able to accept wavefront object and material files (*.obj + *.mtl) and render them in a 3D environment. Some features are:
+The Vulkr renderer is able to accept wavefront object and material files (*.obj + *.mtl) and render them in a 3D environment. Some core features are:
 - Choosing between a traditional rasterization pipeline (forward rendering) and raytracing (VK_KHR_ray_tracing) as rendering methods (you can switch between them at runtime)
 - Triple buffering (pending GPU exposes atleast 3 swapchain images) with two sets of frame resources
 - Instanced object rendering
@@ -28,4 +31,4 @@ The Vulkr renderer is able to accept wavefront object and material files (*.obj 
 https://user-images.githubusercontent.com/18451835/173991616-5825f922-1a45-4556-9cf3-51c6615e918b.mp4
 
 ## Credits
-A special thanks to Alexander Overvoorde's [Vulkan Tutorial](https://vulkan-tutorial.com/) for providing a great introduction to Vulkan as a whole and providing the base knowledge required to get started on this project. Additionally, Sascha Willems' [Vulkan Demos](https://github.com/SaschaWillems/Vulkan), [Vulkan Samples](https://github.com/KhronosGroup/Vulkan-Samples) provided by the KhronosGroup and the [Vulkan Ray Tracing Samples](https://github.com/nvpro-samples/vk_raytracing_tutorial_KHR) provided by NVIDIA have played an instrumental role into providing guidance into best practices, techniques and code samples for implementing various features using Vulkan. Finally, the discord and reddit communities on Vulkan and Graphics Programming have been very helpful with answering many of the questions that I've gotten along the way!
+A special thanks to `Alexander Overvoorde's` [Vulkan Tutorial](https://vulkan-tutorial.com/) for providing a great introduction to Vulkan as a whole and providing the base knowledge required to get started on this project. Additionally, `Sascha Willems'` [Vulkan Demos](https://github.com/SaschaWillems/Vulkan), [Vulkan Samples](https://github.com/KhronosGroup/Vulkan-Samples) provided by the `Khronos Group` and the [Vulkan Ray Tracing Samples](https://github.com/nvpro-samples/vk_raytracing_tutorial_KHR) provided by `NVIDIA` have played an instrumental role into providing guidance into best practices, techniques and code samples for implementing various features using Vulkan. Finally, the discord and reddit communities on Vulkan and Graphics Programming have been very helpful with answering many of the questions that I've gotten along the way!
