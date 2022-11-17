@@ -717,7 +717,7 @@ void MainApp::drawImGuiInterface()
                     oss.str(""); oss << "Point" << "##" << lightIndex;
                     changed |= ImGui::RadioButton(oss.str().c_str(), &sceneLights[lightIndex].lightType, 0);
                     ImGui::SameLine();
-                    oss.str(""); oss << "Infinite" << "##" << lightIndex;
+                    oss.str(""); oss << "Directional" << "##" << lightIndex;
                     changed |= ImGui::RadioButton(oss.str().c_str(), &sceneLights[lightIndex].lightType, 1);
 
                     oss.str(""); oss << "Position" << "##" << lightIndex;
