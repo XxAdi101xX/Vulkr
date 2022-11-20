@@ -31,19 +31,17 @@ layout(constant_id = 2) const uint fluidVelocityBufferHeight = 1;
 layout(constant_id = 3) const float alpha = 0.0001f;
 layout(constant_id = 4) const float reciprocalBeta = 0.25f;
 
-// Binding 0 : Fluid velocity texture sampler
 layout(set = 0, binding = 0) uniform sampler2D fluidVelocityInputTextureImage;
-layout(set = 1, binding = 0, rgba32f) uniform writeonly image2D fluidVelocityOutputTextureImage; // TODO is it even correct to have this be uniform, it doesn't compile otherwise though...
+layout(set = 1, binding = 0, rgba32f) uniform writeonly image2D fluidVelocityOutputTextureImage;
 
-vec2 inverseCanvasSize = vec2(1.0f / fluidVelocityBufferWidth, 1.0f / fluidVelocityBufferHeight); // We rely on the fact that the fluid buffer dimensions are the same as the window size
+vec2 inverseCanvasSize = vec2(1.0f / fluidVelocityBufferWidth, 1.0f / fluidVelocityBufferHeight);
 
 // We are iteratively solving Ax = b where x and b are both fluidVelocityInputTextureImage
 void main() 
 {
 	const float dt = 1.0f / 60.0f;
 	uint index = gl_GlobalInvocationID.x;
-	if (index >= fluidVelocityBufferWidth * fluidVelocityBufferHeight) 
-		return;
+	if (index >= fluidVelocityBufferWidth * fluidVelocityBufferHeight) return;
 
 	ivec2 imageIndex;
 	imageIndex.x = int(mod(index, fluidVelocityBufferWidth));
@@ -51,12 +49,12 @@ void main()
 
 	vec2 scaledScreenSpaceCoords = (imageIndex + 0.5f) * inverseCanvasSize;
 
-	float xL = texture(fluidVelocityInputTextureImage /* xTex */, scaledScreenSpaceCoords - inverseCanvasSize * vec2(1.0, 0.0)).r;
-	float xR = texture(fluidVelocityInputTextureImage /* xTex */, scaledScreenSpaceCoords + inverseCanvasSize * vec2(1.0, 0.0)).r;
-	float xB = texture(fluidVelocityInputTextureImage /* xTex */, scaledScreenSpaceCoords - inverseCanvasSize * vec2(0.0, 1.0)).r;
-	float xT = texture(fluidVelocityInputTextureImage /* xTex */, scaledScreenSpaceCoords + inverseCanvasSize * vec2(0.0, 1.0)).r;
+	float xL = texture(fluidVelocityInputTextureImage, scaledScreenSpaceCoords - inverseCanvasSize * vec2(1.0, 0.0)).r;
+	float xR = texture(fluidVelocityInputTextureImage, scaledScreenSpaceCoords + inverseCanvasSize * vec2(1.0, 0.0)).r;
+	float xB = texture(fluidVelocityInputTextureImage, scaledScreenSpaceCoords - inverseCanvasSize * vec2(0.0, 1.0)).r;
+	float xT = texture(fluidVelocityInputTextureImage, scaledScreenSpaceCoords + inverseCanvasSize * vec2(0.0, 1.0)).r;
 
-	float bC = texture(fluidVelocityInputTextureImage /* bTex */, scaledScreenSpaceCoords).r;
+	float bC = texture(fluidVelocityInputTextureImage, scaledScreenSpaceCoords).r;
 
 	imageStore(fluidVelocityOutputTextureImage, imageIndex, vec4((xL + xR + xB + xT + alpha * bC) * reciprocalBeta, 0.0, 0.0, 0.0));
 }

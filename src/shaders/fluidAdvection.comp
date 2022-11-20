@@ -29,11 +29,10 @@ layout(local_size_x_id = 0) in; // Maps to the constant_id = 0 specialization co
 layout(constant_id = 1) const uint fluidVelocityBufferWidth = 1;
 layout(constant_id = 2) const uint fluidVelocityBufferHeight = 1;
 
-// Binding 0 : Fluid velocity texture sampler
 layout(set = 0, binding = 0) uniform sampler2D fluidVelocityInputTextureImage;
-layout(set = 1, binding = 0, rgba32f) uniform writeonly image2D fluidVelocityOutputTextureImage; // TODO is it even correct to have this be uniform, it doesn't compile otherwise though...
+layout(set = 1, binding = 0, rgba32f) uniform writeonly image2D fluidVelocityOutputTextureImage;
 
-vec2 inverseCanvasSize = vec2(1.0f / fluidVelocityBufferWidth, 1.0f / fluidVelocityBufferHeight); // We rely on the fact that the fluid buffer dimensions are the same as the window size
+vec2 inverseCanvasSize = vec2(1.0f / fluidVelocityBufferWidth, 1.0f / fluidVelocityBufferHeight);
 
 vec4 f4texRECTbilerp(sampler2D tex, vec2 s)
 {
@@ -51,24 +50,24 @@ vec4 f4texRECTbilerp(sampler2D tex, vec2 s)
 	return mix(mix(tex11, tex21, t.x), mix(tex12, tex22, t.x), t.y);
 }
 
-
 void main() 
 {
-	const float dt = 1.0f / 60.0f;
 	uint index = gl_GlobalInvocationID.x;
-	if (index >= fluidVelocityBufferWidth * fluidVelocityBufferHeight) 
-		return;
+	if (index >= fluidVelocityBufferWidth * fluidVelocityBufferHeight) return;
 
 	ivec2 imageIndex;
 	imageIndex.x = int(mod(index, fluidVelocityBufferWidth));
 	imageIndex.y = int(index / fluidVelocityBufferWidth);
 
+	const float dt = 1.0f / 60.0f;
 	vec2 screenSpaceCoords = imageIndex + 0.5f;
 	vec2 pos = screenSpaceCoords - dt * texture(fluidVelocityInputTextureImage, screenSpaceCoords * inverseCanvasSize).xy;
 	imageStore(fluidVelocityOutputTextureImage, imageIndex, f4texRECTbilerp(fluidVelocityInputTextureImage, pos));
 
+	//imageStore(fluidVelocityOutputTextureImage, imageIndex, imageLoad(fluidVelocityOutputTextureImage, imageIndex) + vec4(0.0, 1.0, 1.0, 0.0));
+
 	// Note that enabling any prints causes crashes
 	//debugPrintfEXT("width is %d, height is %d, index is %d, velocity for texcoord: %1.1v2f", fluidVelocityBufferWidth, fluidVelocityBufferHeight, index, texCoord);
 	//debugPrintfEXT("inverse canvas size is %1.7v2f, width and height are %d, %d", inverseCanvasSize, fluidVelocityBufferWidth, fluidVelocityBufferHeight);
-	//debugPrintfEXT("texvalue is %f %f %f", imageLoad(fluidVelocityTextureImage, ivec2(0, 0)).x, imageLoad(fluidVelocityTextureImage, ivec2(0, 1)).x, imageLoad(fluidVelocityTextureImage, ivec2(4, 0)).x);
+	//debugPrintfEXT("texvalue is %f %f %f", imageLoad(fluidVelocityOutputTextureImage, ivec2(0, 0)).x, imageLoad(fluidVelocityOutputTextureImage, ivec2(0, 1)).x, imageLoad(fluidVelocityOutputTextureImage, ivec2(4, 0)).x);
 }

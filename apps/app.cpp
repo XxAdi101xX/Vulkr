@@ -268,7 +268,7 @@ void MainApp::prepare()
 
     createDescriptorSetLayouts();
     createMainRasterizationPipeline();
-    createModelAnimationComputePipeline();
+    //createModelAnimationComputePipeline();
     createPostProcessingPipeline();
     createTextureSampler();
     createUniformBuffers();
@@ -368,8 +368,10 @@ void MainApp::update()
 
     // Compute shader invocations
     computeParticles();
-    //computeFluidSimulation();
-    //animateWithCompute(); // Compute vertices with compute shader TODO: fix the validation errors that happen when this is enabled, might be due to incorrect sytnax with obj buffer in animate.comp or the fact that the objBuffer is readonly? Not totally sure.
+    computeFluidSimulation();
+
+    // Compute vertices with compute shader; need to uncomment createModelAnimationComputePipeline if using this TODO: fix the validation errors that happen when this is enabled, might be due to incorrect sytnax with obj buffer in animate.comp or the fact that the objBuffer is readonly? Not totally sure.
+    //animateWithCompute(); 
 
     if (raytracingEnabled)
     {
@@ -528,7 +530,6 @@ void MainApp::update()
     vkCmdCopyImage(frameData.commandBuffers[currentFrame][2]->getHandle(), frameData.outputImages[currentFrame]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swapchain->getImages()[swapchainImageIndex]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &outputImageCopyRegion);
     vkCmdCopyImage(frameData.commandBuffers[currentFrame][2]->getHandle(), frameData.outputImages[currentFrame]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, frameData.historyImages[currentFrame]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &outputImageCopyRegion);
 
-    // TODO create staging buffer before conducting the two cmdCopyBuffer, see copyBufferToBuffer method as well
     VkBufferCopy cameraBufferCopyRegion{};
     cameraBufferCopyRegion.srcOffset = 0;
     cameraBufferCopyRegion.dstOffset = 0;
@@ -547,6 +548,12 @@ void MainApp::update()
     frameData.historyImages[currentFrame]->transitionImageLayout(*frameData.commandBuffers[currentFrame][2], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL, subresourceRange);
     // Transition the output image back to the general layout
     frameData.outputImages[currentFrame]->transitionImageLayout(*frameData.commandBuffers[currentFrame][2], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL, subresourceRange);
+
+    // TODO remove this part, used for testing fluid simulation intermediate buffer values
+    /*
+    frameData.fluidVelocityOutputTextures[currentFrame]->image->transitionImageLayout(*frameData.commandBuffers[currentFrame][2], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, subresourceRange);
+    vkCmdCopyImage(frameData.commandBuffers[currentFrame][2]->getHandle(), frameData.fluidVelocityOutputTextures[currentFrame]->image->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swapchain->getImages()[swapchainImageIndex]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &outputImageCopyRegion);
+    frameData.fluidVelocityOutputTextures[currentFrame]->image->transitionImageLayout(*frameData.commandBuffers[currentFrame][2], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL, subresourceRange);*/
 
     // End command buffer for copy operations
     frameData.commandBuffers[currentFrame][2]->end();
@@ -608,7 +615,7 @@ void MainApp::update()
     currentFrame = (currentFrame + 1) % maxFramesInFlight;
 }
 
-// TODO: handle recreate for raytracing
+// TODO: this totally does not work and needs an entire overhaul, also need to handle recreate for raytracing
 void MainApp::recreateSwapchain()
 {
     // TODO: update window width and high variables on window resize callback??
@@ -622,7 +629,7 @@ void MainApp::recreateSwapchain()
     createPostRenderPass();
     createMainRasterizationPipeline();
     createPostProcessingPipeline();
-    createModelAnimationComputePipeline();
+    //createModelAnimationComputePipeline();
     createDepthResources();
     createFramebuffers();
     createCommandBuffers();
@@ -884,6 +891,84 @@ void MainApp::computeParticles()
     }
 }
 
+void MainApp::copyFluidOutputTextureToInputTexture()
+{
+    // Add memory barrier to ensure that the computer shader has finished writing to the buffer
+    VkMemoryBarrier2 computeShaderFinishedWritingMemoryBarrier{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
+    computeShaderFinishedWritingMemoryBarrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+    computeShaderFinishedWritingMemoryBarrier.dstAccessMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT_KHR;
+    computeShaderFinishedWritingMemoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    computeShaderFinishedWritingMemoryBarrier.dstStageMask = VK_ACCESS_2_MEMORY_WRITE_BIT_KHR;
+#if 1
+    // TODO remove full pipeline barrier after identifying synchronization issues
+    computeShaderFinishedWritingMemoryBarrier.srcAccessMask = VK_ACCESS_2_MEMORY_READ_BIT_KHR | VK_ACCESS_2_MEMORY_WRITE_BIT_KHR;
+    computeShaderFinishedWritingMemoryBarrier.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT_KHR | VK_ACCESS_2_MEMORY_WRITE_BIT_KHR;
+    computeShaderFinishedWritingMemoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR;
+    computeShaderFinishedWritingMemoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR;
+#endif
+    VkDependencyInfo computeShaderFinishedWritingDependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+    computeShaderFinishedWritingDependencyInfo.pNext = nullptr;
+    computeShaderFinishedWritingDependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+    computeShaderFinishedWritingDependencyInfo.memoryBarrierCount = 1u;
+    computeShaderFinishedWritingDependencyInfo.pMemoryBarriers = &computeShaderFinishedWritingMemoryBarrier;
+    computeShaderFinishedWritingDependencyInfo.bufferMemoryBarrierCount = 0u;
+    computeShaderFinishedWritingDependencyInfo.pBufferMemoryBarriers = nullptr;
+    computeShaderFinishedWritingDependencyInfo.imageMemoryBarrierCount = 0u;
+    computeShaderFinishedWritingDependencyInfo.pImageMemoryBarriers = nullptr;
+
+    vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame][0]->getHandle(), &computeShaderFinishedWritingDependencyInfo);
+
+    // Layout transitions for the fluidVelocityOutputTextures as a transfer src and the fluidVelocityInputTextures as the transfer dst
+    VkImageSubresourceRange subresourceRange = {};
+    subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    subresourceRange.baseMipLevel = 0;
+    subresourceRange.levelCount = 1;
+    subresourceRange.baseArrayLayer = 0;
+    subresourceRange.layerCount = 1;
+
+    frameData.fluidVelocityInputTextures[currentFrame]->image->transitionImageLayout(*frameData.commandBuffers[currentFrame][0], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, subresourceRange);
+    frameData.fluidVelocityOutputTextures[currentFrame]->image->transitionImageLayout(*frameData.commandBuffers[currentFrame][0], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, subresourceRange);
+
+    // Copy fluidVelocityOutputTextures to fluidVelocityInputTextures for subsequent compute stages
+    VkImageCopy fluidVelocityTextureCopyRegion{};
+    fluidVelocityTextureCopyRegion.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+    fluidVelocityTextureCopyRegion.srcOffset = { 0, 0, 0 };
+    fluidVelocityTextureCopyRegion.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+    fluidVelocityTextureCopyRegion.dstOffset = { 0, 0, 0 };
+    fluidVelocityTextureCopyRegion.extent = { swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, 1 };
+
+    vkCmdCopyImage(frameData.commandBuffers[currentFrame][0]->getHandle(), frameData.fluidVelocityOutputTextures[currentFrame]->image->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, frameData.fluidVelocityInputTextures[currentFrame]->image->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &fluidVelocityTextureCopyRegion);
+
+    // Layout transitions for the fluidVelocityOutputTextures and the fluidVelocityInputTextures as general
+    frameData.fluidVelocityInputTextures[currentFrame]->image->transitionImageLayout(*frameData.commandBuffers[currentFrame][0], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL, subresourceRange);
+    frameData.fluidVelocityOutputTextures[currentFrame]->image->transitionImageLayout(*frameData.commandBuffers[currentFrame][0], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL, subresourceRange);
+
+    // Add memory barrier to ensure that the computer shader has finished writing to the buffer
+    VkMemoryBarrier2 textureCopyFinishedMemoryBarrier{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
+    textureCopyFinishedMemoryBarrier.srcAccessMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT_KHR;
+    textureCopyFinishedMemoryBarrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+    textureCopyFinishedMemoryBarrier.srcStageMask = VK_ACCESS_2_MEMORY_WRITE_BIT_KHR;
+    textureCopyFinishedMemoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+#if 1
+    // TODO remove full pipeline barrier after identifying synchronization issues
+    textureCopyFinishedMemoryBarrier.srcAccessMask = VK_ACCESS_2_MEMORY_READ_BIT_KHR | VK_ACCESS_2_MEMORY_WRITE_BIT_KHR;
+    textureCopyFinishedMemoryBarrier.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT_KHR | VK_ACCESS_2_MEMORY_WRITE_BIT_KHR;
+    textureCopyFinishedMemoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR;
+    textureCopyFinishedMemoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR;
+#endif
+    VkDependencyInfo textureCopyFinishedDependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+    textureCopyFinishedDependencyInfo.pNext = nullptr;
+    textureCopyFinishedDependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+    textureCopyFinishedDependencyInfo.memoryBarrierCount = 1u;
+    textureCopyFinishedDependencyInfo.pMemoryBarriers = &textureCopyFinishedMemoryBarrier;
+    textureCopyFinishedDependencyInfo.bufferMemoryBarrierCount = 0u;
+    textureCopyFinishedDependencyInfo.pBufferMemoryBarriers = nullptr;
+    textureCopyFinishedDependencyInfo.imageMemoryBarrierCount = 0u;
+    textureCopyFinishedDependencyInfo.pImageMemoryBarriers = nullptr;
+
+    vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame][0]->getHandle(), &textureCopyFinishedDependencyInfo);
+}
+
 void MainApp::computeFluidSimulation()
 {
     // Acquire
@@ -945,35 +1030,23 @@ void MainApp::computeFluidSimulation()
     size_t fluidVelocityBufferSize = swapchain->getProperties().imageExtent.width * swapchain->getProperties().imageExtent.height;
     vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), (fluidVelocityBufferSize / m_workGroupSize) + 1, 1, 1);
 
-    /*
-    // Add memory barrier to ensure that the computer shader has finished writing to the buffer
-    VkMemoryBarrier2 memoryBarrier{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
-    memoryBarrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-    memoryBarrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-    memoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    memoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-
-    VkDependencyInfo dependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
-    dependencyInfo.pNext = nullptr;
-    dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-    dependencyInfo.memoryBarrierCount = 1u;
-    dependencyInfo.pMemoryBarriers = &memoryBarrier;
-    dependencyInfo.bufferMemoryBarrierCount = 0u;
-    dependencyInfo.pBufferMemoryBarriers = nullptr;
-    dependencyInfo.imageMemoryBarrierCount = 0u;
-    dependencyInfo.pImageMemoryBarriers = nullptr;
-
-    vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame][0]->getHandle(), &dependencyInfo);
-
-    // TODO: we need to copy fluidVelocityOutputTextureImage to fluidVelocityInputTextureImage and use the appropriate synchronization. Currently the pipeline barriers assume that we're running one compute after another
+#if 0
+    // Ensures that compute shader has finished its writing before the transfer operation is done and ensures that it completes before any future compute operations
+    copyFluidOutputTextureToInputTexture();
+    
     // Second pass: Compute Jacobi Iteration
-
-    // TODO We need to specify a iteration count (maybe 20) and run this dispatch call that many times per frame
     vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeJacobi.pipeline->getBindPoint(), pipelines.computeJacobi.pipeline->getHandle());
     vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeJacobi.pipeline->getBindPoint(), pipelines.computeJacobi.pipelineState->getPipelineLayout().getHandle(), 0, 1, &frameData.fluidSimulationInputDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
     vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeJacobi.pipeline->getBindPoint(), pipelines.computeJacobi.pipelineState->getPipelineLayout().getHandle(), 1, 1, &frameData.fluidSimulationOutputDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
-    vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), (fluidVelocityBufferSize / m_workGroupSize) + 1, 1, 1);
-    */
+
+    const int jacobiIterationCount = 20;
+
+    for (int i = 0; i < jacobiIterationCount; ++i)
+    {
+        vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), (fluidVelocityBufferSize / m_workGroupSize) + 1, 1, 1);
+        copyFluidOutputTextureToInputTexture();
+    }
+#endif    
 
     // Release
     if (m_graphicsQueue->getFamilyIndex() != m_computeQueue->getFamilyIndex())
@@ -2094,7 +2167,7 @@ void MainApp::createJacobiComputePipeline()
 
     VkSpecializationInfo specializationInfo =
     {
-        3u,
+        5u,
         entries,
         to_u32(sizeof(SpecializationData)),
         &specializationData
@@ -2244,7 +2317,7 @@ void MainApp::createDepthResources()
     setDebugUtilsObjectName(device->getHandle(), depthImageView->getHandle(), "depthImageView");
 }
 
-std::unique_ptr<Image> MainApp::createTextureImage(uint32_t texWidth, uint32_t texHeight, bool isStorageImage)
+std::unique_ptr<Image> MainApp::createTextureImage(uint32_t texWidth, uint32_t texHeight, VkImageUsageFlags imageUsageFlags)
 {
     VkDeviceSize imageSize{ static_cast<VkDeviceSize>(texWidth * texHeight * 16 ) }; /* Since our format is VK_FORMAT_R32G32B32A32_SFLOAT, we allocate 4 bytes per channel  */
     VkBufferCreateInfo bufferInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
@@ -2266,7 +2339,7 @@ std::unique_ptr<Image> MainApp::createTextureImage(uint32_t texWidth, uint32_t t
     stagingBuffer->unmap();
 
     VkExtent3D extent{ texWidth, texHeight, 1u };
-    std::unique_ptr<Image> textureImage = std::make_unique<Image>(*device, VK_FORMAT_R32G32B32A32_SFLOAT, extent, isStorageImage ? (VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT) : (VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT), VMA_MEMORY_USAGE_GPU_ONLY /* default values for remaining params */);
+    std::unique_ptr<Image> textureImage = std::make_unique<Image>(*device, VK_FORMAT_R32G32B32A32_SFLOAT, extent, imageUsageFlags, VMA_MEMORY_USAGE_GPU_ONLY /* default values for remaining params */);
 
     VkImageSubresourceRange subresourceRange = {};
     subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
@@ -2706,13 +2779,13 @@ void MainApp::initializeFluidSimulationResources()
     for (uint32_t i = 0; i < maxFramesInFlight; ++i)
     {
         frameData.fluidVelocityInputTextures[i] = std::make_unique<Texture>();
-        frameData.fluidVelocityInputTextures[i]->image = createTextureImage(swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, false);
+        frameData.fluidVelocityInputTextures[i]->image = createTextureImage(swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
         frameData.fluidVelocityInputTextures[i]->imageview = createTextureImageView(*(frameData.fluidVelocityInputTextures[i]->image));
         setDebugUtilsObjectName(device->getHandle(), frameData.fluidVelocityInputTextures[i]->image->getHandle(), "fluidVelocityInputTexture image for frame #" + std::to_string(i));
         setDebugUtilsObjectName(device->getHandle(), frameData.fluidVelocityInputTextures[i]->imageview->getHandle(), "fluidVelocityInputTexture imageView for frame #" + std::to_string(i));
 
         frameData.fluidVelocityOutputTextures[i] = std::make_unique<Texture>();
-        frameData.fluidVelocityOutputTextures[i]->image = createTextureImage(swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, true);
+        frameData.fluidVelocityOutputTextures[i]->image = createTextureImage(swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT);
         frameData.fluidVelocityOutputTextures[i]->imageview = createTextureImageView(*(frameData.fluidVelocityOutputTextures[i]->image));
         setDebugUtilsObjectName(device->getHandle(), frameData.fluidVelocityOutputTextures[i]->image->getHandle(), "fluidVelocityOutputTexture image for frame #" + std::to_string(i));
         setDebugUtilsObjectName(device->getHandle(), frameData.fluidVelocityOutputTextures[i]->imageview->getHandle(), "fluidVelocityOutputTexture imageView for frame #" + std::to_string(i));
@@ -2951,7 +3024,7 @@ void MainApp::createDescriptorSets()
         frameData.fluidSimulationOutputDescriptorSets[i] = std::make_unique<DescriptorSet>(*device, fluidSimulationOutputDescriptorSetAllocateInfo);
         setDebugUtilsObjectName(device->getHandle(), frameData.fluidSimulationOutputDescriptorSets[i]->getHandle(), "fluidSimulationOutputDescriptorSets for frame #" + std::to_string(i));
 
-        // Binding 0 is the fluid velocity texture
+        // Binding 0 is the fluid velocity output texture
         VkDescriptorImageInfo fluidVelocityOutputTextureInfo{};
         fluidVelocityOutputTextureInfo.sampler = VK_NULL_HANDLE;
         fluidVelocityOutputTextureInfo.imageView = frameData.fluidVelocityOutputTextures[i]->imageview->getHandle();

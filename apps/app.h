@@ -432,6 +432,7 @@ private:
     void animateWithCompute();
     void computeParticles();
     void computeFluidSimulation();
+    void copyFluidOutputTextureToInputTexture();
     void updateBuffersPerFrame();
     void rasterize();
     void postProcess();
@@ -456,7 +457,7 @@ private:
     void createCommandBuffers();
     void copyBufferToImage(const Buffer &srcBuffer, const Image &dstImage, uint32_t width, uint32_t height);
     void createDepthResources();
-    std::unique_ptr<Image> createTextureImage(uint32_t texWidth, uint32_t texHeight, bool isStorageImage); // Create an empty texture image
+    std::unique_ptr<Image> createTextureImage(uint32_t texWidth, uint32_t texHeight, VkImageUsageFlags imageUsageFlags); // Create an empty texture image
     std::unique_ptr<Image> createTextureImage(const std::string &filename); // Reads a texture file and populate the texture image with the contents
     std::unique_ptr<ImageView> createTextureImageView(const Image &image);
     void createTextureSampler();
