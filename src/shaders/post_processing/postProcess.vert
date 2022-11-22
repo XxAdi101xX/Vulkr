@@ -2,8 +2,8 @@
 
 #extension GL_GOOGLE_include_directive : enable
 
-#include "common.glsl"
-#include "random.glsl"
+#include "../common.glsl"
+#include "../random.glsl"
 
 layout(set = 0, binding = 0) uniform CurrentFrameCameraBuffer
 {

@@ -1778,12 +1778,12 @@ void MainApp::createMainRasterizationPipeline()
 
     std::vector<VkDynamicState> dynamicStates;
 
-    std::shared_ptr<ShaderSource> mainVertexShader = std::make_shared<ShaderSource>("main.vert.spv");
+    std::shared_ptr<ShaderSource> mainVertexShader = std::make_shared<ShaderSource>("rasterization/main.vert.spv");
     VkSpecializationInfo mainVertexShaderSpecializationInfo;
     mainVertexShaderSpecializationInfo.mapEntryCount = 0;
     mainVertexShaderSpecializationInfo.dataSize = 0;
 
-    std::shared_ptr<ShaderSource> mainFragmentShader = std::make_shared<ShaderSource>("main.frag.spv");
+    std::shared_ptr<ShaderSource> mainFragmentShader = std::make_shared<ShaderSource>("rasterization/main.frag.spv");
     struct SpecializationData {
         uint32_t maxLightCount;
     } specializationData;
@@ -1930,11 +1930,11 @@ void MainApp::createPostProcessingPipeline()
 
     std::vector<VkDynamicState> dynamicStates{ VK_DYNAMIC_STATE_BLEND_CONSTANTS };
 
-    std::shared_ptr<ShaderSource> postProcessVertexShader = std::make_shared<ShaderSource>("postProcess.vert.spv");
+    std::shared_ptr<ShaderSource> postProcessVertexShader = std::make_shared<ShaderSource>("post_processing/postProcess.vert.spv");
     VkSpecializationInfo postProcessVertexShaderSpecializationInfo;
     postProcessVertexShaderSpecializationInfo.mapEntryCount = 0;
     postProcessVertexShaderSpecializationInfo.dataSize = 0;
-    std::shared_ptr<ShaderSource> postProcessFragmentShader = std::make_shared<ShaderSource>("postProcess.frag.spv");
+    std::shared_ptr<ShaderSource> postProcessFragmentShader = std::make_shared<ShaderSource>("post_processing/postProcess.frag.spv");
     VkSpecializationInfo postProcessFragmentShaderSpecializationInfo;
     postProcessFragmentShaderSpecializationInfo.mapEntryCount = 0;
     postProcessFragmentShaderSpecializationInfo.dataSize = 0;
@@ -2006,7 +2006,7 @@ void MainApp::createModelAnimationComputePipeline()
 
 void MainApp::createParticleCalculateComputePipeline()
 {
-    std::shared_ptr<ShaderSource> computeShader = std::make_shared<ShaderSource>("particleCalculate.comp.spv");
+    std::shared_ptr<ShaderSource> computeShader = std::make_shared<ShaderSource>("particle_system/particleCalculate.comp.spv");
 
     struct SpecializationData {
         uint32_t workGroupSize;
@@ -2058,7 +2058,7 @@ void MainApp::createParticleCalculateComputePipeline()
 
 void MainApp::createParticleIntegrateComputePipeline()
 {
-    std::shared_ptr<ShaderSource> computeShader = std::make_shared<ShaderSource>("particleIntegrate.comp.spv");
+    std::shared_ptr<ShaderSource> computeShader = std::make_shared<ShaderSource>("particle_system/particleIntegrate.comp.spv");
 
     const std::array<VkSpecializationMapEntry, 1> entries{ 
         {
@@ -2095,7 +2095,7 @@ void MainApp::createParticleIntegrateComputePipeline()
 
 void MainApp::createFluidAdvectionComputePipeline()
 {
-    std::shared_ptr<ShaderSource> computeShader = std::make_shared<ShaderSource>("fluidAdvection.comp.spv");
+    std::shared_ptr<ShaderSource> computeShader = std::make_shared<ShaderSource>("fluid_simulation/fluidAdvection.comp.spv");
 
     struct SpecializationData {
         uint32_t workGroupSize;
@@ -2139,7 +2139,7 @@ void MainApp::createFluidAdvectionComputePipeline()
 
 void MainApp::createJacobiComputePipeline()
 {
-    std::shared_ptr<ShaderSource> computeShader = std::make_shared<ShaderSource>("jacobi.comp.spv");
+    std::shared_ptr<ShaderSource> computeShader = std::make_shared<ShaderSource>("fluid_simulation/jacobi.comp.spv");
 
     struct SpecializationData {
         uint32_t workGroupSize;
@@ -4059,10 +4059,10 @@ void MainApp::updateRtDescriptorSet()
 // Pipeline for the ray tracer: all shaders, raygen, chit, miss
 void MainApp::createRtPipeline()
 {
-    std::shared_ptr<ShaderSource> rayGenShader = std::make_shared<ShaderSource>("raytrace.rgen.spv");
-    std::shared_ptr<ShaderSource> rayMissShader = std::make_shared<ShaderSource>("raytrace.rmiss.spv");
-    std::shared_ptr<ShaderSource> rayShadowMissShader = std::make_shared<ShaderSource>("raytraceShadow.rmiss.spv");
-    std::shared_ptr<ShaderSource> rayClosestHitShader = std::make_shared<ShaderSource>("raytrace.rchit.spv");
+    std::shared_ptr<ShaderSource> rayGenShader = std::make_shared<ShaderSource>("ray_tracing/raytrace.rgen.spv");
+    std::shared_ptr<ShaderSource> rayMissShader = std::make_shared<ShaderSource>("ray_tracing/raytrace.rmiss.spv");
+    std::shared_ptr<ShaderSource> rayShadowMissShader = std::make_shared<ShaderSource>("ray_tracing/raytraceShadow.rmiss.spv");
+    std::shared_ptr<ShaderSource> rayClosestHitShader = std::make_shared<ShaderSource>("ray_tracing/raytrace.rchit.spv");
 
     struct SpecializationData {
         uint32_t maxLightCount;

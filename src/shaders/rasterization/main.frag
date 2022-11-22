@@ -7,7 +7,7 @@
 #extension GL_EXT_debug_printf : enable
 #extension GL_GOOGLE_include_directive : enable
 
-#include "common.glsl"
+#include "../common.glsl"
 
 layout(constant_id = 0) const uint maxLightCount = 10000;
 

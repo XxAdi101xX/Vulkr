@@ -6,7 +6,7 @@
 #extension GL_EXT_scalar_block_layout : enable
 #extension GL_GOOGLE_include_directive : enable
 
-#include "common.glsl"
+#include "../common.glsl"
 #include "raycommon.glsl"
 
 hitAttributeEXT vec2 attribs;
