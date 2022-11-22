@@ -43,7 +43,7 @@ void CameraController::handleInputEvents(const InputEvent &inputEvent)
 {
     if (inputEvent.getEventSource() == EventSource::Keyboard)
     {
-        const KeyInputEvent &keyInputEvent = static_cast<const KeyInputEvent &>(inputEvent);
+        const KeyInputEvent &keyInputEvent = dynamic_cast<const KeyInputEvent &>(inputEvent);
 
         if (keyInputEvent.getAction() == KeyAction::Unknown)
         {
@@ -93,7 +93,7 @@ void CameraController::handleInputEvents(const InputEvent &inputEvent)
     }
     else if (inputEvent.getEventSource() == EventSource::Mouse)
     {
-        const MouseInputEvent &mouseInputEvent = static_cast<const MouseInputEvent &>(inputEvent);
+        const MouseInputEvent &mouseInputEvent = dynamic_cast<const MouseInputEvent &>(inputEvent);
 
         if (mouseInputEvent.getAction() == MouseAction::Unknown)
         {
@@ -162,15 +162,15 @@ void CameraController::handleCursorPositionChange(const MouseInputEvent &mouseIn
 void CameraController::orbit(const MouseInputEvent &mouseInputEvent)
 {
     // Calculate the rotation magnitude along the x and y axis
-    const float deltaAngleX = (2.0f * M_PI / camera->getViewport().x);
-    const float deltaAngleY = (M_PI / camera->getViewport().y);
-    float rotationAngleX = (lastMousePosition.x - mouseInputEvent.getPositionX()) * deltaAngleX;
-    float rotationAngleY = (lastMousePosition.y - mouseInputEvent.getPositionY()) * deltaAngleY;
+    const float deltaAngleX = static_cast<float>(2.0f * M_PI / camera->getViewport().x);
+    const float deltaAngleY = static_cast<float>(M_PI / camera->getViewport().y);
+    const float rotationAngleX = static_cast<float>(lastMousePosition.x - mouseInputEvent.getPositionX()) * deltaAngleX;
+    float rotationAngleY = static_cast<float>(lastMousePosition.y - mouseInputEvent.getPositionY()) * deltaAngleY;
 
     // If the viewing direction is the same as the up direction, we will get rapid model flipping so we want to avoid that
     if (glm::dot(camera->getViewDirection(), camera->getUp()) * sgn(rotationAngleY) > 0.99f)
     {
-        rotationAngleY = 0;
+        rotationAngleY = 0.0f;
     }
 
     glm::vec4 newPosition{ camera->getPosition(), 1.0f };

@@ -49,6 +49,7 @@ target_compile_definitions(glm INTERFACE
     GLM_FORCE_RADIANS
     GLM_FORCE_CTOR_INIT
     GLM_ENABLE_EXPERIMENTAL
+    GLM_FORCE_DEPTH_ZERO_TO_ONE # Use 0 to 1 as the clip space in the z-axis instead of the OpenGL default of -1 to 1
 )
 if(NOT CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
     target_compile_definitions(glm INTERFACE GLM_FORCE_CXX14)

@@ -22,8 +22,18 @@
 
 #pragma once
 
+// Vulkan Common
 #include "common/vulkan_common.h"
 
+// Common files
+#include "common/semaphore_pool.h"
+#include "common/fence_pool.h"
+#include "common/helpers.h"
+#include "common/timer.h"
+#include "common/obj_loader.h"
+#include "common/debug_util.h"
+
+// Core Files
 #include "core/instance.h"
 #include "core/device.h"
 #include "core/swapchain.h"
@@ -46,21 +56,24 @@
 #include "core/image.h"
 #include "core/sampler.h"
 
-#include "common/semaphore_pool.h"
-#include "common/fence_pool.h"
-#include "common/helpers.h"
-#include "common/timer.h"
-#include "common/obj_loader.h"
-#include "common/debug_util.h"
-
+// Platform files
 #include "platform/application.h"
 #include "platform/input_event.h"
 
-#define GLM_FORCE_RADIANS
-#define GLM_FORCE_DEPTH_ZERO_TO_ONE // don't use the OpenGL default depth range of -1.0 to 1.0 and use 0.0 to 1.0
+// GLM
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
+// STB
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb_image.h>
+
+// ImGui
+#include <imgui.h>
+#include <backends/imgui_impl_glfw.h>
+#include <backends/imgui_impl_vulkan.h>
+
+// C++ Libraries
 #include <iostream>
 #include <chrono>
 #include <algorithm>
@@ -68,13 +81,6 @@
 #include <queue>
 #include <mutex>
 #include <condition_variable>
-
-#define STB_IMAGE_IMPLEMENTATION
-#include <stb_image.h>
-
-#include <imgui.h>
-#include <backends/imgui_impl_glfw.h>
-#include <backends/imgui_impl_vulkan.h>
 
 // Required for imgui integration, might be able to remove this if there's an alternate integration with volk
 VkInstance g_instanceHandle;
@@ -508,7 +514,7 @@ private:
     std::unique_ptr<Buffer> m_rtSBTBuffer; // The raytracing shader binding table
 
     // Raytracing helpers
-    VkDeviceAddress getBlasDeviceAddress(uint32_t blasId);
+    VkDeviceAddress getBlasDeviceAddress(uint64_t blasId);
     BlasInput objectToVkGeometryKHR(size_t objModelIndex);
     std::unique_ptr<AccelerationStructure> createAccelerationStructure(VkAccelerationStructureCreateInfoKHR &accelerationStructureInfo);
 
@@ -525,6 +531,6 @@ private:
     void createRtShaderBindingTable(); // https://www.willusher.io/graphics/2019/11/20/the-sbt-three-ways is a great resource on how the SBT works and how we should be organizing our shaders into primary and occlusion hit groups
 
     void raytrace();
-};
+}; // class MainApp
 
 } // namespace vulkr

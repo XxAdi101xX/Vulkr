@@ -28,8 +28,7 @@
 #include <unordered_map>
 #include <vector>
 
-#define GLM_ENABLE_EXPERIMENTAL
-#include <glm/gtx/hash.hpp>
+#include <glm/gtx/hash.hpp> // requires GLM_ENABLE_EXPERIMENTAL
 
  /* Obj vertex structure */
 struct VertexObj

@@ -30,7 +30,7 @@ layout(constant_id = 1) const uint fluidVelocityBufferWidth = 1;
 layout(constant_id = 2) const uint fluidVelocityBufferHeight = 1;
 
 layout(set = 0, binding = 0) uniform sampler2D fluidVelocityInputTextureImage;
-layout(set = 1, binding = 0, rgba32f) uniform writeonly image2D fluidVelocityOutputTextureImage;
+layout(set = 1, binding = 0, rgba32f) uniform image2D fluidVelocityOutputTextureImage;
 
 vec2 inverseCanvasSize = vec2(1.0f / fluidVelocityBufferWidth, 1.0f / fluidVelocityBufferHeight);
 
@@ -55,6 +55,7 @@ void main()
 	uint index = gl_GlobalInvocationID.x;
 	if (index >= fluidVelocityBufferWidth * fluidVelocityBufferHeight) return;
 
+	//debugPrintfEXT("texvalue is %f %f %f", imageLoad(fluidVelocityOutputTextureImage, ivec2(0, 0)).x, imageLoad(fluidVelocityOutputTextureImage, ivec2(1, 0)).x, imageLoad(fluidVelocityOutputTextureImage, ivec2(0, 0)).z);
 	ivec2 imageIndex;
 	imageIndex.x = int(mod(index, fluidVelocityBufferWidth));
 	imageIndex.y = int(index / fluidVelocityBufferWidth);
@@ -69,5 +70,4 @@ void main()
 	// Note that enabling any prints causes crashes
 	//debugPrintfEXT("width is %d, height is %d, index is %d, velocity for texcoord: %1.1v2f", fluidVelocityBufferWidth, fluidVelocityBufferHeight, index, texCoord);
 	//debugPrintfEXT("inverse canvas size is %1.7v2f, width and height are %d, %d", inverseCanvasSize, fluidVelocityBufferWidth, fluidVelocityBufferHeight);
-	//debugPrintfEXT("texvalue is %f %f %f", imageLoad(fluidVelocityOutputTextureImage, ivec2(0, 0)).x, imageLoad(fluidVelocityOutputTextureImage, ivec2(0, 1)).x, imageLoad(fluidVelocityOutputTextureImage, ivec2(4, 0)).x);
 }

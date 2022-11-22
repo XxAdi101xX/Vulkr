@@ -590,7 +590,7 @@ void MainApp::update()
 
     std::array<VkSubmitInfo2, 3> submitInfo{ offscreenPassSubmitInfo, postProcessPassSubmitInfo, outputImageTransferPassSubmitInfo };
 
-    VK_CHECK(vkQueueSubmit2KHR(m_graphicsQueue->getHandle(), submitInfo.size(), submitInfo.data(), frameData.inFlightFences[currentFrame]));
+    VK_CHECK(vkQueueSubmit2KHR(m_graphicsQueue->getHandle(), to_u32(submitInfo.size()), submitInfo.data(), frameData.inFlightFences[currentFrame]));
 
     VkPresentInfoKHR presentInfo{ VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
     presentInfo.waitSemaphoreCount = 1u;
@@ -1028,7 +1028,7 @@ void MainApp::computeFluidSimulation()
     vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeFluidAdvection.pipeline->getBindPoint(), pipelines.computeFluidAdvection.pipelineState->getPipelineLayout().getHandle(), 1, 1, &frameData.fluidSimulationOutputDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
     //vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeFluidAdvection.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputeParticlesPushConstant), &computeParticlesPushConstant);
     size_t fluidVelocityBufferSize = swapchain->getProperties().imageExtent.width * swapchain->getProperties().imageExtent.height;
-    vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), (fluidVelocityBufferSize / m_workGroupSize) + 1, 1, 1);
+    vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), to_u32(fluidVelocityBufferSize / m_workGroupSize) + 1u, 1u, 1u);
 
 #if 0
     // Ensures that compute shader has finished its writing before the transfer operation is done and ensures that it completes before any future compute operations
@@ -1043,7 +1043,7 @@ void MainApp::computeFluidSimulation()
 
     for (int i = 0; i < jacobiIterationCount; ++i)
     {
-        vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), (fluidVelocityBufferSize / m_workGroupSize) + 1, 1, 1);
+        vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), to_u32(fluidVelocityBufferSize / m_workGroupSize) + 1u, 1u, 1u);
         copyFluidOutputTextureToInputTexture();
     }
 #endif    
@@ -1183,12 +1183,12 @@ void MainApp::rasterize()
     vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(TaaPushConstant), sizeof(RasterizationPushConstant), &rasterizationPushConstant);
 
     // Bind vertices, indices and call the draw method
-    int32_t lastObjIndex{ -1 };
+    uint64_t lastObjIndex{ 0u };
     for (int index = 0; index < objInstances.size(); index++)
     {
         ObjModel &objModel = objModels[objInstances[index].objIndex];
-        // Bind the vertex and index buffers if the instance model is different from the previous one
-        if (objInstances[index].objIndex != lastObjIndex)
+        // Bind the vertex and index buffers if the instance model is different from the previous one (we always bind for the first one)
+        if (index == 0 || objInstances[index].objIndex != lastObjIndex)
         {
             VkBuffer vertexBuffers[] = { objModel.vertexBuffer->getHandle() };
             VkDeviceSize offsets[] = { 0 };
@@ -1232,12 +1232,12 @@ void MainApp::postProcess()
     vkCmdPushConstants(frameData.commandBuffers[currentFrame][1]->getHandle(), pipelineData.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PostProcessPushConstant), &postProcessPushConstant);
 
     // Bind vertices, indices and call the draw method
-    int32_t lastObjIndex{ -1 };
+    uint64_t lastObjIndex{ 0u };
     for (int index = 0; index < objInstances.size(); index++)
     {
         ObjModel &objModel = objModels[objInstances[index].objIndex];
-        // Bind the objModel if it's a different one from last one
-        if (objInstances[index].objIndex != lastObjIndex)
+        // Bind the objModel if it's a different one from last one (we always bind the first time)
+        if (index == 0 || objInstances[index].objIndex != lastObjIndex)
         {
             VkBuffer vertexBuffers[] = { objModel.vertexBuffer->getHandle() };
             VkDeviceSize offsets[] = { 0 };
@@ -1261,14 +1261,14 @@ void MainApp::setupTimer()
 
 float createHaltonSequence(uint32_t index, uint32_t base)
 {
-    float f = 1;
-    float r = 0;
-    int current = index;
+    float f = 1.0f;
+    float r = 0.0f;
+    uint32_t current = index;
     do
     {
         f = f / base;
         r = r + f * (current % base);
-        current = glm::floor(current / base);
+        current = static_cast<uint32_t>(glm::floor(current / base));
     } while (current > 0);
     return r;
 }
@@ -1734,7 +1734,7 @@ void MainApp::createMainRasterizationPipeline()
     inputAssemblyState.primitiveRestartEnable = VK_FALSE;
 
     ViewportState viewportState{};
-    VkViewport viewport{ 0.0f, 0.0f, swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, 0.0f, 1.0f };
+    VkViewport viewport{ 0.0f, 0.0f, static_cast<float>(swapchain->getProperties().imageExtent.width), static_cast<float>(swapchain->getProperties().imageExtent.height), 0.0f, 1.0f };
     viewportState.viewports.emplace_back(viewport);
     VkRect2D scissor{};
     scissor.offset = { 0, 0 };
@@ -1787,16 +1787,17 @@ void MainApp::createMainRasterizationPipeline()
     struct SpecializationData {
         uint32_t maxLightCount;
     } specializationData;
-    const VkSpecializationMapEntry entries[] =
-    {
-        { 0u, offsetof(SpecializationData, maxLightCount), sizeof(uint32_t) }
+    const std::array<VkSpecializationMapEntry, 1> entries{
+        {
+            { 0u, offsetof(SpecializationData, maxLightCount), sizeof(uint32_t) }
+        }
     };
     specializationData.maxLightCount = maxLightCount;
 
     VkSpecializationInfo mainFragmentShaderSpecializationInfo =
     {
-        1u,
-        entries,
+        to_u32(entries.size()),
+        entries.data(),
         to_u32(sizeof(SpecializationData)),
         &specializationData
     };
@@ -1883,7 +1884,7 @@ void MainApp::createPostProcessingPipeline()
     inputAssemblyState.primitiveRestartEnable = VK_FALSE;
 
     ViewportState viewportState{};
-    VkViewport viewport{ 0.0f, 0.0f, swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, 0.0f, 1.0f };
+    VkViewport viewport{ 0.0f, 0.0f, static_cast<float>(swapchain->getProperties().imageExtent.width), static_cast<float>(swapchain->getProperties().imageExtent.height), 0.0f, 1.0f };
     viewportState.viewports.emplace_back(viewport);
     VkRect2D scissor{};
     scissor.offset = { 0, 0 };
@@ -1970,20 +1971,17 @@ void MainApp::createModelAnimationComputePipeline()
 {
     std::shared_ptr<ShaderSource> computeShader = std::make_shared<ShaderSource>("animate.comp.spv");
 
-    const VkSpecializationMapEntry entries[] =
-    {
+    const std::array<VkSpecializationMapEntry, 1> entries{
         {
-            0u,
-            to_u32(0 * sizeof(uint32_t)),
-            sizeof(uint32_t)
+            { 0u, to_u32(0 * sizeof(uint32_t)),  sizeof(uint32_t) }
         }
     };
     const uint32_t data[] = { m_workGroupSize };
 
     VkSpecializationInfo specializationInfo =
     {
-        1u,
-        entries,
+        to_u32(entries.size()),
+        entries.data(),
         to_u32(1 * sizeof(uint32_t)),
         data
     };
@@ -2017,13 +2015,14 @@ void MainApp::createParticleCalculateComputePipeline()
         float power;
         float soften;
     } specializationData;
-    const VkSpecializationMapEntry entries[] =
-    {
-        { 0u, offsetof(SpecializationData, workGroupSize), sizeof(uint32_t) },
-        { 1u, offsetof(SpecializationData, sharedDataSize), sizeof(uint32_t) },
-        { 2u, offsetof(SpecializationData, gravity), sizeof(float) },
-        { 3u, offsetof(SpecializationData, power), sizeof(float) },
-        { 4u, offsetof(SpecializationData, soften), sizeof(float) },
+    const std::array<VkSpecializationMapEntry, 5> entries{
+        {
+            { 0u, offsetof(SpecializationData, workGroupSize), sizeof(uint32_t) },
+            { 1u, offsetof(SpecializationData, sharedDataSize), sizeof(uint32_t) },
+            { 2u, offsetof(SpecializationData, gravity), sizeof(float) },
+            { 3u, offsetof(SpecializationData, power), sizeof(float) },
+            { 4u, offsetof(SpecializationData, soften), sizeof(float) },
+        }
     };
     specializationData.workGroupSize = m_workGroupSize;
     specializationData.sharedDataSize = m_workGroupSize / sizeof(glm::vec4);
@@ -2033,8 +2032,8 @@ void MainApp::createParticleCalculateComputePipeline()
 
     VkSpecializationInfo specializationInfo =
     {
-        5u,
-        entries,
+        to_u32(entries.size()),
+        entries.data(),
         to_u32(sizeof(SpecializationData)),
         &specializationData
     };
@@ -2061,20 +2060,17 @@ void MainApp::createParticleIntegrateComputePipeline()
 {
     std::shared_ptr<ShaderSource> computeShader = std::make_shared<ShaderSource>("particleIntegrate.comp.spv");
 
-    const VkSpecializationMapEntry entries[] =
-    {
+    const std::array<VkSpecializationMapEntry, 1> entries{ 
         {
-            0u,
-            to_u32(0 * sizeof(uint32_t)),
-            sizeof(uint32_t)
-        }
+            { 0u, to_u32(0 * sizeof(uint32_t)), sizeof(uint32_t) }
+        } 
     };
     const uint32_t data[] = { m_workGroupSize };
 
     VkSpecializationInfo specializationInfo =
     {
-        1u,
-        entries,
+        to_u32(entries.size()),
+        entries.data(),
         to_u32(1 * sizeof(uint32_t)),
         data
     };
@@ -2106,11 +2102,12 @@ void MainApp::createFluidAdvectionComputePipeline()
         uint32_t fluidVelocityBufferWidth;
         uint32_t fluidVelocityBufferHeight;
     } specializationData;
-    const VkSpecializationMapEntry entries[] =
-    {
-        { 0u, offsetof(SpecializationData, workGroupSize), sizeof(uint32_t) },
-        { 1u, offsetof(SpecializationData, fluidVelocityBufferWidth), sizeof(uint32_t) },
-        { 2u, offsetof(SpecializationData, fluidVelocityBufferHeight), sizeof(uint32_t) },
+    const std::array<VkSpecializationMapEntry, 3> entries{
+        {
+            { 0u, offsetof(SpecializationData, workGroupSize), sizeof(uint32_t) },
+            { 1u, offsetof(SpecializationData, fluidVelocityBufferWidth), sizeof(uint32_t) },
+            { 2u, offsetof(SpecializationData, fluidVelocityBufferHeight), sizeof(uint32_t) },
+        }
     };
     specializationData.workGroupSize = m_workGroupSize;
     specializationData.fluidVelocityBufferWidth = swapchain->getProperties().imageExtent.width;
@@ -2118,8 +2115,8 @@ void MainApp::createFluidAdvectionComputePipeline()
 
     VkSpecializationInfo specializationInfo =
     {
-        3u,
-        entries,
+        to_u32(entries.size()),
+        entries.data(),
         to_u32(sizeof(SpecializationData)),
         &specializationData
     };
@@ -2151,13 +2148,14 @@ void MainApp::createJacobiComputePipeline()
         float alpha;
         float reciprocalBeta;
     } specializationData;
-    const VkSpecializationMapEntry entries[] =
-    {
-        { 0u, offsetof(SpecializationData, workGroupSize), sizeof(uint32_t) },
-        { 1u, offsetof(SpecializationData, fluidVelocityBufferWidth), sizeof(uint32_t) },
-        { 2u, offsetof(SpecializationData, fluidVelocityBufferHeight), sizeof(uint32_t) },
-        { 3u, offsetof(SpecializationData, alpha), sizeof(float) },
-        { 4u, offsetof(SpecializationData, reciprocalBeta), sizeof(float) },
+    const std::array<VkSpecializationMapEntry, 5> entries{
+        {
+            { 0u, offsetof(SpecializationData, workGroupSize), sizeof(uint32_t) },
+            { 1u, offsetof(SpecializationData, fluidVelocityBufferWidth), sizeof(uint32_t) },
+            { 2u, offsetof(SpecializationData, fluidVelocityBufferHeight), sizeof(uint32_t) },
+            { 3u, offsetof(SpecializationData, alpha), sizeof(float) },
+            { 4u, offsetof(SpecializationData, reciprocalBeta), sizeof(float) },
+        }
     };
     specializationData.workGroupSize = m_workGroupSize;
     specializationData.fluidVelocityBufferWidth = swapchain->getProperties().imageExtent.width;
@@ -2167,8 +2165,8 @@ void MainApp::createJacobiComputePipeline()
 
     VkSpecializationInfo specializationInfo =
     {
-        5u,
-        entries,
+        to_u32(entries.size()),
+        entries.data(),
         to_u32(sizeof(SpecializationData)),
         &specializationData
     };
@@ -2301,7 +2299,7 @@ void MainApp::copyBufferToImage(const Buffer &srcBuffer, const Image &dstImage, 
     submitInfo.signalSemaphoreInfoCount = 0u;
     submitInfo.pSignalSemaphoreInfos = nullptr;
 
-    VK_CHECK(vkQueueSubmit2KHR(m_graphicsQueue->getHandle(), 1, &submitInfo, VK_NULL_HANDLE));
+    VK_CHECK(vkQueueSubmit2KHR(m_graphicsQueue->getHandle(), 1u, &submitInfo, VK_NULL_HANDLE));
     vkQueueWaitIdle(m_graphicsQueue->getHandle());
 }
 
@@ -2310,7 +2308,7 @@ void MainApp::createDepthResources()
     VkFormat depthFormat = getSupportedDepthFormat(device->getPhysicalDevice().getHandle());
 
     VkExtent3D extent{ swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, 1 };
-    // TODO: a single depth buffer may not be correct... https://stackoverflow.com/questions/62371266/why-is-a-single-depth-buffer-sufficient-for-this-vulkan-swapchain-render-loop
+    // If we don't propery synchronize between renderpasses that use the same depth buffer, we could have data hazards
     depthImage = std::make_unique<Image>(*device, depthFormat, extent, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VMA_MEMORY_USAGE_GPU_ONLY /* default values for remaining params */);
     depthImageView = std::make_unique<ImageView>(*depthImage, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_DEPTH_BIT, depthFormat);
     setDebugUtilsObjectName(device->getHandle(), depthImage->getHandle(), "depthImage");
@@ -2319,6 +2317,7 @@ void MainApp::createDepthResources()
 
 std::unique_ptr<Image> MainApp::createTextureImage(uint32_t texWidth, uint32_t texHeight, VkImageUsageFlags imageUsageFlags)
 {
+    // TODO: we should probably do this initialization on the GPU side with a shader; this is inefficient since we have to mark the texture as a transfer destination, just for a one time initalization
     VkDeviceSize imageSize{ static_cast<VkDeviceSize>(texWidth * texHeight * 16 ) }; /* Since our format is VK_FORMAT_R32G32B32A32_SFLOAT, we allocate 4 bytes per channel  */
     VkBufferCreateInfo bufferInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
     bufferInfo.size = imageSize;
@@ -2328,13 +2327,10 @@ std::unique_ptr<Image> MainApp::createTextureImage(uint32_t texWidth, uint32_t t
     VmaAllocationCreateInfo memoryInfo{};
     memoryInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
 
-    std::vector<float> initialData(imageSize, 2.7f);
-    initialData[0] = 13.5f;
-    initialData[1] = 13.5f;
-    initialData[4] = 13.5f;
     std::unique_ptr<Buffer> stagingBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
 
     void *mappedData = stagingBuffer->map();
+    std::vector<float> initialData(imageSize, 0.0f);
     memcpy(mappedData, initialData.data(), static_cast<size_t>(imageSize));
     stagingBuffer->unmap();
 
@@ -2367,7 +2363,7 @@ std::unique_ptr<Image> MainApp::createTextureImage(uint32_t texWidth, uint32_t t
     submitInfo.signalSemaphoreInfoCount = 0u;
     submitInfo.pSignalSemaphoreInfos = nullptr;
 
-    VK_CHECK(vkQueueSubmit2KHR(m_graphicsQueue->getHandle(), 1, &submitInfo, VK_NULL_HANDLE));
+    VK_CHECK(vkQueueSubmit2KHR(m_graphicsQueue->getHandle(), 1u, &submitInfo, VK_NULL_HANDLE));
     vkQueueWaitIdle(m_graphicsQueue->getHandle());
 
     copyBufferToImage(*stagingBuffer, *textureImage, texWidth, texHeight);
@@ -2379,7 +2375,7 @@ std::unique_ptr<Image> MainApp::createTextureImage(uint32_t texWidth, uint32_t t
     commandBuffer->end();
 
     // Use the same submit info
-    VK_CHECK(vkQueueSubmit2KHR(m_graphicsQueue->getHandle(), 1, &submitInfo, VK_NULL_HANDLE));
+    VK_CHECK(vkQueueSubmit2KHR(m_graphicsQueue->getHandle(), 1u, &submitInfo, VK_NULL_HANDLE));
     vkQueueWaitIdle(m_graphicsQueue->getHandle());
 
     return textureImage;
@@ -2440,7 +2436,7 @@ std::unique_ptr<Image> MainApp::createTextureImage(const std::string &filename)
     submitInfo.signalSemaphoreInfoCount = 0u;
     submitInfo.pSignalSemaphoreInfos = nullptr;
 
-    VK_CHECK(vkQueueSubmit2KHR(m_graphicsQueue->getHandle(), 1, &submitInfo, VK_NULL_HANDLE));
+    VK_CHECK(vkQueueSubmit2KHR(m_graphicsQueue->getHandle(), 1u, &submitInfo, VK_NULL_HANDLE));
     vkQueueWaitIdle(m_graphicsQueue->getHandle());
 
     copyBufferToImage(*stagingBuffer, *textureImage, to_u32(texWidth), to_u32(texHeight));
@@ -2452,7 +2448,7 @@ std::unique_ptr<Image> MainApp::createTextureImage(const std::string &filename)
     commandBuffer->end();
 
     // Use the same submit info
-    VK_CHECK(vkQueueSubmit2KHR(m_graphicsQueue->getHandle(), 1, &submitInfo, VK_NULL_HANDLE));
+    VK_CHECK(vkQueueSubmit2KHR(m_graphicsQueue->getHandle(), 1u, &submitInfo, VK_NULL_HANDLE));
     vkQueueWaitIdle(m_graphicsQueue->getHandle());
 
     return textureImage;
@@ -2541,7 +2537,7 @@ void MainApp::copyBufferToBuffer(const Buffer &srcBuffer, const Buffer &dstBuffe
     submitInfo.signalSemaphoreInfoCount = 0u;
     submitInfo.pSignalSemaphoreInfos = nullptr;
 
-    VK_CHECK(vkQueueSubmit2KHR(m_graphicsQueue->getHandle(), 1, &submitInfo, VK_NULL_HANDLE));
+    VK_CHECK(vkQueueSubmit2KHR(m_graphicsQueue->getHandle(), 1u, &submitInfo, VK_NULL_HANDLE));
     vkQueueWaitIdle(m_graphicsQueue->getHandle());
 }
 
@@ -2785,7 +2781,8 @@ void MainApp::initializeFluidSimulationResources()
         setDebugUtilsObjectName(device->getHandle(), frameData.fluidVelocityInputTextures[i]->imageview->getHandle(), "fluidVelocityInputTexture imageView for frame #" + std::to_string(i));
 
         frameData.fluidVelocityOutputTextures[i] = std::make_unique<Texture>();
-        frameData.fluidVelocityOutputTextures[i]->image = createTextureImage(swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT);
+        // TODO: the VK_IMAGE_USAGE_TRANSFER_DST_BIT flag is required since in createTextureImage, there is code to 0 initialize the image with values (DOES NOT CURRENTLY WORK AS OF NOW); if we remove this logic, we don't need this flag here
+        frameData.fluidVelocityOutputTextures[i]->image = createTextureImage(swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT); 
         frameData.fluidVelocityOutputTextures[i]->imageview = createTextureImageView(*(frameData.fluidVelocityOutputTextures[i]->image));
         setDebugUtilsObjectName(device->getHandle(), frameData.fluidVelocityOutputTextures[i]->image->getHandle(), "fluidVelocityOutputTexture image for frame #" + std::to_string(i));
         setDebugUtilsObjectName(device->getHandle(), frameData.fluidVelocityOutputTextures[i]->imageview->getHandle(), "fluidVelocityOutputTexture imageView for frame #" + std::to_string(i));
@@ -2838,7 +2835,7 @@ void MainApp::createDescriptorSets()
         writeGlobalDescriptorSet.dstBinding = 0;
         writeGlobalDescriptorSet.dstArrayElement = 0;
         writeGlobalDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        writeGlobalDescriptorSet.descriptorCount = globalBufferInfos.size();
+        writeGlobalDescriptorSet.descriptorCount = to_u32(globalBufferInfos.size());
         writeGlobalDescriptorSet.pBufferInfo = globalBufferInfos.data();
         writeGlobalDescriptorSet.pImageInfo = nullptr;
         writeGlobalDescriptorSet.pTexelBufferView = nullptr;
@@ -2881,7 +2878,7 @@ void MainApp::createDescriptorSets()
         writePostProcessingUniformBufferDescriptorSet.dstBinding = 0;
         writePostProcessingUniformBufferDescriptorSet.dstArrayElement = 0;
         writePostProcessingUniformBufferDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        writePostProcessingUniformBufferDescriptorSet.descriptorCount = postProcessingUniformBufferInfos.size();
+        writePostProcessingUniformBufferDescriptorSet.descriptorCount = to_u32(postProcessingUniformBufferInfos.size());
         writePostProcessingUniformBufferDescriptorSet.pBufferInfo = postProcessingUniformBufferInfos.data();
         writePostProcessingUniformBufferDescriptorSet.pImageInfo = nullptr;
         writePostProcessingUniformBufferDescriptorSet.pTexelBufferView = nullptr;
@@ -2893,7 +2890,7 @@ void MainApp::createDescriptorSets()
         writePostProcessingStorageBufferDescriptorSet.dstBinding = 1;
         writePostProcessingStorageBufferDescriptorSet.dstArrayElement = 0;
         writePostProcessingStorageBufferDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        writePostProcessingStorageBufferDescriptorSet.descriptorCount = postProcessingStorageBufferInfos.size();
+        writePostProcessingStorageBufferDescriptorSet.descriptorCount = to_u32(postProcessingStorageBufferInfos.size());
         writePostProcessingStorageBufferDescriptorSet.pBufferInfo = postProcessingStorageBufferInfos.data();
         writePostProcessingStorageBufferDescriptorSet.pImageInfo = nullptr;
         writePostProcessingStorageBufferDescriptorSet.pTexelBufferView = nullptr;
@@ -2918,7 +2915,7 @@ void MainApp::createDescriptorSets()
         writePostProcessingStorageImageDescriptorSet.dstBinding = 2;
         writePostProcessingStorageImageDescriptorSet.dstArrayElement = 0;
         writePostProcessingStorageImageDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-        writePostProcessingStorageImageDescriptorSet.descriptorCount = postProcessingStorageImageInfos.size();
+        writePostProcessingStorageImageDescriptorSet.descriptorCount = to_u32(postProcessingStorageImageInfos.size());
         writePostProcessingStorageImageDescriptorSet.pImageInfo = postProcessingStorageImageInfos.data();
         writePostProcessingStorageImageDescriptorSet.pBufferInfo = nullptr;
         writePostProcessingStorageImageDescriptorSet.pTexelBufferView = nullptr;
@@ -2943,7 +2940,7 @@ void MainApp::createDescriptorSets()
         writeTaaUniformBufferDescriptorSet.dstBinding = 0;
         writeTaaUniformBufferDescriptorSet.dstArrayElement = 0;
         writeTaaUniformBufferDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        writeTaaUniformBufferDescriptorSet.descriptorCount = taaUniformBufferInfos.size();
+        writeTaaUniformBufferDescriptorSet.descriptorCount = to_u32(taaUniformBufferInfos.size());
         writeTaaUniformBufferDescriptorSet.pBufferInfo = taaUniformBufferInfos.data();
         writeTaaUniformBufferDescriptorSet.pImageInfo = nullptr;
         writeTaaUniformBufferDescriptorSet.pTexelBufferView = nullptr;
@@ -2960,7 +2957,7 @@ void MainApp::createDescriptorSets()
         writeTaaStorageBufferDescriptorSet.dstBinding = 1;
         writeTaaStorageBufferDescriptorSet.dstArrayElement = 0;
         writeTaaStorageBufferDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        writeTaaStorageBufferDescriptorSet.descriptorCount = taaStorageImageInfos.size();
+        writeTaaStorageBufferDescriptorSet.descriptorCount = to_u32(taaStorageImageInfos.size());
         writeTaaStorageBufferDescriptorSet.pBufferInfo = taaStorageImageInfos.data();
         writeTaaStorageBufferDescriptorSet.pImageInfo = nullptr;
         writeTaaStorageBufferDescriptorSet.pTexelBufferView = nullptr;
@@ -2985,7 +2982,7 @@ void MainApp::createDescriptorSets()
         writeParticleComputeStorageBufferDescriptorSet.dstBinding = 0;
         writeParticleComputeStorageBufferDescriptorSet.dstArrayElement = 0;
         writeParticleComputeStorageBufferDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        writeParticleComputeStorageBufferDescriptorSet.descriptorCount = particleComputeStorageBufferInfos.size();
+        writeParticleComputeStorageBufferDescriptorSet.descriptorCount = to_u32(particleComputeStorageBufferInfos.size());
         writeParticleComputeStorageBufferDescriptorSet.pBufferInfo = particleComputeStorageBufferInfos.data();
         writeParticleComputeStorageBufferDescriptorSet.pImageInfo = nullptr;
         writeParticleComputeStorageBufferDescriptorSet.pTexelBufferView = nullptr;
@@ -3010,7 +3007,7 @@ void MainApp::createDescriptorSets()
         writeFluidSimulationInputDescriptorSet.dstBinding = 0;
         writeFluidSimulationInputDescriptorSet.dstArrayElement = 0;
         writeFluidSimulationInputDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        writeFluidSimulationInputDescriptorSet.descriptorCount = fluidSimulationInputTextureInfos.size();
+        writeFluidSimulationInputDescriptorSet.descriptorCount = to_u32(fluidSimulationInputTextureInfos.size());
         writeFluidSimulationInputDescriptorSet.pImageInfo = fluidSimulationInputTextureInfos.data();
         writeFluidSimulationInputDescriptorSet.pBufferInfo = nullptr;
         writeFluidSimulationInputDescriptorSet.pTexelBufferView = nullptr;
@@ -3019,7 +3016,7 @@ void MainApp::createDescriptorSets()
         // Fluid Simulation Output Descriptor Set
         VkDescriptorSetAllocateInfo fluidSimulationOutputDescriptorSetAllocateInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
         fluidSimulationOutputDescriptorSetAllocateInfo.descriptorPool = descriptorPool->getHandle();
-        fluidSimulationOutputDescriptorSetAllocateInfo.descriptorSetCount = 1;
+        fluidSimulationOutputDescriptorSetAllocateInfo.descriptorSetCount = 1u;
         fluidSimulationOutputDescriptorSetAllocateInfo.pSetLayouts = &fluidSimulationOutputDescriptorSetLayout->getHandle();
         frameData.fluidSimulationOutputDescriptorSets[i] = std::make_unique<DescriptorSet>(*device, fluidSimulationOutputDescriptorSetAllocateInfo);
         setDebugUtilsObjectName(device->getHandle(), frameData.fluidSimulationOutputDescriptorSets[i]->getHandle(), "fluidSimulationOutputDescriptorSets for frame #" + std::to_string(i));
@@ -3036,7 +3033,7 @@ void MainApp::createDescriptorSets()
         writeFluidSimulationOutputDescriptorSet.dstBinding = 0;
         writeFluidSimulationOutputDescriptorSet.dstArrayElement = 0;
         writeFluidSimulationOutputDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-        writeFluidSimulationOutputDescriptorSet.descriptorCount = fluidSimulationOutputTextureInfos.size();
+        writeFluidSimulationOutputDescriptorSet.descriptorCount = to_u32(fluidSimulationOutputTextureInfos.size());
         writeFluidSimulationOutputDescriptorSet.pImageInfo = fluidSimulationOutputTextureInfos.data();
         writeFluidSimulationOutputDescriptorSet.pBufferInfo = nullptr;
         writeFluidSimulationOutputDescriptorSet.pTexelBufferView = nullptr;
@@ -3085,7 +3082,7 @@ void MainApp::createDescriptorSets()
     writeTextureDescriptorSet.dstBinding = 0;
     writeTextureDescriptorSet.dstArrayElement = 0;
     writeTextureDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    writeTextureDescriptorSet.descriptorCount = textureImageInfos.size();
+    writeTextureDescriptorSet.descriptorCount = to_u32(textureImageInfos.size());
     writeTextureDescriptorSet.pImageInfo = textureImageInfos.data();
     writeTextureDescriptorSet.pBufferInfo = nullptr;
     writeTextureDescriptorSet.pTexelBufferView = nullptr;
@@ -3201,8 +3198,8 @@ void MainApp::createSceneLights()
     sceneLights.emplace_back(std::move(l1));
     sceneLights.emplace_back(std::move(l2));
 
-    rasterizationPushConstant.lightCount = sceneLights.size();
-    raytracingPushConstant.lightCount = sceneLights.size();
+    rasterizationPushConstant.lightCount = static_cast<int>(sceneLights.size());
+    raytracingPushConstant.lightCount = static_cast<int>(sceneLights.size());
 }
 
 void MainApp::loadModels()
@@ -3360,7 +3357,7 @@ void MainApp::initializeImGui()
     submitInfo.signalSemaphoreInfoCount = 0u;
     submitInfo.pSignalSemaphoreInfos = nullptr;
 
-    VK_CHECK(vkQueueSubmit2KHR(m_graphicsQueue->getHandle(), 1, &submitInfo, VK_NULL_HANDLE));
+    VK_CHECK(vkQueueSubmit2KHR(m_graphicsQueue->getHandle(), 1u, &submitInfo, VK_NULL_HANDLE));
     vkQueueWaitIdle(m_graphicsQueue->getHandle());
 
     // Clear font data on CPU
@@ -3446,7 +3443,7 @@ void MainApp::createImageResourcesForFrames()
         submitInfo.signalSemaphoreInfoCount = 0u;
         submitInfo.pSignalSemaphoreInfos = nullptr;
 
-        VK_CHECK(vkQueueSubmit2KHR(m_graphicsQueue->getHandle(), 1, &submitInfo, VK_NULL_HANDLE));
+        VK_CHECK(vkQueueSubmit2KHR(m_graphicsQueue->getHandle(), 1u, &submitInfo, VK_NULL_HANDLE));
         vkQueueWaitIdle(m_graphicsQueue->getHandle());
     }
 }
@@ -3697,7 +3694,7 @@ void MainApp::buildBlas()
     submitInfo.signalSemaphoreInfoCount = 0u;
     submitInfo.pSignalSemaphoreInfos = nullptr;
 
-    VK_CHECK(vkQueueSubmit2KHR(m_graphicsQueue->getHandle(), 1, &submitInfo, VK_NULL_HANDLE));
+    VK_CHECK(vkQueueSubmit2KHR(m_graphicsQueue->getHandle(), 1u, &submitInfo, VK_NULL_HANDLE));
     vkQueueWaitIdle(m_graphicsQueue->getHandle());
     allCmdBufs.clear();
 
@@ -3757,7 +3754,7 @@ void MainApp::buildBlas()
         submitInfo.pCommandBufferInfos = &commandBufferSubmitInfo;
         submitInfo.signalSemaphoreInfoCount = 0u;
         submitInfo.pSignalSemaphoreInfos = nullptr;
-        VK_CHECK(vkQueueSubmit2KHR(m_graphicsQueue->getHandle(), 1, &submitInfo, VK_NULL_HANDLE));
+        VK_CHECK(vkQueueSubmit2KHR(m_graphicsQueue->getHandle(), 1u, &submitInfo, VK_NULL_HANDLE));
         vkQueueWaitIdle(m_graphicsQueue->getHandle());
 
         LOGD(
@@ -3947,11 +3944,11 @@ void MainApp::buildTlas(bool update)
     submitInfo.signalSemaphoreInfoCount = 0u;
     submitInfo.pSignalSemaphoreInfos = nullptr;
 
-    VK_CHECK(vkQueueSubmit2KHR(m_graphicsQueue->getHandle(), 1, &submitInfo, VK_NULL_HANDLE));
+    VK_CHECK(vkQueueSubmit2KHR(m_graphicsQueue->getHandle(), 1u, &submitInfo, VK_NULL_HANDLE));
     vkQueueWaitIdle(m_graphicsQueue->getHandle());
 }
 
-VkDeviceAddress MainApp::getBlasDeviceAddress(uint32_t blasId)
+VkDeviceAddress MainApp::getBlasDeviceAddress(uint64_t blasId)
 {
     if (blasId >= objModels.size()) LOGEANDABORT("Invalid blasId");
     VkAccelerationStructureDeviceAddressInfoKHR addressInfo{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR };

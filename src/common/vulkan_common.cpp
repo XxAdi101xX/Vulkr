@@ -84,7 +84,7 @@ void checkVkResult(VkResult result)
 {
 	if (result == 0)
 		return;
-	fprintf(stderr, "[vulkan] Error: VkResult = %d\n", printVkResult(result));
+	fprintf(stderr, "[vulkan] Error: VkResult = %s\n", printVkResult(result));
 	if (result < 0)
 		abort();
 }

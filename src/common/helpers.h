@@ -1,4 +1,4 @@
-/* Copyright (c) 2020 Adithya Venkatarao
+/* Copyright (c) 2022 Adithya Venkatarao
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
@@ -30,12 +30,14 @@ namespace vulkr
 template <class T>
 constexpr uint32_t to_u32(T value)
 {
+#ifdef VULKR_DEBUG
 	static_assert(std::is_arithmetic<T>::value, "T must be numeric");
 
 	if (static_cast<uintmax_t>(value) > static_cast<uintmax_t>(std::numeric_limits<uint32_t>::max()))
 	{
 		throw std::runtime_error("to_u32() failed because the value is too big to be converted to uint32_t");
 	}
+#endif
 
 	return static_cast<uint32_t>(value);
 }
@@ -43,8 +45,9 @@ constexpr uint32_t to_u32(T value)
 template <typename T>
 constexpr int sgn(T val)
 {
+#ifdef VULKR_DEBUG
 	static_assert(std::is_arithmetic<T>::value, "T must be numeric");
-
+#endif
 	return (T(0) < val) - (val < T(0));
 }
 
