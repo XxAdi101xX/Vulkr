@@ -141,6 +141,8 @@ void MainApp::cleanupSwapchain()
     pipelines.computeFluidAdvection.pipelineState.reset();
     pipelines.computeJacobi.pipeline.reset();
     pipelines.computeJacobi.pipelineState.reset();
+    pipelines.computeGaussingSplat.pipeline.reset();
+    pipelines.computeGaussingSplat.pipelineState.reset();
     pipelines.rayTracing.pipeline.reset();
     pipelines.rayTracing.pipelineState.reset();
 
@@ -279,6 +281,7 @@ void MainApp::prepare()
     createParticleIntegrateComputePipeline();
     createFluidAdvectionComputePipeline();
     createJacobiComputePipeline();
+    createGaussianSplatComputePipeline();
     createDescriptorPool();
     createDescriptorSets();
     setupCamera();
@@ -368,7 +371,9 @@ void MainApp::update()
 
     // Compute shader invocations
     computeParticles();
+#ifdef FLUID_SIMULATION
     computeFluidSimulation();
+#endif
 
     // Compute vertices with compute shader; need to uncomment createModelAnimationComputePipeline if using this TODO: fix the validation errors that happen when this is enabled, might be due to incorrect sytnax with obj buffer in animate.comp or the fact that the objBuffer is readonly? Not totally sure.
     //animateWithCompute(); 
@@ -651,6 +656,44 @@ void MainApp::handleInputEvents(const InputEvent &inputEvent)
     if (io.WantCaptureMouse) return;
 
     cameraController->handleInputEvents(inputEvent);
+#ifdef FLUID_SIMULATION
+        if (inputEvent.getEventSource() == EventSource::Mouse)
+        {
+            const MouseInputEvent &mouseInputEvent = dynamic_cast<const MouseInputEvent &>(inputEvent);
+
+            if (mouseInputEvent.getAction() == MouseAction::Unknown)
+            {
+                LOGEANDABORT("Unknown mouse action encountered");
+            }
+
+            if (mouseInputEvent.getInput() == MouseInput::None)
+            {
+                // If user is still holding down left click and moving
+                if (activeMouseInput == MouseInput::Left)
+                {
+                    gaussianSplatPushConstant.splatForce = glm::vec3(lastMousePosition.x - mouseInputEvent.getPositionX(), lastMousePosition.y - mouseInputEvent.getPositionY(), 1.0f);
+                    lastMousePosition.x = static_cast<float>(mouseInputEvent.getPositionX());
+                    lastMousePosition.y = static_cast<float>(mouseInputEvent.getPositionY());
+                }
+            }
+            else if (mouseInputEvent.getInput() == MouseInput::Left)
+            {
+                if (mouseInputEvent.getAction() == MouseAction::Click)
+                {
+                    activeMouseInput = mouseInputEvent.getInput();
+                    lastMousePosition = glm::vec2(mouseInputEvent.getPositionX(), mouseInputEvent.getPositionY());
+                }
+                else if (mouseInputEvent.getAction() == MouseAction::Release)
+                {
+                    activeMouseInput = MouseInput::None;
+                }
+                else
+                {
+                    LOGEANDABORT("Mouse input action is neither click or release");
+                }
+            }
+        }
+#endif
 }
 
 /* Private methods start here */
@@ -1022,12 +1065,12 @@ void MainApp::computeFluidSimulation()
         vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame][0]->getHandle(), &dependencyInfo);
     }
 
+    size_t fluidVelocityBufferSize = swapchain->getProperties().imageExtent.width * swapchain->getProperties().imageExtent.height;
+
     // First pass: Compute fluid advection
     vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeFluidAdvection.pipeline->getBindPoint(), pipelines.computeFluidAdvection.pipeline->getHandle());
     vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeFluidAdvection.pipeline->getBindPoint(), pipelines.computeFluidAdvection.pipelineState->getPipelineLayout().getHandle(), 0, 1, &frameData.fluidSimulationInputDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
     vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeFluidAdvection.pipeline->getBindPoint(), pipelines.computeFluidAdvection.pipelineState->getPipelineLayout().getHandle(), 1, 1, &frameData.fluidSimulationOutputDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
-    //vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeFluidAdvection.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputeParticlesPushConstant), &computeParticlesPushConstant);
-    size_t fluidVelocityBufferSize = swapchain->getProperties().imageExtent.width * swapchain->getProperties().imageExtent.height;
     vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), to_u32(fluidVelocityBufferSize / m_workGroupSize) + 1u, 1u, 1u);
 
 #if 0
@@ -1046,6 +1089,20 @@ void MainApp::computeFluidSimulation()
         vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), to_u32(fluidVelocityBufferSize / m_workGroupSize) + 1u, 1u, 1u);
         copyFluidOutputTextureToInputTexture();
     }
+
+    // Third pass: Compute gaussian splat from key input; if splatForce is 0, we don't have to run this pass
+    if (gaussianSplatPushConstant.splatForce != glm::vec3(0.0f))
+    {
+        vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeGaussingSplat.pipeline->getBindPoint(), pipelines.computeGaussingSplat.pipeline->getHandle());
+        vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeGaussingSplat.pipeline->getBindPoint(), pipelines.computeGaussingSplat.pipelineState->getPipelineLayout().getHandle(), 0, 1, &frameData.fluidSimulationInputDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
+        vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeGaussingSplat.pipeline->getBindPoint(), pipelines.computeGaussingSplat.pipelineState->getPipelineLayout().getHandle(), 1, 1, &frameData.fluidSimulationOutputDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
+        vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeGaussingSplat.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(GaussianSplatPushConstant), &gaussianSplatPushConstant);
+        vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), to_u32(fluidVelocityBufferSize / m_workGroupSize) + 1u, 1u, 1u);
+        
+        copyFluidOutputTextureToInputTexture();
+        gaussianSplatPushConstant.splatForce = glm::vec3(0.0f); // Reset to zero; will be overriden by the inputController if it detects any mouse drags
+    }
+
 #endif    
 
     // Release
@@ -1971,19 +2028,22 @@ void MainApp::createModelAnimationComputePipeline()
 {
     std::shared_ptr<ShaderSource> computeShader = std::make_shared<ShaderSource>("animate.comp.spv");
 
+    struct SpecializationData {
+        uint32_t workGroupSize;
+    } specializationData;
     const std::array<VkSpecializationMapEntry, 1> entries{
         {
             { 0u, to_u32(0 * sizeof(uint32_t)),  sizeof(uint32_t) }
         }
     };
-    const uint32_t data[] = { m_workGroupSize };
+    specializationData.workGroupSize = m_workGroupSize;
 
     VkSpecializationInfo specializationInfo =
     {
         to_u32(entries.size()),
         entries.data(),
-        to_u32(1 * sizeof(uint32_t)),
-        data
+        to_u32(sizeof(SpecializationData)),
+        &specializationData
     };
 
     std::vector<ShaderModule> shaderModules;
@@ -2060,19 +2120,22 @@ void MainApp::createParticleIntegrateComputePipeline()
 {
     std::shared_ptr<ShaderSource> computeShader = std::make_shared<ShaderSource>("particle_system/particleIntegrate.comp.spv");
 
+    struct SpecializationData {
+        uint32_t workGroupSize;
+    } specializationData;
     const std::array<VkSpecializationMapEntry, 1> entries{ 
         {
             { 0u, to_u32(0 * sizeof(uint32_t)), sizeof(uint32_t) }
         } 
     };
-    const uint32_t data[] = { m_workGroupSize };
+    specializationData.workGroupSize = m_workGroupSize;
 
     VkSpecializationInfo specializationInfo =
     {
         to_u32(entries.size()),
         entries.data(),
-        to_u32(1 * sizeof(uint32_t)),
-        data
+        to_u32(sizeof(SpecializationData)),
+        &specializationData
     };
 
     std::vector<ShaderModule> shaderModules;
@@ -2185,6 +2248,53 @@ void MainApp::createJacobiComputePipeline()
 
     pipelines.computeJacobi.pipelineState = std::move(computePipelineState);
     pipelines.computeJacobi.pipeline = std::move(computePipeline);
+}
+
+
+void MainApp::createGaussianSplatComputePipeline()
+{
+    std::shared_ptr<ShaderSource> computeShader = std::make_shared<ShaderSource>("fluid_simulation/gaussianSplat.comp.spv");
+
+    struct SpecializationData {
+        uint32_t workGroupSize;
+        uint32_t fluidVelocityBufferWidth;
+        uint32_t fluidVelocityBufferHeight;
+    } specializationData;
+    const std::array<VkSpecializationMapEntry, 3> entries{
+        {
+            { 0u, offsetof(SpecializationData, workGroupSize), sizeof(uint32_t) },
+            { 1u, offsetof(SpecializationData, fluidVelocityBufferWidth), sizeof(uint32_t) },
+            { 2u, offsetof(SpecializationData, fluidVelocityBufferHeight), sizeof(uint32_t) }
+        }
+    };
+    specializationData.workGroupSize = m_workGroupSize;
+    specializationData.fluidVelocityBufferWidth = swapchain->getProperties().imageExtent.width;
+    specializationData.fluidVelocityBufferHeight = swapchain->getProperties().imageExtent.height;
+
+    VkSpecializationInfo specializationInfo =
+    {
+        to_u32(entries.size()),
+        entries.data(),
+        to_u32(sizeof(SpecializationData)),
+        &specializationData
+    };
+
+    std::vector<ShaderModule> shaderModules;
+    shaderModules.emplace_back(*device, VK_SHADER_STAGE_COMPUTE_BIT, specializationInfo, computeShader);
+
+    std::vector<VkDescriptorSetLayout> descriptorSetLayoutHandles{ fluidSimulationInputDescriptorSetLayout->getHandle(), fluidSimulationOutputDescriptorSetLayout->getHandle() };
+
+    std::vector<VkPushConstantRange> pushConstantRangeHandles;
+    VkPushConstantRange computePushConstantRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(GaussianSplatPushConstant) };
+    pushConstantRangeHandles.push_back(computePushConstantRange);
+
+    std::unique_ptr<ComputePipelineState> computePipelineState = std::make_unique<ComputePipelineState>(
+        std::make_unique<PipelineLayout>(*device, shaderModules, descriptorSetLayoutHandles, pushConstantRangeHandles)
+        );
+    std::unique_ptr<ComputePipeline> computePipeline = std::make_unique<ComputePipeline>(*device, *computePipelineState, nullptr);
+
+    pipelines.computeGaussingSplat.pipelineState = std::move(computePipelineState);
+    pipelines.computeGaussingSplat.pipeline = std::move(computePipeline);
 }
 
 void MainApp::createFramebuffers()

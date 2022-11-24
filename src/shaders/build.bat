@@ -15,3 +15,4 @@
 
 %VULKAN_SDK%/Bin/glslc.exe --target-env=vulkan1.2 fluid_simulation/fluidAdvection.comp -o spv/fluid_simulation/fluidAdvection.comp.spv -g
 %VULKAN_SDK%/Bin/glslc.exe --target-env=vulkan1.2 fluid_simulation/jacobi.comp -o spv/fluid_simulation/jacobi.comp.spv -g
+%VULKAN_SDK%/Bin/glslc.exe --target-env=vulkan1.2 fluid_simulation/gaussianSplat.comp -o spv/fluid_simulation/gaussianSplat.comp.spv -g

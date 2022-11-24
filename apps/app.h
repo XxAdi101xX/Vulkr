@@ -114,6 +114,7 @@ constexpr std::array<glm::vec3, 6> attractors = {
 // #define MULTI_THREAD
 bool raytracingEnabled{ false }; // Flag to enable ray tracing vs rasterization
 bool temporalAntiAliasingEnabled{ false }; // Flag to enable temporal anti-aliasing
+//#define FLUID_SIMULATION
 
 /* Structs shared across the GPU and CPU */
 struct CameraData
@@ -384,6 +385,7 @@ private:
         PipelineData computeParticleIntegrate;
         PipelineData computeFluidAdvection;
         PipelineData computeJacobi;
+        PipelineData computeGaussingSplat;
         PipelineData rayTracing;
     } pipelines;
     std::vector<ObjModel> objModels;
@@ -432,6 +434,16 @@ private:
         int blank{ 0 }; // alignment
     } computeParticlesPushConstant;
 
+    struct GaussianSplatPushConstant
+    {
+        glm::vec3 splatForce { glm::vec3(0.0f) };
+        float splatRadius{ 1.0f };
+        glm::vec2 splatPosition{ glm::vec2(0.0f) };
+    } gaussianSplatPushConstant;
+#ifdef FLUID_SIMULATION
+    MouseInput activeMouseInput{ MouseInput::None };
+    glm::vec2 lastMousePosition{ glm::vec2(0.0f) };
+#endif
     // Subroutines
     void drawImGuiInterface();
     void animateInstances();
@@ -458,6 +470,7 @@ private:
     void createParticleIntegrateComputePipeline();
     void createFluidAdvectionComputePipeline();
     void createJacobiComputePipeline();
+    void createGaussianSplatComputePipeline();
     void createFramebuffers();
     void createCommandPools();
     void createCommandBuffers();
