@@ -29,13 +29,13 @@ layout(push_constant) uniform ComputePushConstant
 void main()
 {
     //debugPrintfEXT("workGroupSize is %d", workGroupSize);
-    uint index = gl_GlobalInvocationID.x;
-    if (index >= pushConstant.indexCount) return;
+    uint globalInvocationId = gl_GlobalInvocationID.x;
+    if (globalInvocationId >= pushConstant.indexCount) return;
 
     ObjInstance objResource = objectBuffer.objects[2]; // Wuson is the 2nd instance, but it will alter all the of the wuson indices
     Vertices vertices = Vertices(objResource.vertices);
     Indices indices = Indices(objResource.indices);
-    ivec3 ind = indices.i[index];
+    ivec3 ind = indices.i[globalInvocationId];
     Vertex v0 = vertices.v[ind.x];
 
     // Compute vertex position

@@ -37,7 +37,7 @@ layout(push_constant) uniform GaussianSplatSplatPushConstant
 } pushConstant;
 
 layout(set = 0, binding = 0) uniform sampler2D fluidVelocityInputTextureImage;
-layout(set = 1, binding = 0, rgba32f) uniform writeonly image2D fluidVelocityOutputTextureImage;
+layout(set = 1, binding = 0, rgba32f) uniform writeonly image2D fluidSimulationOutputTextureImage;
 
 vec2 inverseCanvasSize = vec2(1.0f / fluidVelocityBufferWidth, 1.0f / fluidVelocityBufferHeight); 
 
@@ -48,17 +48,17 @@ float gaussianSplat(vec2 p, float r)
 
 void main() 
 {
-	uint index = gl_GlobalInvocationID.x;
-	if (index >= fluidVelocityBufferWidth * fluidVelocityBufferHeight) return;
+	uint globalInvocationId = gl_GlobalInvocationID.x;
+	if (globalInvocationId >= fluidVelocityBufferWidth * fluidVelocityBufferHeight) return;
 
 	ivec2 imageIndex;
-	imageIndex.x = int(mod(index, fluidVelocityBufferWidth));
-	imageIndex.y = int(index / fluidVelocityBufferWidth);
+	imageIndex.x = int(mod(globalInvocationId, fluidVelocityBufferWidth));
+	imageIndex.y = int(globalInvocationId / fluidVelocityBufferWidth);
 
 	vec2 distanceFromSplat = imageIndex - pushConstant.splatPosition;
 	vec3 splatColor = pushConstant.splatForce * gaussianSplat(distanceFromSplat, fluidVelocityBufferWidth * pushConstant.splatRadius);
 
-	vec2 scaledScreenSpaceCoords = (imageIndex + 0.5f) * inverseCanvasSize;
-	vec4 color = texture(fluidVelocityInputTextureImage, scaledScreenSpaceCoords) + vec4(splatColor.xyz, 1.0f);
-	imageStore(fluidVelocityOutputTextureImage, imageIndex, color);
+	vec2 normalizedCoords = (imageIndex + 0.5f) * inverseCanvasSize;
+	vec4 color = texture(fluidVelocityInputTextureImage, normalizedCoords) + vec4(splatColor.xyz, 1.0f);
+	imageStore(fluidSimulationOutputTextureImage, imageIndex, color);
 }

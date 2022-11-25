@@ -360,7 +360,9 @@ private:
         std::array<std::unique_ptr<Buffer>, maxFramesInFlight> particleBuffers;
 
         std::array<std::unique_ptr<Texture>, maxFramesInFlight> fluidVelocityInputTextures;
-        std::array<std::unique_ptr<Texture>, maxFramesInFlight> fluidVelocityOutputTextures;
+        std::array<std::unique_ptr<Texture>, maxFramesInFlight> fluidVelocityDivergenceInputTextures;
+        std::array<std::unique_ptr<Texture>, maxFramesInFlight> fluidPressureInputTextures;
+        std::array<std::unique_ptr<Texture>, maxFramesInFlight> fluidSimulationOutputTextures; // Generic backbuffer for all of the fluid simulation stages
     } frameData;
 
     std::vector<VkClearValue> offscreenFramebufferClearValues;

@@ -48,12 +48,11 @@ void main()
 {
 	float TIME_FACTOR = 0.05;
 	// Current SSBO index
-	uint index = gl_GlobalInvocationID.x;
-	if (index >= pushConstant.particleCount) 
-		return;	
+	uint globalInvocationId = gl_GlobalInvocationID.x;
+	if (globalInvocationId >= pushConstant.particleCount) return;	
 
-	vec4 position = particles[index].position;
-	vec4 velocity = particles[index].velocity;
+	vec4 position = particles[globalInvocationId].position;
+	vec4 velocity = particles[globalInvocationId].velocity;
 	vec4 acceleration = vec4(0.0);
 
 	for (uint i = 0; i < pushConstant.particleCount; i += SHARED_DATA_SIZE)
@@ -79,10 +78,12 @@ void main()
 		barrier();
 	}
 
-	particles[index].velocity.xyz += pushConstant.deltaTime * TIME_FACTOR * acceleration.xyz;
+	particles[globalInvocationId].velocity.xyz += pushConstant.deltaTime * TIME_FACTOR * acceleration.xyz;
 
 	// Gradient texture position
-	particles[index].velocity.w += 0.1 * TIME_FACTOR * pushConstant.deltaTime;
-	if (particles[index].velocity.w > 1.0)
-		particles[index].velocity.w -= 1.0;
+	particles[globalInvocationId].velocity.w += 0.1 * TIME_FACTOR * pushConstant.deltaTime;
+	if (particles[globalInvocationId].velocity.w > 1.0)
+	{
+		particles[globalInvocationId].velocity.w -= 1.0;
+	}
 }

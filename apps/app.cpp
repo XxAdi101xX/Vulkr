@@ -171,6 +171,7 @@ void MainApp::cleanupSwapchain()
         frameData.objectDescriptorSets[i].reset();
         frameData.postProcessingDescriptorSets[i].reset();
         frameData.taaDescriptorSets[i].reset();
+
         // Buffers
         frameData.cameraBuffers[i].reset();
         frameData.previousFrameCameraBuffers[i].reset();
@@ -179,10 +180,15 @@ void MainApp::cleanupSwapchain()
         frameData.previousFrameObjectBuffers[i].reset();
         frameData.particleBuffers[i].reset();
 
+        // Images
         frameData.fluidVelocityInputTextures[i]->image.reset();
         frameData.fluidVelocityInputTextures[i]->imageview.reset();
-        frameData.fluidVelocityOutputTextures[i]->image.reset();
-        frameData.fluidVelocityOutputTextures[i]->imageview.reset();
+        frameData.fluidVelocityDivergenceInputTextures[i]->image.reset();
+        frameData.fluidVelocityDivergenceInputTextures[i]->imageview.reset();
+        frameData.fluidPressureInputTextures[i]->image.reset();
+        frameData.fluidPressureInputTextures[i]->imageview.reset();
+        frameData.fluidSimulationOutputTextures[i]->image.reset();
+        frameData.fluidSimulationOutputTextures[i]->imageview.reset();
     }
 
     for (uint8_t i = 0; i < std::thread::hardware_concurrency(); ++i)
@@ -556,9 +562,9 @@ void MainApp::update()
 
     // TODO remove this part, used for testing fluid simulation intermediate buffer values
     /*
-    frameData.fluidVelocityOutputTextures[currentFrame]->image->transitionImageLayout(*frameData.commandBuffers[currentFrame][2], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, subresourceRange);
-    vkCmdCopyImage(frameData.commandBuffers[currentFrame][2]->getHandle(), frameData.fluidVelocityOutputTextures[currentFrame]->image->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swapchain->getImages()[swapchainImageIndex]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &outputImageCopyRegion);
-    frameData.fluidVelocityOutputTextures[currentFrame]->image->transitionImageLayout(*frameData.commandBuffers[currentFrame][2], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL, subresourceRange);*/
+    frameData.fluidSimulationOutputTextures[currentFrame]->image->transitionImageLayout(*frameData.commandBuffers[currentFrame][2], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, subresourceRange);
+    vkCmdCopyImage(frameData.commandBuffers[currentFrame][2]->getHandle(), frameData.fluidSimulationOutputTextures[currentFrame]->image->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swapchain->getImages()[swapchainImageIndex]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &outputImageCopyRegion);
+    frameData.fluidSimulationOutputTextures[currentFrame]->image->transitionImageLayout(*frameData.commandBuffers[currentFrame][2], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL, subresourceRange);*/
 
     // End command buffer for copy operations
     frameData.commandBuffers[currentFrame][2]->end();
@@ -961,7 +967,7 @@ void MainApp::copyFluidOutputTextureToInputTexture()
 
     vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame][0]->getHandle(), &computeShaderFinishedWritingDependencyInfo);
 
-    // Layout transitions for the fluidVelocityOutputTextures as a transfer src and the fluidVelocityInputTextures as the transfer dst
+    // Layout transitions for the fluidSimulationOutputTextures as a transfer src and the fluidVelocityInputTextures as the transfer dst
     VkImageSubresourceRange subresourceRange = {};
     subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     subresourceRange.baseMipLevel = 0;
@@ -970,7 +976,7 @@ void MainApp::copyFluidOutputTextureToInputTexture()
     subresourceRange.layerCount = 1;
 
     frameData.fluidVelocityInputTextures[currentFrame]->image->transitionImageLayout(*frameData.commandBuffers[currentFrame][0], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, subresourceRange);
-    frameData.fluidVelocityOutputTextures[currentFrame]->image->transitionImageLayout(*frameData.commandBuffers[currentFrame][0], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, subresourceRange);
+    frameData.fluidSimulationOutputTextures[currentFrame]->image->transitionImageLayout(*frameData.commandBuffers[currentFrame][0], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, subresourceRange);
 
     // Copy fluidVelocityOutputTextures to fluidVelocityInputTextures for subsequent compute stages
     VkImageCopy fluidVelocityTextureCopyRegion{};
@@ -980,11 +986,11 @@ void MainApp::copyFluidOutputTextureToInputTexture()
     fluidVelocityTextureCopyRegion.dstOffset = { 0, 0, 0 };
     fluidVelocityTextureCopyRegion.extent = { swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, 1 };
 
-    vkCmdCopyImage(frameData.commandBuffers[currentFrame][0]->getHandle(), frameData.fluidVelocityOutputTextures[currentFrame]->image->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, frameData.fluidVelocityInputTextures[currentFrame]->image->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &fluidVelocityTextureCopyRegion);
+    vkCmdCopyImage(frameData.commandBuffers[currentFrame][0]->getHandle(), frameData.fluidSimulationOutputTextures[currentFrame]->image->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, frameData.fluidVelocityInputTextures[currentFrame]->image->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &fluidVelocityTextureCopyRegion);
 
     // Layout transitions for the fluidVelocityOutputTextures and the fluidVelocityInputTextures as general
     frameData.fluidVelocityInputTextures[currentFrame]->image->transitionImageLayout(*frameData.commandBuffers[currentFrame][0], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL, subresourceRange);
-    frameData.fluidVelocityOutputTextures[currentFrame]->image->transitionImageLayout(*frameData.commandBuffers[currentFrame][0], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL, subresourceRange);
+    frameData.fluidSimulationOutputTextures[currentFrame]->image->transitionImageLayout(*frameData.commandBuffers[currentFrame][0], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL, subresourceRange);
 
     // Add memory barrier to ensure that the computer shader has finished writing to the buffer
     VkMemoryBarrier2 textureCopyFinishedMemoryBarrier{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
@@ -1038,19 +1044,19 @@ void MainApp::computeFluidSimulation()
         fluidVelocityInputTextureImageMemoryBarrier.image = frameData.fluidVelocityInputTextures[currentFrame]->image->getHandle();
         fluidVelocityInputTextureImageMemoryBarrier.subresourceRange = subresourceRange;
 
-        VkImageMemoryBarrier2 fluidVelocityOutputTextureImageMemoryBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
-        fluidVelocityOutputTextureImageMemoryBarrier.srcAccessMask = VK_ACCESS_2_NONE;
-        fluidVelocityOutputTextureImageMemoryBarrier.dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-        fluidVelocityOutputTextureImageMemoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_VERTEX_INPUT_BIT;
-        fluidVelocityOutputTextureImageMemoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        fluidVelocityOutputTextureImageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
-        fluidVelocityOutputTextureImageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-        fluidVelocityOutputTextureImageMemoryBarrier.srcQueueFamilyIndex = m_graphicsQueue->getFamilyIndex();
-        fluidVelocityOutputTextureImageMemoryBarrier.dstQueueFamilyIndex = m_computeQueue->getFamilyIndex();
-        fluidVelocityOutputTextureImageMemoryBarrier.image = frameData.fluidVelocityOutputTextures[currentFrame]->image->getHandle();
-        fluidVelocityOutputTextureImageMemoryBarrier.subresourceRange = subresourceRange;
+        VkImageMemoryBarrier2 fluidSimulationOutputTextureImageMemoryBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+        fluidSimulationOutputTextureImageMemoryBarrier.srcAccessMask = VK_ACCESS_2_NONE;
+        fluidSimulationOutputTextureImageMemoryBarrier.dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+        fluidSimulationOutputTextureImageMemoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_VERTEX_INPUT_BIT;
+        fluidSimulationOutputTextureImageMemoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        fluidSimulationOutputTextureImageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+        fluidSimulationOutputTextureImageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+        fluidSimulationOutputTextureImageMemoryBarrier.srcQueueFamilyIndex = m_graphicsQueue->getFamilyIndex();
+        fluidSimulationOutputTextureImageMemoryBarrier.dstQueueFamilyIndex = m_computeQueue->getFamilyIndex();
+        fluidSimulationOutputTextureImageMemoryBarrier.image = frameData.fluidSimulationOutputTextures[currentFrame]->image->getHandle();
+        fluidSimulationOutputTextureImageMemoryBarrier.subresourceRange = subresourceRange;
 
-        std::array<VkImageMemoryBarrier2, 2> imageMemoryBarriers{ fluidVelocityInputTextureImageMemoryBarrier, fluidVelocityOutputTextureImageMemoryBarrier };
+        std::array<VkImageMemoryBarrier2, 2> imageMemoryBarriers{ fluidVelocityInputTextureImageMemoryBarrier, fluidSimulationOutputTextureImageMemoryBarrier };
 
         VkDependencyInfo dependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
         dependencyInfo.pNext = nullptr;
@@ -1130,18 +1136,18 @@ void MainApp::computeFluidSimulation()
         fluidVelocityInputTextureImageMemoryBarrier.image = frameData.fluidVelocityInputTextures[currentFrame]->image->getHandle();
         fluidVelocityInputTextureImageMemoryBarrier.subresourceRange = subresourceRange;
 
-        VkImageMemoryBarrier2 fluidVelocityOutputTextureImageMemoryBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
-        fluidVelocityOutputTextureImageMemoryBarrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-        fluidVelocityOutputTextureImageMemoryBarrier.dstAccessMask = VK_ACCESS_2_NONE;
-        fluidVelocityOutputTextureImageMemoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        fluidVelocityOutputTextureImageMemoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR | VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT; // TODO: is this correct
-        fluidVelocityOutputTextureImageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-        fluidVelocityOutputTextureImageMemoryBarrier.srcQueueFamilyIndex = m_computeQueue->getFamilyIndex();
-        fluidVelocityOutputTextureImageMemoryBarrier.dstQueueFamilyIndex = m_graphicsQueue->getFamilyIndex();
-        fluidVelocityOutputTextureImageMemoryBarrier.image = frameData.fluidVelocityOutputTextures[currentFrame]->image->getHandle();
-        fluidVelocityOutputTextureImageMemoryBarrier.subresourceRange = subresourceRange;
+        VkImageMemoryBarrier2 fluidSimulationOutputTextureImageMemoryBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+        fluidSimulationOutputTextureImageMemoryBarrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+        fluidSimulationOutputTextureImageMemoryBarrier.dstAccessMask = VK_ACCESS_2_NONE;
+        fluidSimulationOutputTextureImageMemoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        fluidSimulationOutputTextureImageMemoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR | VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT; // TODO: is this correct
+        fluidSimulationOutputTextureImageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+        fluidSimulationOutputTextureImageMemoryBarrier.srcQueueFamilyIndex = m_computeQueue->getFamilyIndex();
+        fluidSimulationOutputTextureImageMemoryBarrier.dstQueueFamilyIndex = m_graphicsQueue->getFamilyIndex();
+        fluidSimulationOutputTextureImageMemoryBarrier.image = frameData.fluidSimulationOutputTextures[currentFrame]->image->getHandle();
+        fluidSimulationOutputTextureImageMemoryBarrier.subresourceRange = subresourceRange;
 
-        std::array<VkImageMemoryBarrier2, 2> imageMemoryBarriers{ fluidVelocityInputTextureImageMemoryBarrier, fluidVelocityOutputTextureImageMemoryBarrier };
+        std::array<VkImageMemoryBarrier2, 2> imageMemoryBarriers{ fluidVelocityInputTextureImageMemoryBarrier, fluidSimulationOutputTextureImageMemoryBarrier };
 
         VkDependencyInfo dependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
         dependencyInfo.pNext = nullptr;
@@ -1612,15 +1618,15 @@ void MainApp::createDescriptorSetLayouts()
 {
     // Global descriptor set layout
     VkDescriptorSetLayoutBinding cameraBufferLayoutBinding{};
-    cameraBufferLayoutBinding.binding = 0;
+    cameraBufferLayoutBinding.binding = 0u;
     cameraBufferLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    cameraBufferLayoutBinding.descriptorCount = 1;
+    cameraBufferLayoutBinding.descriptorCount = 1u;
     cameraBufferLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR; // TODO: not used in fragment bit, closest hit shader
     cameraBufferLayoutBinding.pImmutableSamplers = nullptr; // Optional
     VkDescriptorSetLayoutBinding lightBufferLayoutBinding{};
-    lightBufferLayoutBinding.binding = 1;
+    lightBufferLayoutBinding.binding = 1u;
     lightBufferLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    lightBufferLayoutBinding.descriptorCount = 1;
+    lightBufferLayoutBinding.descriptorCount = 1u;
     lightBufferLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR; // TODO not being used in vertex bit
     lightBufferLayoutBinding.pImmutableSamplers = nullptr; // Optional
 
@@ -1629,9 +1635,9 @@ void MainApp::createDescriptorSetLayouts()
 
     // Object descriptor set layout
     VkDescriptorSetLayoutBinding objectBufferLayoutBinding{};
-    objectBufferLayoutBinding.binding = 0;
-    objectBufferLayoutBinding.descriptorCount = 1;
+    objectBufferLayoutBinding.binding = 0u;
     objectBufferLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    objectBufferLayoutBinding.descriptorCount = 1u;
     objectBufferLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT;
     objectBufferLayoutBinding.pImmutableSamplers = nullptr;
 
@@ -1640,33 +1646,33 @@ void MainApp::createDescriptorSetLayouts()
 
     // Post processing descriptor set layout
     VkDescriptorSetLayoutBinding currentFrameCameraBufferLayoutBindingForPost{};
-    currentFrameCameraBufferLayoutBindingForPost.binding = 0;
+    currentFrameCameraBufferLayoutBindingForPost.binding = 0u;
     currentFrameCameraBufferLayoutBindingForPost.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    currentFrameCameraBufferLayoutBindingForPost.descriptorCount = 1;
+    currentFrameCameraBufferLayoutBindingForPost.descriptorCount = 1u;
     currentFrameCameraBufferLayoutBindingForPost.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
     currentFrameCameraBufferLayoutBindingForPost.pImmutableSamplers = nullptr;
     VkDescriptorSetLayoutBinding currentFrameObjectBufferLayoutBindingForPost{};
-    currentFrameObjectBufferLayoutBindingForPost.binding = 1;
+    currentFrameObjectBufferLayoutBindingForPost.binding = 1u;
     currentFrameObjectBufferLayoutBindingForPost.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    currentFrameObjectBufferLayoutBindingForPost.descriptorCount = 1;
+    currentFrameObjectBufferLayoutBindingForPost.descriptorCount = 1u;
     currentFrameObjectBufferLayoutBindingForPost.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
     currentFrameObjectBufferLayoutBindingForPost.pImmutableSamplers = nullptr;
     VkDescriptorSetLayoutBinding historyImageLayoutBindingForPost{};
-    historyImageLayoutBindingForPost.binding = 2;
+    historyImageLayoutBindingForPost.binding = 2u;
     historyImageLayoutBindingForPost.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    historyImageLayoutBindingForPost.descriptorCount = 1;
+    historyImageLayoutBindingForPost.descriptorCount = 1u;
     historyImageLayoutBindingForPost.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
     historyImageLayoutBindingForPost.pImmutableSamplers = nullptr;
     VkDescriptorSetLayoutBinding velocityImageLayoutBindingForPost{};
-    velocityImageLayoutBindingForPost.binding = 3;
+    velocityImageLayoutBindingForPost.binding = 3u;
     velocityImageLayoutBindingForPost.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    velocityImageLayoutBindingForPost.descriptorCount = 1;
+    velocityImageLayoutBindingForPost.descriptorCount = 1u;
     velocityImageLayoutBindingForPost.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
     velocityImageLayoutBindingForPost.pImmutableSamplers = nullptr;
     VkDescriptorSetLayoutBinding copyOutputImageLayoutBindingForPost{};
-    copyOutputImageLayoutBindingForPost.binding = 4;
+    copyOutputImageLayoutBindingForPost.binding = 4u;
     copyOutputImageLayoutBindingForPost.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    copyOutputImageLayoutBindingForPost.descriptorCount = 1;
+    copyOutputImageLayoutBindingForPost.descriptorCount = 1u;
     copyOutputImageLayoutBindingForPost.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
     copyOutputImageLayoutBindingForPost.pImmutableSamplers = nullptr;
 
@@ -1681,15 +1687,15 @@ void MainApp::createDescriptorSetLayouts()
 
     // Taa descriptor set layout
     VkDescriptorSetLayoutBinding previousFrameCameraBufferLayoutBindingForTaa{};
-    previousFrameCameraBufferLayoutBindingForTaa.binding = 0;
+    previousFrameCameraBufferLayoutBindingForTaa.binding = 0u;
     previousFrameCameraBufferLayoutBindingForTaa.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    previousFrameCameraBufferLayoutBindingForTaa.descriptorCount = 1;
+    previousFrameCameraBufferLayoutBindingForTaa.descriptorCount = 1u;
     previousFrameCameraBufferLayoutBindingForTaa.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
     previousFrameCameraBufferLayoutBindingForTaa.pImmutableSamplers = nullptr;
     VkDescriptorSetLayoutBinding previousFrameObjectBufferLayoutBindingForTaa{};
-    previousFrameObjectBufferLayoutBindingForTaa.binding = 1;
+    previousFrameObjectBufferLayoutBindingForTaa.binding = 1u;
     previousFrameObjectBufferLayoutBindingForTaa.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    previousFrameObjectBufferLayoutBindingForTaa.descriptorCount = 1;
+    previousFrameObjectBufferLayoutBindingForTaa.descriptorCount = 1u;
     previousFrameObjectBufferLayoutBindingForTaa.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
     previousFrameObjectBufferLayoutBindingForTaa.pImmutableSamplers = nullptr;
 
@@ -1701,9 +1707,9 @@ void MainApp::createDescriptorSetLayouts()
 
     // Texture descriptor set layout
     VkDescriptorSetLayoutBinding samplerLayoutBinding{};
-    samplerLayoutBinding.binding = 0;
-    samplerLayoutBinding.descriptorCount = to_u32(textures.size());
+    samplerLayoutBinding.binding = 0u;
     samplerLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    samplerLayoutBinding.descriptorCount = to_u32(textures.size());
     samplerLayoutBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
     samplerLayoutBinding.pImmutableSamplers = nullptr;
 
@@ -1712,9 +1718,9 @@ void MainApp::createDescriptorSetLayouts()
 
     // Particle compute descriptor set layout
     VkDescriptorSetLayoutBinding particleBufferLayoutBinding{};
-    particleBufferLayoutBinding.binding = 0;
-    particleBufferLayoutBinding.descriptorCount = 1;
+    particleBufferLayoutBinding.binding = 0u;
     particleBufferLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    particleBufferLayoutBinding.descriptorCount = 1u;
     particleBufferLayoutBinding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
     particleBufferLayoutBinding.pImmutableSamplers = nullptr;
 
@@ -1722,21 +1728,33 @@ void MainApp::createDescriptorSetLayouts()
     particleComputeDescriptorSetLayout = std::make_unique<DescriptorSetLayout>(*device, particleComputeDescriptorSetLayoutBindings);
 
     // Fluid simulation input descriptor set layout
-    VkDescriptorSetLayoutBinding fluidSimulationInputLayoutBinding{};
-    fluidSimulationInputLayoutBinding.binding = 0;
-    fluidSimulationInputLayoutBinding.descriptorCount = 1;
-    fluidSimulationInputLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    fluidSimulationInputLayoutBinding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    fluidSimulationInputLayoutBinding.pImmutableSamplers = nullptr;
+    VkDescriptorSetLayoutBinding fluidVelocityInputLayoutBinding{};
+    fluidVelocityInputLayoutBinding.binding = 0u;
+    fluidVelocityInputLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    fluidVelocityInputLayoutBinding.descriptorCount = 1u;
+    fluidVelocityInputLayoutBinding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    fluidVelocityInputLayoutBinding.pImmutableSamplers = nullptr;
+    VkDescriptorSetLayoutBinding fluidVelocityDivergenceInputLayoutBinding{};
+    fluidVelocityDivergenceInputLayoutBinding.binding = 1u;
+    fluidVelocityDivergenceInputLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    fluidVelocityDivergenceInputLayoutBinding.descriptorCount = 1u;
+    fluidVelocityDivergenceInputLayoutBinding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    fluidVelocityDivergenceInputLayoutBinding.pImmutableSamplers = nullptr;
+    VkDescriptorSetLayoutBinding fluidPressureInputLayoutBinding{};
+    fluidPressureInputLayoutBinding.binding = 2u;
+    fluidPressureInputLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    fluidPressureInputLayoutBinding.descriptorCount = 1u;
+    fluidPressureInputLayoutBinding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    fluidPressureInputLayoutBinding.pImmutableSamplers = nullptr;
 
-    std::vector<VkDescriptorSetLayoutBinding> fluidSimulationInputDescriptorSetLayoutBindings{ fluidSimulationInputLayoutBinding };
+    std::vector<VkDescriptorSetLayoutBinding> fluidSimulationInputDescriptorSetLayoutBindings{ fluidVelocityInputLayoutBinding, fluidVelocityDivergenceInputLayoutBinding, fluidPressureInputLayoutBinding };
     fluidSimulationInputDescriptorSetLayout = std::make_unique<DescriptorSetLayout>(*device, fluidSimulationInputDescriptorSetLayoutBindings);
 
     // Fluid simulation output descriptor set layout
     VkDescriptorSetLayoutBinding fluidSimulationOutputLayoutBinding{};
-    fluidSimulationOutputLayoutBinding.binding = 0;
-    fluidSimulationOutputLayoutBinding.descriptorCount = 1;
+    fluidSimulationOutputLayoutBinding.binding = 0u;
     fluidSimulationOutputLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    fluidSimulationOutputLayoutBinding.descriptorCount = 1u;
     fluidSimulationOutputLayoutBinding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
     fluidSimulationOutputLayoutBinding.pImmutableSamplers = nullptr;
 
@@ -2890,12 +2908,24 @@ void MainApp::initializeFluidSimulationResources()
         setDebugUtilsObjectName(device->getHandle(), frameData.fluidVelocityInputTextures[i]->image->getHandle(), "fluidVelocityInputTexture image for frame #" + std::to_string(i));
         setDebugUtilsObjectName(device->getHandle(), frameData.fluidVelocityInputTextures[i]->imageview->getHandle(), "fluidVelocityInputTexture imageView for frame #" + std::to_string(i));
 
-        frameData.fluidVelocityOutputTextures[i] = std::make_unique<Texture>();
-        // TODO: the VK_IMAGE_USAGE_TRANSFER_DST_BIT flag is required since in createTextureImage, there is code to 0 initialize the image with values (DOES NOT CURRENTLY WORK AS OF NOW); if we remove this logic, we don't need this flag here
-        frameData.fluidVelocityOutputTextures[i]->image = createTextureImage(swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT); 
-        frameData.fluidVelocityOutputTextures[i]->imageview = createTextureImageView(*(frameData.fluidVelocityOutputTextures[i]->image));
-        setDebugUtilsObjectName(device->getHandle(), frameData.fluidVelocityOutputTextures[i]->image->getHandle(), "fluidVelocityOutputTexture image for frame #" + std::to_string(i));
-        setDebugUtilsObjectName(device->getHandle(), frameData.fluidVelocityOutputTextures[i]->imageview->getHandle(), "fluidVelocityOutputTexture imageView for frame #" + std::to_string(i));
+        frameData.fluidVelocityDivergenceInputTextures[i] = std::make_unique<Texture>();
+        frameData.fluidVelocityDivergenceInputTextures[i]->image = createTextureImage(swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+        frameData.fluidVelocityDivergenceInputTextures[i]->imageview = createTextureImageView(*(frameData.fluidVelocityDivergenceInputTextures[i]->image));
+        setDebugUtilsObjectName(device->getHandle(), frameData.fluidVelocityDivergenceInputTextures[i]->image->getHandle(), "fluidVelocityDivergenceInputTexture image for frame #" + std::to_string(i));
+        setDebugUtilsObjectName(device->getHandle(), frameData.fluidVelocityDivergenceInputTextures[i]->imageview->getHandle(), "fluidVelocityDivergenceInputTexture imageView for frame #" + std::to_string(i));
+
+        frameData.fluidPressureInputTextures[i] = std::make_unique<Texture>();
+        frameData.fluidPressureInputTextures[i]->image = createTextureImage(swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+        frameData.fluidPressureInputTextures[i]->imageview = createTextureImageView(*(frameData.fluidPressureInputTextures[i]->image));
+        setDebugUtilsObjectName(device->getHandle(), frameData.fluidPressureInputTextures[i]->image->getHandle(), "fluidPressureInputTexture image for frame #" + std::to_string(i));
+        setDebugUtilsObjectName(device->getHandle(), frameData.fluidPressureInputTextures[i]->imageview->getHandle(), "fluidPressureInputTexture imageView for frame #" + std::to_string(i));
+
+        frameData.fluidSimulationOutputTextures[i] = std::make_unique<Texture>();
+        // TODO: the VK_IMAGE_USAGE_TRANSFER_DST_BIT flag is required since in createTextureImage, there is code to 0 initialize we should do the initialization in a shader and remove this flag eventually
+        frameData.fluidSimulationOutputTextures[i]->image = createTextureImage(swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
+        frameData.fluidSimulationOutputTextures[i]->imageview = createTextureImageView(*(frameData.fluidSimulationOutputTextures[i]->image));
+        setDebugUtilsObjectName(device->getHandle(), frameData.fluidSimulationOutputTextures[i]->image->getHandle(), "fluidSimulationOutputTexture image for frame #" + std::to_string(i));
+        setDebugUtilsObjectName(device->getHandle(), frameData.fluidSimulationOutputTextures[i]->imageview->getHandle(), "fluidSimulationOutputTexture imageView for frame #" + std::to_string(i));
     }
 }
 
@@ -2904,22 +2934,22 @@ void MainApp::createDescriptorPool()
     std::vector<VkDescriptorPoolSize> poolSizes{};
     poolSizes.resize(4);
     poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    poolSizes[0].descriptorCount = 10;
+    poolSizes[0].descriptorCount = 10u;
     poolSizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    poolSizes[1].descriptorCount = 10;
+    poolSizes[1].descriptorCount = 10u;
     poolSizes[2].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    poolSizes[2].descriptorCount = 10;
+    poolSizes[2].descriptorCount = 10u;
     poolSizes[3].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    poolSizes[3].descriptorCount = 1;
+    poolSizes[3].descriptorCount = 10u;
 
 
-    uint32_t maxSets = 31u; // we are allocating more space than currenly used
+    uint32_t maxSets = 40u; // we are allocating more space than currenly used
     descriptorPool = std::make_unique<DescriptorPool>(*device, poolSizes, maxSets, 0);
 }
 
 void MainApp::createDescriptorSets()
 {
-    for (uint32_t i = 0; i < maxFramesInFlight; ++i)
+    for (uint32_t i = 0u; i < maxFramesInFlight; ++i)
     {
         // Global Descriptor Set
         VkDescriptorSetAllocateInfo globalDescriptorSetAllocateInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
@@ -3110,7 +3140,17 @@ void MainApp::createDescriptorSets()
         fluidVelocityInputTextureInfo.sampler = textureSampler->getHandle();
         fluidVelocityInputTextureInfo.imageView = frameData.fluidVelocityInputTextures[i]->imageview->getHandle();
         fluidVelocityInputTextureInfo.imageLayout = frameData.fluidVelocityInputTextures[i]->image->getLayout();
-        std::array<VkDescriptorImageInfo, 1> fluidSimulationInputTextureInfos{ fluidVelocityInputTextureInfo };
+        // Binding 1 is the fluid velocity divergence input texture
+        VkDescriptorImageInfo fluidVelocityDivergenceInputTextureInfo{};
+        fluidVelocityDivergenceInputTextureInfo.sampler = textureSampler->getHandle();
+        fluidVelocityDivergenceInputTextureInfo.imageView = frameData.fluidVelocityDivergenceInputTextures[i]->imageview->getHandle();
+        fluidVelocityDivergenceInputTextureInfo.imageLayout = frameData.fluidVelocityDivergenceInputTextures[i]->image->getLayout();
+        // Binding 2 is the fluid pressure input texture
+        VkDescriptorImageInfo fluidPressureInputTextureInfo{};
+        fluidPressureInputTextureInfo.sampler = textureSampler->getHandle();
+        fluidPressureInputTextureInfo.imageView = frameData.fluidPressureInputTextures[i]->imageview->getHandle();
+        fluidPressureInputTextureInfo.imageLayout = frameData.fluidPressureInputTextures[i]->image->getLayout();
+        std::array<VkDescriptorImageInfo, 3> fluidSimulationInputTextureInfos{ fluidVelocityInputTextureInfo, fluidVelocityDivergenceInputTextureInfo, fluidPressureInputTextureInfo };
 
         VkWriteDescriptorSet writeFluidSimulationInputDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
         writeFluidSimulationInputDescriptorSet.dstSet = frameData.fluidSimulationInputDescriptorSets[i]->getHandle();
@@ -3132,11 +3172,11 @@ void MainApp::createDescriptorSets()
         setDebugUtilsObjectName(device->getHandle(), frameData.fluidSimulationOutputDescriptorSets[i]->getHandle(), "fluidSimulationOutputDescriptorSets for frame #" + std::to_string(i));
 
         // Binding 0 is the fluid velocity output texture
-        VkDescriptorImageInfo fluidVelocityOutputTextureInfo{};
-        fluidVelocityOutputTextureInfo.sampler = VK_NULL_HANDLE;
-        fluidVelocityOutputTextureInfo.imageView = frameData.fluidVelocityOutputTextures[i]->imageview->getHandle();
-        fluidVelocityOutputTextureInfo.imageLayout = frameData.fluidVelocityOutputTextures[i]->image->getLayout();
-        std::array<VkDescriptorImageInfo, 1> fluidSimulationOutputTextureInfos{ fluidVelocityOutputTextureInfo };
+        VkDescriptorImageInfo fluidSimulationOutputTextureInfo{};
+        fluidSimulationOutputTextureInfo.sampler = VK_NULL_HANDLE;
+        fluidSimulationOutputTextureInfo.imageView = frameData.fluidSimulationOutputTextures[i]->imageview->getHandle();
+        fluidSimulationOutputTextureInfo.imageLayout = frameData.fluidSimulationOutputTextures[i]->image->getLayout();
+        std::array<VkDescriptorImageInfo, 1> fluidSimulationOutputTextureInfos{ fluidSimulationOutputTextureInfo };
 
         VkWriteDescriptorSet writeFluidSimulationOutputDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
         writeFluidSimulationOutputDescriptorSet.dstSet = frameData.fluidSimulationOutputDescriptorSets[i]->getHandle();
@@ -4081,16 +4121,16 @@ void MainApp::createRtDescriptorPool()
 void MainApp::createRtDescriptorLayout()
 {
     VkDescriptorSetLayoutBinding tlasLayoutBinding{};
-    tlasLayoutBinding.binding = 0;
+    tlasLayoutBinding.binding = 0u;
     tlasLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
-    tlasLayoutBinding.descriptorCount = 1;
+    tlasLayoutBinding.descriptorCount = 1u;
     tlasLayoutBinding.stageFlags = VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
     tlasLayoutBinding.pImmutableSamplers = nullptr; // Optional
 
     VkDescriptorSetLayoutBinding outputImageLayoutBinding{};
-    outputImageLayoutBinding.binding = 1;
+    outputImageLayoutBinding.binding = 1u;
     outputImageLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    outputImageLayoutBinding.descriptorCount = 1;
+    outputImageLayoutBinding.descriptorCount = 1u;
     outputImageLayoutBinding.stageFlags = VK_SHADER_STAGE_RAYGEN_BIT_KHR;
     outputImageLayoutBinding.pImmutableSamplers = nullptr; // Optional
 
@@ -4107,22 +4147,22 @@ void MainApp::createRtDescriptorSets()
     {
         VkDescriptorSetAllocateInfo allocateInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
         allocateInfo.descriptorPool = m_rtDescPool->getHandle();
-        allocateInfo.descriptorSetCount = 1;
+        allocateInfo.descriptorSetCount = 1u;
         allocateInfo.pSetLayouts = &m_rtDescSetLayout->getHandle();
 
         frameData.rtDescriptorSets[i] = std::make_unique<DescriptorSet>(*device, allocateInfo);
         setDebugUtilsObjectName(device->getHandle(), frameData.rtDescriptorSets[i]->getHandle(), "rtDescriptorSet for frame #" + std::to_string(i));
 
         VkWriteDescriptorSetAccelerationStructureKHR descASInfo{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR };
-        descASInfo.accelerationStructureCount = 1;
+        descASInfo.accelerationStructureCount = 1u;
         descASInfo.pAccelerationStructures = &m_tlas->accelerationStructure->accelerationStuctureKHR;
 
         VkWriteDescriptorSet writeAccelerationStructure{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
         writeAccelerationStructure.dstSet = frameData.rtDescriptorSets[i]->getHandle();
-        writeAccelerationStructure.dstBinding = 0;
-        writeAccelerationStructure.dstArrayElement = 0;
+        writeAccelerationStructure.dstBinding = 0u;
+        writeAccelerationStructure.dstArrayElement = 0u;
         writeAccelerationStructure.descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
-        writeAccelerationStructure.descriptorCount = 1;
+        writeAccelerationStructure.descriptorCount = 1u;
         writeAccelerationStructure.pNext = &descASInfo;
 
         VkDescriptorImageInfo outputImageInfo{};
@@ -4132,10 +4172,10 @@ void MainApp::createRtDescriptorSets()
 
         VkWriteDescriptorSet writeOutputImage{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
         writeOutputImage.dstSet = frameData.rtDescriptorSets[i]->getHandle();
-        writeOutputImage.dstBinding = 1;
-        writeOutputImage.dstArrayElement = 0;
+        writeOutputImage.dstBinding = 1u;
+        writeOutputImage.dstArrayElement = 0u;
         writeOutputImage.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-        writeOutputImage.descriptorCount = 1;
+        writeOutputImage.descriptorCount = 1u;
         writeOutputImage.pImageInfo = &outputImageInfo;
 
         std::array<VkWriteDescriptorSet, 2> writeToDescriptorSets{ writeAccelerationStructure, writeOutputImage };
@@ -4154,10 +4194,10 @@ void MainApp::updateRtDescriptorSet()
         outputImageInfo.sampler = {};
         VkWriteDescriptorSet writeOutputImage{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
         writeOutputImage.dstSet = frameData.rtDescriptorSets[i]->getHandle();
-        writeOutputImage.dstBinding = 1;
-        writeOutputImage.dstArrayElement = 0;
+        writeOutputImage.dstBinding = 1u;
+        writeOutputImage.dstArrayElement = 0u;
         writeOutputImage.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-        writeOutputImage.descriptorCount = 1;
+        writeOutputImage.descriptorCount = 1u;
         writeOutputImage.pImageInfo = &outputImageInfo;
         writeOutputImage.pBufferInfo = nullptr;
         writeOutputImage.pTexelBufferView = nullptr;

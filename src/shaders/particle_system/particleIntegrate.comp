@@ -43,9 +43,9 @@ layout(push_constant) uniform ComputeParticlesPushConstant
 void main() 
 {
 	float TIME_FACTOR = 0.05;
-	uint index = gl_GlobalInvocationID.x;
-	vec4 position = particles[index].position;
-	vec4 velocity = particles[index].velocity;
+	uint globalInvocationId = gl_GlobalInvocationID.x;
+	vec4 position = particles[globalInvocationId].position;
+	vec4 velocity = particles[globalInvocationId].velocity;
 	vec4 positionDelta = pushConstant.deltaTime * TIME_FACTOR * velocity;
 	//debugPrintfEXT("velocity for index12: %1.7v4f", velocity);
 
@@ -53,8 +53,8 @@ void main()
 	translationMatrix[3][0] = positionDelta.x;
 	translationMatrix[3][1] = positionDelta.y;
 	translationMatrix[3][2] = positionDelta.z;
-	particles[index].position.xyz = position.xyz + translationMatrix[3].xyz;
+	particles[globalInvocationId].position.xyz = position.xyz + translationMatrix[3].xyz;
 
-	objectBuffer.objects[pushConstant.startingIndex + index].transform = translationMatrix * objectBuffer.objects[pushConstant.startingIndex + index].transform;
-	objectBuffer.objects[pushConstant.startingIndex + index].transformIT = transpose(inverse(objectBuffer.objects[pushConstant.startingIndex + index].transform));
+	objectBuffer.objects[pushConstant.startingIndex + globalInvocationId].transform = translationMatrix * objectBuffer.objects[pushConstant.startingIndex + globalInvocationId].transform;
+	objectBuffer.objects[pushConstant.startingIndex + globalInvocationId].transformIT = transpose(inverse(objectBuffer.objects[pushConstant.startingIndex + globalInvocationId].transform));
 }
