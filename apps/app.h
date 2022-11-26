@@ -386,8 +386,10 @@ private:
         PipelineData computeParticleCalculate;
         PipelineData computeParticleIntegrate;
         PipelineData computeFluidAdvection;
-        PipelineData computeJacobi;
         PipelineData computeGaussingSplat;
+        PipelineData computeFluidVelocityDivergence;
+        PipelineData computeJacobi;
+        PipelineData computeGradientSubtraction;
         PipelineData rayTracing;
     } pipelines;
     std::vector<ObjModel> objModels;
@@ -452,7 +454,7 @@ private:
     void animateWithCompute();
     void computeParticles();
     void computeFluidSimulation();
-    void copyFluidOutputTextureToInputTexture();
+    void copyFluidOutputTextureToInputTexture(Image *imageToCopyTo);
     void updateBuffersPerFrame();
     void rasterize();
     void postProcess();
@@ -471,8 +473,10 @@ private:
     void createParticleCalculateComputePipeline();
     void createParticleIntegrateComputePipeline();
     void createFluidAdvectionComputePipeline();
-    void createJacobiComputePipeline();
     void createGaussianSplatComputePipeline();
+    void createFluidVelocityDivergenceComputePipeline();
+    void createJacobiComputePipeline();
+    void createGradientSubtractionComputePipeline();
     void createFramebuffers();
     void createCommandPools();
     void createCommandBuffers();
