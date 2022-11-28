@@ -25,7 +25,6 @@
 
 layout(constant_id = 0) const uint workGroupSize = 64;
 layout(local_size_x_id = 0) in; // Maps to the constant_id = 0 specialization constant
-
 layout(constant_id = 1) const uint fluidVelocityBufferWidth = 1;
 layout(constant_id = 2) const uint fluidVelocityBufferHeight = 1;
 layout(constant_id = 3) const float alpha = 0.0001f;
@@ -34,9 +33,10 @@ layout(constant_id = 4) const float reciprocalBeta = 0.25f;
 // layout(set = 0, binding = 0) uniform sampler2D fluidVelocityInputTextureImage;
 layout(set = 0, binding = 1) uniform sampler2D fluidVelocityDivergenceInputTextureImage;
 layout(set = 0, binding = 2) uniform sampler2D fluidPressureInputTextureImage;
+// layout(set = 0, binding = 3) uniform sampler2D fluidDensityInputTextureImage;
 layout(set = 1, binding = 0, rgba32f) uniform writeonly image2D fluidSimulationOutputTextureImage;
 
-vec2 inverseCanvasSize = vec2(1.0f / fluidVelocityBufferWidth, 1.0f / fluidVelocityBufferHeight);
+vec2 gridSize = vec2(fluidVelocityBufferWidth, fluidVelocityBufferHeight);
 
 // We are iteratively solving Ax = b where x and b are both fluidVelocityInputTextureImage
 void main() 
@@ -47,18 +47,21 @@ void main()
 	ivec2 imageIndex;
 	imageIndex.x = int(mod(globalInvocationId, fluidVelocityBufferWidth));
 	imageIndex.y = int(globalInvocationId / fluidVelocityBufferWidth);
+	vec2 screenSpaceCoords = imageIndex + 0.5f;
+	vec2 uv = screenSpaceCoords / gridSize;
 
-	vec2 normalizedCoords = (imageIndex + 0.5f) * inverseCanvasSize;
+    vec2 xOffset = vec2(1.0f / gridSize.x, 0.0f);
+    vec2 yOffset = vec2(0.0f, 1.0f / gridSize.y);
 
 	// The pressure texture is the x component of the jacobi iterations, which is updated each iteration
-	float xRight = texture(fluidPressureInputTextureImage, normalizedCoords + vec2(1.0f, 0.0f) * inverseCanvasSize).x;
-	float xLeft = texture(fluidPressureInputTextureImage, normalizedCoords - vec2(1.0f, 0.0f) * inverseCanvasSize).x;
-	float xTop = texture(fluidPressureInputTextureImage, normalizedCoords + vec2(0.0f, 1.0f) * inverseCanvasSize).x;
-	float xBot = texture(fluidPressureInputTextureImage, normalizedCoords -  vec2(0.0f, 1.0f) * inverseCanvasSize).x;
+	float xRight = texture(fluidPressureInputTextureImage, uv + xOffset).x;
+	float xLeft = texture(fluidPressureInputTextureImage, uv - xOffset).x;
+	float xTop = texture(fluidPressureInputTextureImage, uv + yOffset).x;
+	float xBot = texture(fluidPressureInputTextureImage, uv - yOffset).x;
 
 	// velocityDivergence texture is the b component
-	float bCenter = texture(fluidVelocityDivergenceInputTextureImage, normalizedCoords).x;
+	float bCenter = texture(fluidVelocityDivergenceInputTextureImage, uv).x;
 
-	vec4 jacobiIteration = vec4((xLeft + xRight + xBot + xTop + alpha * bCenter) * reciprocalBeta, 0.0f, 0.0f, 0.0f);
+	vec4 jacobiIteration = vec4((xLeft + xRight + xBot + xTop + alpha * bCenter) * reciprocalBeta, 0.0f, 0.0f, 1.0f);
 	imageStore(fluidSimulationOutputTextureImage, imageIndex, jacobiIteration);
 }

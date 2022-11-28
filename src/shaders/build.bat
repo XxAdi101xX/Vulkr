@@ -13,8 +13,10 @@
 %VULKAN_SDK%/Bin/glslc.exe --target-env=vulkan1.2 particle_system/particleCalculate.comp -o spv/particle_system/particleCalculate.comp.spv -g
 %VULKAN_SDK%/Bin/glslc.exe --target-env=vulkan1.2 particle_system/particleIntegrate.comp -o spv/particle_system/particleIntegrate.comp.spv -g
 
-%VULKAN_SDK%/Bin/glslc.exe --target-env=vulkan1.2 fluid_simulation/fluidAdvection.comp -o spv/fluid_simulation/fluidAdvection.comp.spv -g
-%VULKAN_SDK%/Bin/glslc.exe --target-env=vulkan1.2 fluid_simulation/jacobi.comp -o spv/fluid_simulation/jacobi.comp.spv -g
-%VULKAN_SDK%/Bin/glslc.exe --target-env=vulkan1.2 fluid_simulation/gaussianSplat.comp -o spv/fluid_simulation/gaussianSplat.comp.spv -g
+%VULKAN_SDK%/Bin/glslc.exe --target-env=vulkan1.2 fluid_simulation/velocityAdvection.comp -o spv/fluid_simulation/velocityAdvection.comp.spv -g
+%VULKAN_SDK%/Bin/glslc.exe --target-env=vulkan1.2 fluid_simulation/densityAdvection.comp -o spv/fluid_simulation/densityAdvection.comp.spv -g
+%VULKAN_SDK%/Bin/glslc.exe --target-env=vulkan1.2 fluid_simulation/velocityGaussianSplat.comp -o spv/fluid_simulation/velocityGaussianSplat.comp.spv -g
+%VULKAN_SDK%/Bin/glslc.exe --target-env=vulkan1.2 fluid_simulation/densityGaussianSplat.comp -o spv/fluid_simulation/densityGaussianSplat.comp.spv -g
 %VULKAN_SDK%/Bin/glslc.exe --target-env=vulkan1.2 fluid_simulation/divergence.comp -o spv/fluid_simulation/divergence.comp.spv -g
+%VULKAN_SDK%/Bin/glslc.exe --target-env=vulkan1.2 fluid_simulation/jacobi.comp -o spv/fluid_simulation/jacobi.comp.spv -g
 %VULKAN_SDK%/Bin/glslc.exe --target-env=vulkan1.2 fluid_simulation/gradient.comp -o spv/fluid_simulation/gradient.comp.spv -g

@@ -21,7 +21,7 @@
  */
 
 #version 460
-#extension GL_EXT_debug_printf : enable
+//#extension GL_EXT_debug_printf : enable
 
 layout(constant_id = 0) const uint workGroupSize = 64;
 layout(local_size_x_id = 0) in; // Maps to the constant_id = 0 specialization constant
@@ -31,33 +31,50 @@ layout(constant_id = 2) const uint fluidVelocityBufferHeight = 1;
 layout(set = 0, binding = 0) uniform sampler2D fluidVelocityInputTextureImage;
 // layout(set = 0, binding = 1) uniform sampler2D fluidVelocityDivergenceInputTextureImage;
 // layout(set = 0, binding = 2) uniform sampler2D fluidPressureInputTextureImage;
-// layout(set = 0, binding = 3) uniform sampler2D fluidDensityInputTextureImage;
+layout(set = 0, binding = 3) uniform sampler2D fluidDensityInputTextureImage;
 layout(set = 1, binding = 0, rgba32f) uniform writeonly image2D fluidSimulationOutputTextureImage;
 
+// TODO: put these into push constants and make them configurable through the imgui ui?
 vec2 gridSize = vec2(fluidVelocityBufferWidth, fluidVelocityBufferHeight);
 float gridScale = 1.0f; 
+float timestep = 1.0f / 60.0f;
+float dissipation = 0.98f;
+
+vec2 bilerp(sampler2D tex, vec2 p)
+{
+    vec4 ij;
+    ij.xy = floor(p - 0.5) + 0.5;
+    ij.zw = ij.xy + 1.0;
+
+	vec4 uv = ij / gridSize.xyxy;
+	vec2 tex11 = texture(tex, uv.xy).xy;
+	vec2 tex21 = texture(tex, uv.zy).xy;
+	vec2 tex12 = texture(tex, uv.xw).xy;
+	vec2 tex22 = texture(tex, uv.zw).xy;
+
+	vec2 t = p - ij.xy;
+
+	return mix(mix(tex11, tex21, t.x), mix(tex12, tex22, t.x), t.y);
+}
 
 void main() 
 {
-    uint globalInvocationId = gl_GlobalInvocationID.x;
+	uint globalInvocationId = gl_GlobalInvocationID.x;
 	if (globalInvocationId >= fluidVelocityBufferWidth * fluidVelocityBufferHeight) return;
 
 	ivec2 imageIndex;
 	imageIndex.x = int(mod(globalInvocationId, fluidVelocityBufferWidth));
 	imageIndex.y = int(globalInvocationId / fluidVelocityBufferWidth);
-    vec2 screenSpaceCoords = imageIndex + 0.5f;
+	vec2 screenSpaceCoords = imageIndex + 0.5f;
 	vec2 uv = screenSpaceCoords / gridSize;
 
-    vec2 xOffset = vec2(1.0f / gridSize.x, 0.0f);
-    vec2 yOffset = vec2(0.0f, 1.0f / gridSize.y);
+	float scale = 1.0 / gridScale;
+	vec2 pos = screenSpaceCoords - timestep * scale * texture(fluidVelocityInputTextureImage, uv).xy;
 
-    float velocityRightX = texture(fluidVelocityInputTextureImage, uv + xOffset).x;
-    float velocityLeftX = texture(fluidVelocityInputTextureImage, uv - xOffset).x;
-    float velocityTopY = texture(fluidVelocityInputTextureImage, uv + yOffset).y;
-    float velocityBotY = texture(fluidVelocityInputTextureImage, uv - yOffset).y;
+	// Advect the fluid density
+	imageStore(fluidSimulationOutputTextureImage, imageIndex, vec4(dissipation * bilerp(fluidDensityInputTextureImage, pos), 0.0f, 1.0f));
 
-    float scale =  0.5f / gridScale;
-    float divergence = scale * (velocityRightX - velocityLeftX + velocityTopY - velocityBotY);
-
-    imageStore(fluidSimulationOutputTextureImage, imageIndex, vec4(divergence, 0.0f, 0.0f, 1.0f));
+	//debugPrintfEXT("texvalue is %f %f %f", imageLoad(fluidSimulationOutputTextureImage, ivec2(0, 0)).x, imageLoad(fluidSimulationOutputTextureImage, ivec2(1, 0)).x, imageLoad(fluidSimulationOutputTextureImage, ivec2(0, 0)).z);
+	//imageStore(fluidSimulationOutputTextureImage, imageIndex, imageLoad(fluidVelocityOutputTextureImage, imageIndex) + vec4(0.0, 1.0, 1.0, 0.0));
+	//debugPrintfEXT("width is %d, height is %d, index is %d, velocity for texcoord: %1.1v2f", fluidVelocityBufferWidth, fluidVelocityBufferHeight, index, texCoord);
 }

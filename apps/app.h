@@ -96,7 +96,8 @@ constexpr uint32_t maxInstanceCount{ 10000 };
 constexpr uint32_t maxLightCount{ 100 };
 
 #ifdef VULKR_DEBUG
-constexpr uint32_t particlesPerAttractor{ 64 };
+//constexpr uint32_t particlesPerAttractor{ 64 };
+constexpr uint32_t particlesPerAttractor{ 4 }; // TODO remove this after fluid simulation app is separated out
 #else
 constexpr uint32_t particlesPerAttractor{ 1024 };
 #endif
@@ -362,6 +363,7 @@ private:
         std::array<std::unique_ptr<Texture>, maxFramesInFlight> fluidVelocityInputTextures;
         std::array<std::unique_ptr<Texture>, maxFramesInFlight> fluidVelocityDivergenceInputTextures;
         std::array<std::unique_ptr<Texture>, maxFramesInFlight> fluidPressureInputTextures;
+        std::array<std::unique_ptr<Texture>, maxFramesInFlight> fluidDensityInputTextures;
         std::array<std::unique_ptr<Texture>, maxFramesInFlight> fluidSimulationOutputTextures; // Generic backbuffer for all of the fluid simulation stages
     } frameData;
 
@@ -385,8 +387,10 @@ private:
         PipelineData computeModelAnimation;
         PipelineData computeParticleCalculate;
         PipelineData computeParticleIntegrate;
-        PipelineData computeFluidAdvection;
-        PipelineData computeGaussingSplat;
+        PipelineData computeVelocityAdvection;
+        PipelineData computeDensityAdvection;
+        PipelineData computeVelocityGaussingSplat;
+        PipelineData computeDensityGaussingSplat;
         PipelineData computeFluidVelocityDivergence;
         PipelineData computeJacobi;
         PipelineData computeGradientSubtraction;
@@ -472,8 +476,10 @@ private:
     void createModelAnimationComputePipeline();
     void createParticleCalculateComputePipeline();
     void createParticleIntegrateComputePipeline();
-    void createFluidAdvectionComputePipeline();
-    void createGaussianSplatComputePipeline();
+    void createVelocityAdvectionComputePipeline();
+    void createDensityAdvectionComputePipeline();
+    void createVelocityGaussianSplatComputePipeline();
+    void createDensityGaussianSplatComputePipeline();
     void createFluidVelocityDivergenceComputePipeline();
     void createJacobiComputePipeline();
     void createGradientSubtractionComputePipeline();
