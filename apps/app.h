@@ -135,7 +135,8 @@ struct ObjInstance
     alignas(8) VkDeviceAddress materials;
     alignas(8) VkDeviceAddress materialIndices;
 
-    bool operator == (const ObjInstance &other) const {
+    bool operator == (const ObjInstance &other) const
+    {
         return
             transform == other.transform &&
             transformIT == other.transformIT &&
@@ -147,7 +148,8 @@ struct ObjInstance
             materialIndices == other.materialIndices;
     }
 
-    bool operator != (const ObjInstance &other) const {
+    bool operator != (const ObjInstance &other) const
+    {
         return !(*this == other);
     }
 };
@@ -164,6 +166,57 @@ struct LightData
     alignas(4) float lightIntensity{ 140.0f };
     alignas(4) int lightType{ 0 }; // 0: point, 1: directional (infinite)
 };
+
+// Push constants; note that any modifications to push constants must be matched in the shaders and offsets must be set appropriately including when multiple push constants are defined for different stages (see layout(offset = 16))
+// ensure push constants fall under the max size (128 bytes is the min size so we shouldn't expect more than this); be careful of implicit padding (eg. vec3 should always be followed by a 4 byte datatype if possible or else it might pad to 16 bytes)
+struct RasterizationPushConstant
+{
+    int lightCount{ 0 };
+} rasterizationPushConstant;
+
+struct RaytracingPushConstant
+{
+    int lightCount{ 0 };
+    int frameSinceViewChange{ -1 }; // TODO not used
+} raytracingPushConstant;
+
+struct TaaPushConstant
+{
+    glm::vec2 jitter{ glm::vec2(0.0f) };
+    int frameSinceViewChange{ -1 };
+    int blank{ 0 }; // alignment
+} taaPushConstant;
+
+struct PostProcessPushConstant
+{
+    glm::vec2 imageExtent;
+} postProcessPushConstant;
+
+struct ComputePushConstant
+{
+    int indexCount;
+    float time;
+} computePushConstant;
+
+struct ComputeParticlesPushConstant
+{
+    int startingIndex{ 0 };
+    int particleCount{ 0 };
+    float deltaTime{ 0.0f };
+    int blank{ 0 }; // alignment
+} computeParticlesPushConstant;
+
+struct FluidSimulationPushConstant
+{
+    glm::vec2 gridSize{ 1280.0f, 720.0f };
+    float gridScale{ 1.0f };
+    float timestep{ 1.0f / 60.0f };
+    glm::vec3 splatForce{ glm::vec3(0.0f) };
+    float splatRadius{ 1.0f };
+    glm::vec2 splatPosition{ glm::vec2(0.0f) };
+    float dissipation{ 0.98f };
+    int blank{ 0 }; // padding
+} fluidSimulationPushConstant;
 
 /* CPU only structs */
 struct ObjModel
@@ -389,8 +442,8 @@ private:
         PipelineData computeParticleIntegrate;
         PipelineData computeVelocityAdvection;
         PipelineData computeDensityAdvection;
-        PipelineData computeVelocityGaussingSplat;
-        PipelineData computeDensityGaussingSplat;
+        PipelineData computeVelocityGaussianSplat;
+        PipelineData computeDensityGaussianSplat;
         PipelineData computeFluidVelocityDivergence;
         PipelineData computeJacobi;
         PipelineData computeGradientSubtraction;
@@ -404,50 +457,6 @@ private:
     VkDeviceSize particleBufferSize{ 0 };
     std::vector<Particle> particleBuffer;
 
-    // Push constants; note that any modifications to push constants must be matched in the shaders and offsets must be set appropriately including when multiple push constants are defined for different stages (see layout(offset = 16))
-    struct RasterizationPushConstant
-    {
-        int lightCount{ 0 };
-    } rasterizationPushConstant;
-
-    struct RaytracingPushConstant
-    {
-        int lightCount{ 0 };
-        int frameSinceViewChange{ -1 }; // TODO not used
-    } raytracingPushConstant;
-
-    struct TaaPushConstant
-    {
-        glm::vec2 jitter{ glm::vec2(0.0f) };
-        int frameSinceViewChange{ -1 };
-        int blank{ 0 }; // alignment
-    } taaPushConstant;
-
-    struct PostProcessPushConstant
-    {
-        glm::vec2 imageExtent;
-    } postProcessPushConstant;
-
-    struct ComputePushConstant
-    {
-        int indexCount;
-        float time;
-    } computePushConstant;
-
-    struct ComputeParticlesPushConstant
-    {
-        int startingIndex{ 0 };
-        int particleCount{ 0 };
-        float deltaTime{ 0.0f };
-        int blank{ 0 }; // alignment
-    } computeParticlesPushConstant;
-
-    struct GaussianSplatPushConstant
-    {
-        glm::vec3 splatForce { glm::vec3(0.0f) };
-        float splatRadius{ 1.0f };
-        glm::vec2 splatPosition{ glm::vec2(0.0f) };
-    } gaussianSplatPushConstant;
 #ifdef FLUID_SIMULATION
     MouseInput activeMouseInput{ MouseInput::None };
     glm::vec2 lastMousePosition{ glm::vec2(0.0f) };

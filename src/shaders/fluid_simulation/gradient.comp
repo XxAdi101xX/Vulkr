@@ -25,8 +25,6 @@
 
 layout(constant_id = 0) const uint workGroupSize = 64;
 layout(local_size_x_id = 0) in; // Maps to the constant_id = 0 specialization constant
-layout(constant_id = 1) const uint fluidVelocityBufferWidth = 1;
-layout(constant_id = 2) const uint fluidVelocityBufferHeight = 1;
 
 layout(set = 0, binding = 0) uniform sampler2D fluidVelocityInputTextureImage;
 // layout(set = 0, binding = 1) uniform sampler2D fluidVelocityDivergenceInputTextureImage;
@@ -34,29 +32,38 @@ layout(set = 0, binding = 2) uniform sampler2D fluidPressureInputTextureImage;
 // layout(set = 0, binding = 3) uniform sampler2D fluidDensityInputTextureImage;
 layout(set = 1, binding = 0, rgba32f) uniform writeonly image2D fluidSimulationOutputTextureImage;
 
-vec2 gridSize = vec2(fluidVelocityBufferWidth, fluidVelocityBufferHeight);
-float gridScale = 1.0f;
+layout(push_constant) uniform FluidSimulationPushConstant
+{
+	vec2 gridSize;
+	float gridScale;
+	float timestep;
+	vec3 splatForce;
+	float splatRadius;
+	vec2 splatPosition;
+	float dissipation;
+	int blank; // padding
+} pushConstant;
 
 void main() 
 {
 	uint globalInvocationId = gl_GlobalInvocationID.x;
-	if (globalInvocationId >= fluidVelocityBufferWidth * fluidVelocityBufferHeight) return;
+	if (globalInvocationId >= pushConstant.gridSize.x * pushConstant.gridSize.y) return;
 
 	ivec2 imageIndex;
-	imageIndex.x = int(mod(globalInvocationId, fluidVelocityBufferWidth));
-	imageIndex.y = int(globalInvocationId / fluidVelocityBufferWidth);
+	imageIndex.x = int(mod(globalInvocationId, pushConstant.gridSize.x));
+	imageIndex.y = int(globalInvocationId / pushConstant.gridSize.x);
 	vec2 screenSpaceCoords = imageIndex + 0.5f;
-	vec2 uv = screenSpaceCoords / gridSize;
+	vec2 uv = screenSpaceCoords / pushConstant.gridSize;
 
-    vec2 xOffset = vec2(1.0 / gridSize.x, 0.0);
-    vec2 yOffset = vec2(0.0, 1.0 / gridSize.y);
+    vec2 xOffset = vec2(1.0 / pushConstant.gridSize.x, 0.0);
+    vec2 yOffset = vec2(0.0, 1.0 / pushConstant.gridSize.y);
 
     float pressureRightX = texture(fluidPressureInputTextureImage, uv + xOffset).x;
     float pressureLeftX = texture(fluidPressureInputTextureImage, uv - xOffset).x;
     float pressureTopY = texture(fluidPressureInputTextureImage, uv + yOffset).y;
     float pressureBotY = texture(fluidPressureInputTextureImage, uv - yOffset).y;
 
-    float scale =  0.5f / gridScale;
+    float scale =  0.5f / pushConstant.gridScale;
     vec2 gradient = vec2(pressureRightX - pressureLeftX, pressureTopY - pressureBotY);
 
     vec2 newVelocity = texture(fluidVelocityInputTextureImage, uv).xy;

@@ -21,19 +21,10 @@
  */
 
 #version 460
-#extension GL_EXT_debug_printf : enable
+//#extension GL_EXT_debug_printf : enable
 
 layout(constant_id = 0) const uint workGroupSize = 64;
 layout(local_size_x_id = 0) in; // Maps to the constant_id = 0 specialization constant
-layout(constant_id = 1) const uint fluidVelocityBufferWidth = 1;
-layout(constant_id = 2) const uint fluidVelocityBufferHeight = 1;
-
-layout(push_constant) uniform GaussianSplatSplatPushConstant
-{
-	vec3 splatForce;
-	float splatRadius;
-	vec2 splatPosition;
-} pushConstant;
 
 layout(set = 0, binding = 0) uniform sampler2D fluidVelocityInputTextureImage;
 // layout(set = 0, binding = 1) uniform sampler2D fluidVelocityDivergenceInputTextureImage;
@@ -41,7 +32,17 @@ layout(set = 0, binding = 0) uniform sampler2D fluidVelocityInputTextureImage;
 // layout(set = 0, binding = 3) uniform sampler2D fluidDensityInputTextureImage;
 layout(set = 1, binding = 0, rgba32f) uniform writeonly image2D fluidSimulationOutputTextureImage;
 
-vec2 gridSize = vec2(fluidVelocityBufferWidth, fluidVelocityBufferHeight); 
+layout(push_constant) uniform FluidSimulationPushConstant
+{
+	vec2 gridSize;
+	float gridScale;
+	float timestep;
+	vec3 splatForce;
+	float splatRadius;
+	vec2 splatPosition;
+	float dissipation;
+	int blank; // padding
+} pushConstant;
 
 float gaussianSplat(vec2 p, float r)
 {
@@ -51,16 +52,16 @@ float gaussianSplat(vec2 p, float r)
 void main() 
 {
 	uint globalInvocationId = gl_GlobalInvocationID.x;
-	if (globalInvocationId >= fluidVelocityBufferWidth * fluidVelocityBufferHeight) return;
+	if (globalInvocationId >= pushConstant.gridSize.x * pushConstant.gridSize.y) return;
 
 	ivec2 imageIndex;
-	imageIndex.x = int(mod(globalInvocationId, fluidVelocityBufferWidth));
-	imageIndex.y = int(globalInvocationId / fluidVelocityBufferWidth);
+	imageIndex.x = int(mod(globalInvocationId, pushConstant.gridSize.x));
+	imageIndex.y = int(globalInvocationId / pushConstant.gridSize.x);
 	vec2 screenSpaceCoords = imageIndex + 0.5f;
-	vec2 uv = screenSpaceCoords / gridSize;
+	vec2 uv = screenSpaceCoords / pushConstant.gridSize;
 
 	vec2 distanceFromSplat = pushConstant.splatPosition - screenSpaceCoords;
-	vec3 splatColor = pushConstant.splatForce * gaussianSplat(distanceFromSplat, gridSize.x * pushConstant.splatRadius);
+	vec3 splatColor = pushConstant.splatForce.xyz * gaussianSplat(distanceFromSplat, pushConstant.gridSize.x * pushConstant.splatRadius);
 
 	imageStore(fluidSimulationOutputTextureImage, imageIndex, vec4(texture(fluidVelocityInputTextureImage, uv).xyz + splatColor, 1.0f));
 }
