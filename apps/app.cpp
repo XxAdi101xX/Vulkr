@@ -534,10 +534,45 @@ void MainApp::update()
 
     VkImageSubresourceRange subresourceRange = {};
     subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    subresourceRange.baseMipLevel = 0;
-    subresourceRange.levelCount = 1;
-    subresourceRange.baseArrayLayer = 0;
-    subresourceRange.layerCount = 1;
+    subresourceRange.baseMipLevel = 0u;
+    subresourceRange.levelCount = 1u;
+    subresourceRange.baseArrayLayer = 0u;
+    subresourceRange.layerCount = 1u;
+
+    // Prepare the current swapchain as a transfer destination
+    swapchain->getImages()[swapchainImageIndex]->transitionImageLayout(*frameData.commandBuffers[currentFrame][2], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, subresourceRange);
+
+#ifdef FLUID_SIMULATION
+    frameData.fluidDensityInputTextures[currentFrame]->image->transitionImageLayout(*frameData.commandBuffers[currentFrame][2], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, subresourceRange);
+
+    VkImageBlit2 imageBlit{ VK_STRUCTURE_TYPE_IMAGE_BLIT_2 };
+    imageBlit.pNext = nullptr;
+    imageBlit.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+    imageBlit.srcOffsets[0] = { 0, 0, 0 };
+    imageBlit.srcOffsets[1] = { static_cast<int32_t>(swapchain->getProperties().imageExtent.width), static_cast<int32_t>(swapchain->getProperties().imageExtent.height), 1 };
+    imageBlit.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+    imageBlit.dstOffsets[0] = { 0, 0, 0 };
+    imageBlit.dstOffsets[1] = { static_cast<int32_t>(swapchain->getProperties().imageExtent.width), static_cast<int32_t>(swapchain->getProperties().imageExtent.height), 1 };
+
+    VkBlitImageInfo2 blitImageInfo{ VK_STRUCTURE_TYPE_BLIT_IMAGE_INFO_2 };
+    blitImageInfo.pNext = nullptr;
+    blitImageInfo.srcImage = frameData.fluidDensityInputTextures[currentFrame]->image->getHandle();
+    blitImageInfo.srcImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    blitImageInfo.dstImage = swapchain->getImages()[swapchainImageIndex]->getHandle();
+    blitImageInfo.dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    blitImageInfo.regionCount = 1u;
+    blitImageInfo.pRegions = &imageBlit;
+    blitImageInfo.filter = VK_FILTER_NEAREST;
+
+    // We are using vkCmdBlitImage2 instead of vkCmdCopyImage to deal with the format conversions from VK_FORMAT_R32G32B32A32_SFLOAT to VK_FORMAT_B8G8R8A8_UNORM
+    vkCmdBlitImage2(frameData.commandBuffers[currentFrame][2]->getHandle(), &blitImageInfo);
+    //vkCmdCopyImage(frameData.commandBuffers[currentFrame][2]->getHandle(), frameData.fluidDensityInputTextures[currentFrame]->image->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swapchain->getImages()[swapchainImageIndex]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &outputImageCopyRegion);
+
+    frameData.fluidDensityInputTextures[currentFrame]->image->transitionImageLayout(*frameData.commandBuffers[currentFrame][2], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL, subresourceRange);
+#else
+    // Prepare the historyImage as a transfer destination
+    frameData.historyImages[currentFrame]->transitionImageLayout(*frameData.commandBuffers[currentFrame][2], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, subresourceRange);
+    // Note that the layout of the outputImage has been transitioned from VK_IMAGE_LAYOUT_GENERAL to VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL as defined in the postProcessingRenderPass configuration
 
     VkImageCopy outputImageCopyRegion{};
     outputImageCopyRegion.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
@@ -545,32 +580,19 @@ void MainApp::update()
     outputImageCopyRegion.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
     outputImageCopyRegion.dstOffset = { 0, 0, 0 };
     outputImageCopyRegion.extent = { swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, 1 };
-
-    // Prepare the current swapchain as a transfer destination
-    swapchain->getImages()[swapchainImageIndex]->transitionImageLayout(*frameData.commandBuffers[currentFrame][2], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, subresourceRange);
-
-#ifdef FLUID_SIMULATION
-    frameData.fluidDensityInputTextures[currentFrame]->image->transitionImageLayout(*frameData.commandBuffers[currentFrame][2], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, subresourceRange);
-    vkCmdCopyImage(frameData.commandBuffers[currentFrame][2]->getHandle(), frameData.fluidDensityInputTextures[currentFrame]->image->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swapchain->getImages()[swapchainImageIndex]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &outputImageCopyRegion);
-    frameData.fluidDensityInputTextures[currentFrame]->image->transitionImageLayout(*frameData.commandBuffers[currentFrame][2], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL, subresourceRange);
-#else
-    // Prepare the historyImage as a transfer destination
-    frameData.historyImages[currentFrame]->transitionImageLayout(*frameData.commandBuffers[currentFrame][2], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, subresourceRange);
-    // Note that the layout of the outputImage has been transitioned from VK_IMAGE_LAYOUT_GENERAL to VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL as defined in the postProcessingRenderPass configuration
-
     // Copy output image to swapchain image and history image (note that they can execute in any order due to lack of barriers)
     vkCmdCopyImage(frameData.commandBuffers[currentFrame][2]->getHandle(), frameData.outputImages[currentFrame]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swapchain->getImages()[swapchainImageIndex]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &outputImageCopyRegion);
     vkCmdCopyImage(frameData.commandBuffers[currentFrame][2]->getHandle(), frameData.outputImages[currentFrame]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, frameData.historyImages[currentFrame]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &outputImageCopyRegion);
 
     VkBufferCopy cameraBufferCopyRegion{};
-    cameraBufferCopyRegion.srcOffset = 0;
-    cameraBufferCopyRegion.dstOffset = 0;
+    cameraBufferCopyRegion.srcOffset = 0ul;
+    cameraBufferCopyRegion.dstOffset = 0ul;
     cameraBufferCopyRegion.size = sizeof(CameraData);
     vkCmdCopyBuffer(frameData.commandBuffers[currentFrame][2]->getHandle(), frameData.cameraBuffers[currentFrame]->getHandle(), frameData.previousFrameCameraBuffers[currentFrame]->getHandle(), 1, &cameraBufferCopyRegion);
 
     VkBufferCopy objectBufferCopyRegion{};
-    objectBufferCopyRegion.srcOffset = 0;
-    objectBufferCopyRegion.dstOffset = 0;
+    objectBufferCopyRegion.srcOffset = 0ul;
+    objectBufferCopyRegion.dstOffset = 0ul;
     objectBufferCopyRegion.size = sizeof(ObjInstance) * maxInstanceCount;
     vkCmdCopyBuffer(frameData.commandBuffers[currentFrame][2]->getHandle(), frameData.objectBuffers[currentFrame]->getHandle(), frameData.previousFrameObjectBuffers[currentFrame]->getHandle(), 1, &objectBufferCopyRegion);
 
@@ -594,14 +616,14 @@ void MainApp::update()
     VkSemaphoreSubmitInfo outputImageTransferWaitSemaphoreSubmitInfo{ VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
     outputImageTransferWaitSemaphoreSubmitInfo.pNext = nullptr;
     outputImageTransferWaitSemaphoreSubmitInfo.semaphore = frameData.postProcessRenderingFinishedSemaphores[currentFrame];
-    outputImageTransferWaitSemaphoreSubmitInfo.value = 0u; // Optional: ignored since this isn't a timeline semaphore
+    outputImageTransferWaitSemaphoreSubmitInfo.value = 0ul; // Optional: ignored since this isn't a timeline semaphore
     outputImageTransferWaitSemaphoreSubmitInfo.stageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
     outputImageTransferWaitSemaphoreSubmitInfo.deviceIndex = 0u; // replaces VkDeviceGroupSubmitInfo but we don't have that in our pNext chain so not used.
 
     VkSemaphoreSubmitInfo outputImageTransferSemaphoreSubmitInfo{ VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
     outputImageTransferSemaphoreSubmitInfo.pNext = nullptr;
     outputImageTransferSemaphoreSubmitInfo.semaphore = frameData.outputImageCopyFinishedSemaphores[currentFrame];
-    outputImageTransferSemaphoreSubmitInfo.value = 0u; // Optional: ignored since this isn't a timeline semaphore
+    outputImageTransferSemaphoreSubmitInfo.value = 0ul; // Optional: ignored since this isn't a timeline semaphore
     outputImageTransferSemaphoreSubmitInfo.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
     outputImageTransferSemaphoreSubmitInfo.deviceIndex = 0u; // replaces VkDeviceGroupSubmitInfo but we don't have that in our pNext chain so not used.
 
@@ -1138,7 +1160,7 @@ void MainApp::computeFluidSimulation()
     // Ensures that compute shader has finished its writing before the transfer operation is done and ensures that it completes before any future compute operations
     copyFluidOutputTextureToInputTexture(frameData.fluidVelocityInputTextures[currentFrame]->image.get());
 
-    // Second pass: Compute velocity advection
+    // Second pass: Compute density advection
     vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeDensityAdvection.pipeline->getBindPoint(), pipelines.computeDensityAdvection.pipeline->getHandle());
     vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeDensityAdvection.pipeline->getBindPoint(), pipelines.computeDensityAdvection.pipelineState->getPipelineLayout().getHandle(), 0, 1, &frameData.fluidSimulationInputDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
     vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeDensityAdvection.pipeline->getBindPoint(), pipelines.computeDensityAdvection.pipelineState->getPipelineLayout().getHandle(), 1, 1, &frameData.fluidSimulationOutputDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
@@ -2720,7 +2742,8 @@ void MainApp::createDepthResources()
 std::unique_ptr<Image> MainApp::createTextureImage(uint32_t texWidth, uint32_t texHeight, VkImageUsageFlags imageUsageFlags)
 {
     // TODO: we should probably do this initialization on the GPU side with a shader; this is inefficient since we have to mark the texture as a transfer destination, just for a one time initalization
-    VkDeviceSize imageSize{ static_cast<VkDeviceSize>(texWidth * texHeight * 16 ) }; /* Since our format is VK_FORMAT_R32G32B32A32_SFLOAT, we allocate 4 bytes per channel  */
+    VkFormat format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    VkDeviceSize imageSize{ static_cast<VkDeviceSize>(texWidth * texHeight * 16 /* bytes */)}; /* Since our format is VK_FORMAT_R32G32B32A32_SFLOAT, we allocate 4 byte (32 bits) per channel of which there are 4 */
     VkBufferCreateInfo bufferInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
     bufferInfo.size = imageSize;
     bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
@@ -2732,12 +2755,12 @@ std::unique_ptr<Image> MainApp::createTextureImage(uint32_t texWidth, uint32_t t
     std::unique_ptr<Buffer> stagingBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
 
     void *mappedData = stagingBuffer->map();
-    std::vector<float> initialData(imageSize, 0.0f);
+    std::vector<float> initialData(imageSize, 0.85f);
     memcpy(mappedData, initialData.data(), static_cast<size_t>(imageSize));
     stagingBuffer->unmap();
 
     VkExtent3D extent{ texWidth, texHeight, 1u };
-    std::unique_ptr<Image> textureImage = std::make_unique<Image>(*device, VK_FORMAT_B8G8R8A8_UNORM, extent, imageUsageFlags, VMA_MEMORY_USAGE_GPU_ONLY /* default values for remaining params */);
+    std::unique_ptr<Image> textureImage = std::make_unique<Image>(*device, format, extent, imageUsageFlags, VMA_MEMORY_USAGE_GPU_ONLY /* default values for remaining params */);
 
     VkImageSubresourceRange subresourceRange = {};
     subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
