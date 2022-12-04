@@ -25,37 +25,6 @@
 
 #include "common/logger.h"
 
-namespace
-{
-
-/* TODO: this is currently unused */
-VkPipelineStageFlags pipelineStageForLayout(VkImageLayout layout)
-{
-	switch (layout)
-	{
-	case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
-	case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
-		return VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-	case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
-		return VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-	case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
-		LOGW("You should manually return VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT for graphics queues but this currently returns VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT to support non-graphics queues");
-		return VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;  // We do this to allow queue other than graphic
-													// return VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT;
-	case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
-		LOGW("You should manually return VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT for graphics queues but this currently returns VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT to support non-graphics queues");
-		return VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;  // We do this to allow queue other than graphic
-													// return VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-	case VK_IMAGE_LAYOUT_PREINITIALIZED:
-		return VK_PIPELINE_STAGE_2_HOST_BIT;
-	case VK_IMAGE_LAYOUT_UNDEFINED:
-		return VK_PIPELINE_STAGE_2_NONE;
-	default:
-		LOGEANDABORT("Unhandled image layout to set VkPipelineStageFlags");
-	}
-}
-} // namespace
-
 namespace vulkr
 {
 

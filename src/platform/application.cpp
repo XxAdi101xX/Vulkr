@@ -63,12 +63,12 @@ void Application::finish()
 
 void Application::recreateSwapchain()
 {
-	// Will need to be overriden
+	// Nothing is done by default; applications should override this method if they want to support swapchain recreation for things like window resizing
 }
 
 void Application::handleWindowResize(const uint32_t width, const uint32_t height)
 {
-
+	// Nothing is done by default; applications should override this method if they want to support window resizing
 }
 
 void Application::handleFocusChange(bool isFocused)
@@ -78,7 +78,7 @@ void Application::handleFocusChange(bool isFocused)
 
 void Application::handleInputEvents(const InputEvent &inputEvent)
 {
-	// TODO handle input events
+	// Nothing is done by default; applications should override this method if they care about hardware inputs
 }
 
 bool Application::isFocused() const
@@ -89,6 +89,11 @@ bool Application::isFocused() const
 std::string Application::getName() const
 {
 	return name;
+}
+
+float Application::getCurrentFps() const
+{
+	return fps;
 }
 
 } // namespace vulkr

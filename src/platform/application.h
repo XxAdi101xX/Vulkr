@@ -68,7 +68,10 @@ public:
 
 	/* Getters */
 	bool isFocused() const;
+
 	std::string getName() const;
+
+	float getCurrentFps() const;
 protected:
 	/* A handle to the platform */
 	Platform &platform;
