@@ -59,6 +59,7 @@ public:
 	/* Get the memory allocator */
 	VmaAllocator getMemoryAllocator() const;
 
+	/* Get the memory allocator callbacks */
 	const VkAllocationCallbacks *getAllocationCallbacks() const;
 
 	/* Get the memory type for the specified memoryPropertyFlags */

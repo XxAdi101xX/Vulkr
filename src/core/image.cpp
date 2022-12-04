@@ -124,8 +124,7 @@ Image::Image(
 	usageFlags{ imageUsage },
 	arrayLayerCount{ arrayLayers },
 	sampleCount{ sampleCount },
-	tiling{ tiling },
-	layout{ initialLayout }
+	tiling{ tiling }
 {
 	if (mipLevels < 1)
 	{
@@ -217,8 +216,9 @@ void Image::unmap()
 
 }
 
-void Image::transitionImageLayout(CommandBuffer &commandBuffer, VkImageLayout oldLayout, VkImageLayout newLayout, VkImageSubresourceRange subresourceRange)
+VkImageMemoryBarrier2 Image::transitionImageLayout(VkImageLayout oldLayout, VkImageLayout newLayout, VkImageSubresourceRange subresourceRange)
 {
+	LOGEANDABORT("This method should not be used as it's probably outdated, leaving it here for reference");
 	VkImageMemoryBarrier2 imageMemoryBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
 	imageMemoryBarrier.pNext = nullptr;
 	imageMemoryBarrier.oldLayout = oldLayout;
@@ -226,11 +226,7 @@ void Image::transitionImageLayout(CommandBuffer &commandBuffer, VkImageLayout ol
 	imageMemoryBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 	imageMemoryBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 	imageMemoryBarrier.image = handle;
-	imageMemoryBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-	imageMemoryBarrier.subresourceRange.baseMipLevel = 0;
-	imageMemoryBarrier.subresourceRange.levelCount = 1;
-	imageMemoryBarrier.subresourceRange.baseArrayLayer = 0;
-	imageMemoryBarrier.subresourceRange.layerCount = 1;
+	imageMemoryBarrier.subresourceRange = subresourceRange;
 
 
 	if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED && newLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
@@ -382,19 +378,7 @@ void Image::transitionImageLayout(CommandBuffer &commandBuffer, VkImageLayout ol
 		break;
 	}
 
-	VkDependencyInfo dependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
-	dependencyInfo.pNext = nullptr;
-	dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-	dependencyInfo.memoryBarrierCount = 0u;
-	dependencyInfo.pMemoryBarriers = nullptr;
-	dependencyInfo.bufferMemoryBarrierCount = 0u;
-	dependencyInfo.pBufferMemoryBarriers = nullptr;
-	dependencyInfo.imageMemoryBarrierCount = 1u;
-	dependencyInfo.pImageMemoryBarriers = &imageMemoryBarrier;
-
-	vkCmdPipelineBarrier2KHR(commandBuffer.getHandle(), &dependencyInfo);
-
-	layout = newLayout;
+	return imageMemoryBarrier;
 }
 
 Device &Image::getDevice() const
@@ -450,11 +434,6 @@ VkImageSubresource Image::getSubresource() const
 uint32_t Image::getArrayLayerCount() const
 {
 	return arrayLayerCount;
-}
-
-VkImageLayout Image::getLayout() const
-{
-	return layout;
 }
 
 } // namespace vulkr

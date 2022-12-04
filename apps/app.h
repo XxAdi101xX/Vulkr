@@ -384,6 +384,7 @@ private:
         std::array<std::unique_ptr<ImageView>, maxFramesInFlight> historyImageViews;
         std::array<std::unique_ptr<Image>, maxFramesInFlight> velocityImages;
         std::array<std::unique_ptr<ImageView>, maxFramesInFlight> velocityImageViews;
+
         std::array<std::unique_ptr<Framebuffer>, maxFramesInFlight> offscreenFramebuffers;
         std::array<std::unique_ptr<Framebuffer>, maxFramesInFlight> postProcessFramebuffers;
 

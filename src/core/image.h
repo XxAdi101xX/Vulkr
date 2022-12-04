@@ -69,8 +69,8 @@ public:
 
 	void unmap();
 
-	/* Transition the image from the old layout to the new layout; the commandBuffer must have been started and ready to record commands */
-	void transitionImageLayout(CommandBuffer &commandBuffer, VkImageLayout oldLayout, VkImageLayout newLayout, VkImageSubresourceRange subresourceRange);
+	// Should not be used; left here for future reference
+	VkImageMemoryBarrier2 transitionImageLayout(VkImageLayout oldLayout, VkImageLayout newLayout, VkImageSubresourceRange subresourceRange);
 
 	/* Getters */
 	VkImage getHandle() const;
@@ -94,9 +94,6 @@ public:
 	VkImageSubresource getSubresource() const;
 
 	uint32_t getArrayLayerCount() const;
-
-	/* TODO: this value might be incorrect as we've not updated layouts when they're updated by the renderpass initalLayout, finalLayout and the per-subpass transitions as described in the AttachmentRefs*/
-	VkImageLayout getLayout() const;
 
 private:
 	Device &device;
@@ -124,8 +121,6 @@ private:
 	VkImageSubresource subresource{};
 
 	uint32_t arrayLayerCount{ 0u };
-
-	VkImageLayout layout{ VK_IMAGE_LAYOUT_UNDEFINED };
 };
 
 } // namespace vulkr

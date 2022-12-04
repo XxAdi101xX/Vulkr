@@ -333,7 +333,7 @@ void MainApp::update()
     fencePool->reset(&frameData.inFlightFences[currentFrame]);
 
     // Now that we are sure that the commands finished executing, we can safely reset the command buffers for the frame to begin recording again
-    for (uint32_t i = 0; i < commandBufferCountForFrame; ++i)
+    for (uint32_t i = 0u; i < commandBufferCountForFrame; ++i)
     {
         frameData.commandBuffers[currentFrame][i]->reset();
     }
@@ -378,8 +378,8 @@ void MainApp::update()
     if (temporalAntiAliasingEnabled)
     {
         taaPushConstant.jitter = haltonSequence[std::min(taaPushConstant.frameSinceViewChange, static_cast<int>(taaDepth - 1))];
-        taaPushConstant.jitter.x = (taaPushConstant.jitter.x / swapchain->getProperties().imageExtent.width) * 5;
-        taaPushConstant.jitter.y = (taaPushConstant.jitter.y / swapchain->getProperties().imageExtent.height) * 5;
+        taaPushConstant.jitter.x = (taaPushConstant.jitter.x / swapchain->getProperties().imageExtent.width) * 5.0f;
+        taaPushConstant.jitter.y = (taaPushConstant.jitter.y / swapchain->getProperties().imageExtent.height) * 5.0f;
     }
     else
     {
@@ -540,10 +540,56 @@ void MainApp::update()
     subresourceRange.layerCount = 1u;
 
     // Prepare the current swapchain as a transfer destination
-    swapchain->getImages()[swapchainImageIndex]->transitionImageLayout(*frameData.commandBuffers[currentFrame][2], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, subresourceRange);
+    VkImageMemoryBarrier2 transitionSwapchainLayoutBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+    transitionSwapchainLayoutBarrier.pNext = nullptr;
+    transitionSwapchainLayoutBarrier.srcStageMask = VK_PIPELINE_STAGE_2_NONE; // We have a semaphore that synchronizes the post processing pass with all of the things happening on frameData.commandBuffers[currentFrame][2]->getHandle()
+    transitionSwapchainLayoutBarrier.srcAccessMask = VK_ACCESS_2_NONE;
+    transitionSwapchainLayoutBarrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+    transitionSwapchainLayoutBarrier.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    transitionSwapchainLayoutBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    transitionSwapchainLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    transitionSwapchainLayoutBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    transitionSwapchainLayoutBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    transitionSwapchainLayoutBarrier.image = swapchain->getImages()[swapchainImageIndex]->getHandle();
+    transitionSwapchainLayoutBarrier.subresourceRange = subresourceRange;
+
+    VkDependencyInfo dependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+    dependencyInfo.pNext = nullptr;
+    dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+    dependencyInfo.memoryBarrierCount = 0u;
+    dependencyInfo.pMemoryBarriers = nullptr;
+    dependencyInfo.bufferMemoryBarrierCount = 0u;
+    dependencyInfo.pBufferMemoryBarriers = nullptr;
+    dependencyInfo.imageMemoryBarrierCount = 1u;
+    dependencyInfo.pImageMemoryBarriers = &transitionSwapchainLayoutBarrier;
+
+    vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame][2]->getHandle(), &dependencyInfo);
 
 #ifdef FLUID_SIMULATION
-    frameData.fluidDensityInputTextures[currentFrame]->image->transitionImageLayout(*frameData.commandBuffers[currentFrame][2], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, subresourceRange);
+    // Transition density texture layout to prepare as a blit source
+    VkImageMemoryBarrier2 transitionDensityTextureBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+    transitionDensityTextureBarrier.pNext = nullptr;
+    transitionDensityTextureBarrier.srcStageMask = VK_PIPELINE_STAGE_2_NONE; // We have a semaphore that synchronizes the post processing pass with all of the things happening on frameData.commandBuffers[currentFrame][2]->getHandle()
+    transitionDensityTextureBarrier.srcAccessMask = VK_ACCESS_2_NONE;
+    transitionDensityTextureBarrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+    transitionDensityTextureBarrier.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+    transitionDensityTextureBarrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+    transitionDensityTextureBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    transitionDensityTextureBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    transitionDensityTextureBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    transitionDensityTextureBarrier.image = frameData.fluidDensityInputTextures[currentFrame]->image->getHandle();
+    transitionDensityTextureBarrier.subresourceRange = subresourceRange;
+
+    dependencyInfo.pNext = nullptr;
+    dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+    dependencyInfo.memoryBarrierCount = 0u;
+    dependencyInfo.pMemoryBarriers = nullptr;
+    dependencyInfo.bufferMemoryBarrierCount = 0u;
+    dependencyInfo.pBufferMemoryBarriers = nullptr;
+    dependencyInfo.imageMemoryBarrierCount = 1u;
+    dependencyInfo.pImageMemoryBarriers = &transitionDensityTextureBarrier;
+    
+    vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame][2]->getHandle(), &dependencyInfo); // TODO combine the pipelineBarrier2 call for the swapchain with the one below
 
     VkImageBlit2 imageBlit{ VK_STRUCTURE_TYPE_IMAGE_BLIT_2 };
     imageBlit.pNext = nullptr;
@@ -566,44 +612,143 @@ void MainApp::update()
 
     // We are using vkCmdBlitImage2 instead of vkCmdCopyImage to deal with the format conversions from VK_FORMAT_R32G32B32A32_SFLOAT to VK_FORMAT_B8G8R8A8_UNORM
     vkCmdBlitImage2(frameData.commandBuffers[currentFrame][2]->getHandle(), &blitImageInfo);
-    //vkCmdCopyImage(frameData.commandBuffers[currentFrame][2]->getHandle(), frameData.fluidDensityInputTextures[currentFrame]->image->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swapchain->getImages()[swapchainImageIndex]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &outputImageCopyRegion);
 
-    frameData.fluidDensityInputTextures[currentFrame]->image->transitionImageLayout(*frameData.commandBuffers[currentFrame][2], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL, subresourceRange);
+    // Transition density texture back to general from being a blit source
+    transitionDensityTextureBarrier.pNext = nullptr;
+    transitionDensityTextureBarrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT; // Wait on transfer to finish
+    transitionDensityTextureBarrier.srcAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+    transitionDensityTextureBarrier.dstStageMask = VK_PIPELINE_STAGE_2_NONE; // No further synchronization required on densityTextureBuffer
+    transitionDensityTextureBarrier.dstAccessMask = VK_ACCESS_2_NONE;
+    transitionDensityTextureBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    transitionDensityTextureBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    transitionDensityTextureBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    transitionDensityTextureBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    transitionDensityTextureBarrier.image = frameData.fluidDensityInputTextures[currentFrame]->image->getHandle();
+    transitionDensityTextureBarrier.subresourceRange = subresourceRange;
+
+    dependencyInfo.pNext = nullptr;
+    dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+    dependencyInfo.memoryBarrierCount = 0u;
+    dependencyInfo.pMemoryBarriers = nullptr;
+    dependencyInfo.bufferMemoryBarrierCount = 0u;
+    dependencyInfo.pBufferMemoryBarriers = nullptr;
+    dependencyInfo.imageMemoryBarrierCount = 1u;
+    dependencyInfo.pImageMemoryBarriers = &transitionDensityTextureBarrier;
+
+    vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame][2]->getHandle(), &dependencyInfo);
 #else
     // Prepare the historyImage as a transfer destination
-    frameData.historyImages[currentFrame]->transitionImageLayout(*frameData.commandBuffers[currentFrame][2], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, subresourceRange);
+    VkImageMemoryBarrier2 transitionHistoryImageLayoutBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+    transitionHistoryImageLayoutBarrier.pNext = nullptr;
+    transitionHistoryImageLayoutBarrier.srcStageMask = VK_PIPELINE_STAGE_2_NONE; // We have a semaphore that synchronizes the post processing pass with all of the things happening on frameData.commandBuffers[currentFrame][2]->getHandle() hence no other required
+    transitionHistoryImageLayoutBarrier.srcAccessMask = VK_ACCESS_2_NONE;
+    transitionHistoryImageLayoutBarrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+    transitionHistoryImageLayoutBarrier.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    transitionHistoryImageLayoutBarrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+    transitionHistoryImageLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    transitionHistoryImageLayoutBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    transitionHistoryImageLayoutBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    transitionHistoryImageLayoutBarrier.image = frameData.historyImages[currentFrame]->getHandle();
+    transitionHistoryImageLayoutBarrier.subresourceRange = subresourceRange;
+
+    dependencyInfo.pNext = nullptr;
+    dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+    dependencyInfo.memoryBarrierCount = 0u;
+    dependencyInfo.pMemoryBarriers = nullptr;
+    dependencyInfo.bufferMemoryBarrierCount = 0u;
+    dependencyInfo.pBufferMemoryBarriers = nullptr;
+    dependencyInfo.imageMemoryBarrierCount = 1u;
+    dependencyInfo.pImageMemoryBarriers = &transitionHistoryImageLayoutBarrier;
+
+    vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame][2]->getHandle(), &dependencyInfo);
     // Note that the layout of the outputImage has been transitioned from VK_IMAGE_LAYOUT_GENERAL to VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL as defined in the postProcessingRenderPass configuration
 
     VkImageCopy outputImageCopyRegion{};
-    outputImageCopyRegion.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+    outputImageCopyRegion.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u };
     outputImageCopyRegion.srcOffset = { 0, 0, 0 };
-    outputImageCopyRegion.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+    outputImageCopyRegion.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u };
     outputImageCopyRegion.dstOffset = { 0, 0, 0 };
-    outputImageCopyRegion.extent = { swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, 1 };
+    outputImageCopyRegion.extent = { swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, 1u };
     // Copy output image to swapchain image and history image (note that they can execute in any order due to lack of barriers)
-    vkCmdCopyImage(frameData.commandBuffers[currentFrame][2]->getHandle(), frameData.outputImages[currentFrame]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swapchain->getImages()[swapchainImageIndex]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &outputImageCopyRegion);
-    vkCmdCopyImage(frameData.commandBuffers[currentFrame][2]->getHandle(), frameData.outputImages[currentFrame]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, frameData.historyImages[currentFrame]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &outputImageCopyRegion);
+    vkCmdCopyImage(frameData.commandBuffers[currentFrame][2]->getHandle(), frameData.outputImages[currentFrame]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swapchain->getImages()[swapchainImageIndex]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &outputImageCopyRegion);
+    vkCmdCopyImage(frameData.commandBuffers[currentFrame][2]->getHandle(), frameData.outputImages[currentFrame]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, frameData.historyImages[currentFrame]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &outputImageCopyRegion);
 
     VkBufferCopy cameraBufferCopyRegion{};
-    cameraBufferCopyRegion.srcOffset = 0ul;
-    cameraBufferCopyRegion.dstOffset = 0ul;
+    cameraBufferCopyRegion.srcOffset = 0ull;
+    cameraBufferCopyRegion.dstOffset = 0ull;
     cameraBufferCopyRegion.size = sizeof(CameraData);
     vkCmdCopyBuffer(frameData.commandBuffers[currentFrame][2]->getHandle(), frameData.cameraBuffers[currentFrame]->getHandle(), frameData.previousFrameCameraBuffers[currentFrame]->getHandle(), 1, &cameraBufferCopyRegion);
 
     VkBufferCopy objectBufferCopyRegion{};
-    objectBufferCopyRegion.srcOffset = 0ul;
-    objectBufferCopyRegion.dstOffset = 0ul;
+    objectBufferCopyRegion.srcOffset = 0ull;
+    objectBufferCopyRegion.dstOffset = 0ull;
     objectBufferCopyRegion.size = sizeof(ObjInstance) * maxInstanceCount;
     vkCmdCopyBuffer(frameData.commandBuffers[currentFrame][2]->getHandle(), frameData.objectBuffers[currentFrame]->getHandle(), frameData.previousFrameObjectBuffers[currentFrame]->getHandle(), 1, &objectBufferCopyRegion);
 
-    // Transition the history image for general purpose operations
-    frameData.historyImages[currentFrame]->transitionImageLayout(*frameData.commandBuffers[currentFrame][2], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL, subresourceRange);
-    // Transition the output image back to the general layout
-    frameData.outputImages[currentFrame]->transitionImageLayout(*frameData.commandBuffers[currentFrame][2], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL, subresourceRange);
+    // Transition the history image and output image back to the general layout
+    transitionHistoryImageLayoutBarrier.pNext = nullptr;
+    transitionHistoryImageLayoutBarrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT; // Wait on transfer to finish
+    transitionHistoryImageLayoutBarrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    transitionHistoryImageLayoutBarrier.dstStageMask = VK_PIPELINE_STAGE_2_NONE;
+    transitionHistoryImageLayoutBarrier.dstAccessMask = VK_ACCESS_2_NONE;
+    transitionHistoryImageLayoutBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    transitionHistoryImageLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    transitionHistoryImageLayoutBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    transitionHistoryImageLayoutBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    transitionHistoryImageLayoutBarrier.image = frameData.historyImages[currentFrame]->getHandle();
+    transitionHistoryImageLayoutBarrier.subresourceRange = subresourceRange;
+
+
+    VkImageMemoryBarrier2 transitionOutputImageLayoutBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+    transitionOutputImageLayoutBarrier.pNext = nullptr;
+    transitionOutputImageLayoutBarrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT; // Wait on transfer to finish
+    transitionOutputImageLayoutBarrier.srcAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+    transitionOutputImageLayoutBarrier.dstStageMask = VK_PIPELINE_STAGE_2_NONE;
+    transitionOutputImageLayoutBarrier.dstAccessMask = VK_ACCESS_2_NONE;
+    transitionOutputImageLayoutBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    transitionOutputImageLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    transitionOutputImageLayoutBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    transitionOutputImageLayoutBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    transitionOutputImageLayoutBarrier.image = frameData.outputImages[currentFrame]->getHandle();
+    transitionOutputImageLayoutBarrier.subresourceRange = subresourceRange;
+
+    std::array<VkImageMemoryBarrier2, 2> transitionImageBarriers{ transitionHistoryImageLayoutBarrier, transitionOutputImageLayoutBarrier };
+    dependencyInfo.pNext = nullptr;
+    dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+    dependencyInfo.memoryBarrierCount = 0u;
+    dependencyInfo.pMemoryBarriers = nullptr;
+    dependencyInfo.bufferMemoryBarrierCount = 0u;
+    dependencyInfo.pBufferMemoryBarriers = nullptr;
+    dependencyInfo.imageMemoryBarrierCount = to_u32(transitionImageBarriers.size());
+    dependencyInfo.pImageMemoryBarriers = transitionImageBarriers.data();
+
+    vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame][2]->getHandle(), &dependencyInfo);
 #endif
 
     // Transition the current swapchain image back for presentation
-    swapchain->getImages()[swapchainImageIndex]->transitionImageLayout(*frameData.commandBuffers[currentFrame][2], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, subresourceRange);
+    transitionSwapchainLayoutBarrier.pNext = nullptr;
+    transitionSwapchainLayoutBarrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT; // Wait for transfer to finish
+    transitionSwapchainLayoutBarrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    transitionSwapchainLayoutBarrier.dstStageMask = VK_PIPELINE_STAGE_2_NONE;
+    transitionSwapchainLayoutBarrier.dstAccessMask = VK_ACCESS_2_NONE;
+    transitionSwapchainLayoutBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    transitionSwapchainLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    transitionSwapchainLayoutBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    transitionSwapchainLayoutBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    transitionSwapchainLayoutBarrier.image = swapchain->getImages()[swapchainImageIndex]->getHandle();
+    transitionSwapchainLayoutBarrier.subresourceRange = subresourceRange;
+
+    dependencyInfo.pNext = nullptr;
+    dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+    dependencyInfo.memoryBarrierCount = 0u;
+    dependencyInfo.pMemoryBarriers = nullptr;
+    dependencyInfo.bufferMemoryBarrierCount = 0u;
+    dependencyInfo.pBufferMemoryBarriers = nullptr;
+    dependencyInfo.imageMemoryBarrierCount = 1u;
+    dependencyInfo.pImageMemoryBarriers = &transitionSwapchainLayoutBarrier;
+
+    vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame][2]->getHandle(), &dependencyInfo);
+
     // End command buffer for copy operations
     frameData.commandBuffers[currentFrame][2]->end();
 
@@ -616,14 +761,14 @@ void MainApp::update()
     VkSemaphoreSubmitInfo outputImageTransferWaitSemaphoreSubmitInfo{ VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
     outputImageTransferWaitSemaphoreSubmitInfo.pNext = nullptr;
     outputImageTransferWaitSemaphoreSubmitInfo.semaphore = frameData.postProcessRenderingFinishedSemaphores[currentFrame];
-    outputImageTransferWaitSemaphoreSubmitInfo.value = 0ul; // Optional: ignored since this isn't a timeline semaphore
+    outputImageTransferWaitSemaphoreSubmitInfo.value = 0ull; // Optional: ignored since this isn't a timeline semaphore
     outputImageTransferWaitSemaphoreSubmitInfo.stageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
     outputImageTransferWaitSemaphoreSubmitInfo.deviceIndex = 0u; // replaces VkDeviceGroupSubmitInfo but we don't have that in our pNext chain so not used.
 
     VkSemaphoreSubmitInfo outputImageTransferSemaphoreSubmitInfo{ VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
     outputImageTransferSemaphoreSubmitInfo.pNext = nullptr;
     outputImageTransferSemaphoreSubmitInfo.semaphore = frameData.outputImageCopyFinishedSemaphores[currentFrame];
-    outputImageTransferSemaphoreSubmitInfo.value = 0ul; // Optional: ignored since this isn't a timeline semaphore
+    outputImageTransferSemaphoreSubmitInfo.value = 0ull; // Optional: ignored since this isn't a timeline semaphore
     outputImageTransferSemaphoreSubmitInfo.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
     outputImageTransferSemaphoreSubmitInfo.deviceIndex = 0u; // replaces VkDeviceGroupSubmitInfo but we don't have that in our pNext chain so not used.
 
@@ -667,6 +812,7 @@ void MainApp::update()
 // TODO: this totally does not work and needs an entire overhaul, also need to handle recreate for raytracing
 void MainApp::recreateSwapchain()
 {
+    LOGEANDABORT("Swapchain recreation is not supported");
     // TODO: update window width and high variables on window resize callback??
     // TODO: enable the imagesInFlight check in the update() function and resolve the swapchain recreation bug
     device->waitIdle();
@@ -902,7 +1048,7 @@ void MainApp::computeParticles()
         bufferMemoryBarrier.srcQueueFamilyIndex = m_graphicsQueue->getFamilyIndex();
         bufferMemoryBarrier.dstQueueFamilyIndex = m_computeQueue->getFamilyIndex();
         bufferMemoryBarrier.buffer = frameData.particleBuffers[currentFrame]->getHandle();
-        bufferMemoryBarrier.offset = 0;
+        bufferMemoryBarrier.offset = 0ull;
         bufferMemoryBarrier.size = particleBufferSize;
 
         VkDependencyInfo dependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
@@ -920,9 +1066,9 @@ void MainApp::computeParticles()
 
     // First pass: Calculate particle movement
     vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeParticleCalculate.pipeline->getBindPoint(), pipelines.computeParticleCalculate.pipeline->getHandle());
-    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeParticleCalculate.pipeline->getBindPoint(), pipelines.computeParticleCalculate.pipelineState->getPipelineLayout().getHandle(), 0, 1, &frameData.particleComputeDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
-    vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeParticleCalculate.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputeParticlesPushConstant), &computeParticlesPushConstant);
-    vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), (computeParticlesPushConstant.particleCount / m_workGroupSize) + 1, 1, 1);
+    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeParticleCalculate.pipeline->getBindPoint(), pipelines.computeParticleCalculate.pipelineState->getPipelineLayout().getHandle(), 0u, 1u, &frameData.particleComputeDescriptorSets[currentFrame]->getHandle(), 0u, nullptr);
+    vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeParticleCalculate.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0u, sizeof(ComputeParticlesPushConstant), &computeParticlesPushConstant);
+    vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), to_u32(computeParticlesPushConstant.particleCount / m_workGroupSize) + 1u, 1u, 1u);
 
     // Add memory barrier to ensure that the computer shader has finished writing to the buffer
     VkMemoryBarrier2 memoryBarrier{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
@@ -945,10 +1091,10 @@ void MainApp::computeParticles()
 
     // Second pass: Integrate particles
     vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeParticleIntegrate.pipeline->getBindPoint(), pipelines.computeParticleIntegrate.pipeline->getHandle());
-    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeParticleIntegrate.pipeline->getBindPoint(), pipelines.computeParticleIntegrate.pipelineState->getPipelineLayout().getHandle(), 0, 1, &frameData.particleComputeDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
-    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeParticleIntegrate.pipeline->getBindPoint(), pipelines.computeParticleIntegrate.pipelineState->getPipelineLayout().getHandle(), 1, 1, &frameData.objectDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
-    vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeParticleIntegrate.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputeParticlesPushConstant), &computeParticlesPushConstant);
-    vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), (computeParticlesPushConstant.particleCount / m_workGroupSize) + 1, 1, 1); // round up invocation
+    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeParticleIntegrate.pipeline->getBindPoint(), pipelines.computeParticleIntegrate.pipelineState->getPipelineLayout().getHandle(), 0u, 1u, &frameData.particleComputeDescriptorSets[currentFrame]->getHandle(), 0u, nullptr);
+    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeParticleIntegrate.pipeline->getBindPoint(), pipelines.computeParticleIntegrate.pipelineState->getPipelineLayout().getHandle(), 1u, 1u, &frameData.objectDescriptorSets[currentFrame]->getHandle(), 0u, nullptr);
+    vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeParticleIntegrate.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0u, sizeof(ComputeParticlesPushConstant), &computeParticlesPushConstant);
+    vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), to_u32(computeParticlesPushConstant.particleCount / m_workGroupSize) + 1u, 1u, 1u); // round up invocation
 
     // Release
     if (m_graphicsQueue->getFamilyIndex() != m_computeQueue->getFamilyIndex())
@@ -962,7 +1108,7 @@ void MainApp::computeParticles()
         bufferMemoryBarrier.srcQueueFamilyIndex = m_computeQueue->getFamilyIndex();
         bufferMemoryBarrier.dstQueueFamilyIndex = m_graphicsQueue->getFamilyIndex();
         bufferMemoryBarrier.buffer = frameData.particleBuffers[currentFrame]->getHandle();
-        bufferMemoryBarrier.offset = 0;
+        bufferMemoryBarrier.offset = 0ull;
         bufferMemoryBarrier.size = particleBufferSize;
 
         VkDependencyInfo dependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
@@ -981,18 +1127,68 @@ void MainApp::computeParticles()
 
 void MainApp::copyFluidOutputTextureToInputTexture(Image *imageToCopyTo)
 {
+    // Layout transitions for the fluidSimulationOutputTextures as a transfer src and the imageToCopyTo as the transfer dst
+    VkImageSubresourceRange subresourceRange = {};
+    subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    subresourceRange.baseMipLevel = 0u;
+    subresourceRange.levelCount = 1u;
+    subresourceRange.baseArrayLayer = 0u;
+    subresourceRange.layerCount = 1u;
+
+    VkImageMemoryBarrier2 transitionImageToCopyLayoutBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+    transitionImageToCopyLayoutBarrier.pNext = nullptr;
+    transitionImageToCopyLayoutBarrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT; // The imageToCopyTo is read in a compute shader
+    transitionImageToCopyLayoutBarrier.srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+    transitionImageToCopyLayoutBarrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT; // Image will be written to
+    transitionImageToCopyLayoutBarrier.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    transitionImageToCopyLayoutBarrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+    transitionImageToCopyLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    transitionImageToCopyLayoutBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    transitionImageToCopyLayoutBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    transitionImageToCopyLayoutBarrier.image = imageToCopyTo->getHandle();
+    transitionImageToCopyLayoutBarrier.subresourceRange = subresourceRange;
+
+    VkImageMemoryBarrier2 transitionFluidSimulationOutputLayoutBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+    transitionFluidSimulationOutputLayoutBarrier.pNext = nullptr;
+    transitionFluidSimulationOutputLayoutBarrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT; // The fluidSimluationOutputTexture is written to in a compute shader
+    transitionFluidSimulationOutputLayoutBarrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+    transitionFluidSimulationOutputLayoutBarrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT; // Image will be read as transfer source
+    transitionFluidSimulationOutputLayoutBarrier.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+    transitionFluidSimulationOutputLayoutBarrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+    transitionFluidSimulationOutputLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    transitionFluidSimulationOutputLayoutBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    transitionFluidSimulationOutputLayoutBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    transitionFluidSimulationOutputLayoutBarrier.image = frameData.fluidSimulationOutputTextures[currentFrame]->image->getHandle();
+    transitionFluidSimulationOutputLayoutBarrier.subresourceRange = subresourceRange;
+    
+    std::array<VkImageMemoryBarrier2, 2> imageTransitionForTransferMemoryBarriers{ transitionImageToCopyLayoutBarrier, transitionFluidSimulationOutputLayoutBarrier };
+
+    VkDependencyInfo dependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+    dependencyInfo.pNext = nullptr;
+    dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+    dependencyInfo.memoryBarrierCount = 0u;
+    dependencyInfo.pMemoryBarriers = nullptr;
+    dependencyInfo.bufferMemoryBarrierCount = 0u;
+    dependencyInfo.pBufferMemoryBarriers = nullptr;
+    dependencyInfo.imageMemoryBarrierCount = to_u32(imageTransitionForTransferMemoryBarriers.size());
+    dependencyInfo.pImageMemoryBarriers = imageTransitionForTransferMemoryBarriers.data();
+
+    vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame][0]->getHandle(), &dependencyInfo);
+
     // Add memory barrier to ensure that the computer shader has finished writing to the buffer
     VkMemoryBarrier2 computeShaderFinishedWritingMemoryBarrier{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
+    computeShaderFinishedWritingMemoryBarrier.pNext = nullptr;
     computeShaderFinishedWritingMemoryBarrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-    computeShaderFinishedWritingMemoryBarrier.dstAccessMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT_KHR;
+    computeShaderFinishedWritingMemoryBarrier.dstAccessMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
     computeShaderFinishedWritingMemoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    computeShaderFinishedWritingMemoryBarrier.dstStageMask = VK_ACCESS_2_MEMORY_WRITE_BIT_KHR;
-#if 1
+    computeShaderFinishedWritingMemoryBarrier.dstStageMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
+#define FULL_BARRIER // TODO remove
+#ifdef FULL_BARRIER
     // TODO remove full pipeline barrier after identifying synchronization issues
-    computeShaderFinishedWritingMemoryBarrier.srcAccessMask = VK_ACCESS_2_MEMORY_READ_BIT_KHR | VK_ACCESS_2_MEMORY_WRITE_BIT_KHR;
-    computeShaderFinishedWritingMemoryBarrier.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT_KHR | VK_ACCESS_2_MEMORY_WRITE_BIT_KHR;
-    computeShaderFinishedWritingMemoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR;
-    computeShaderFinishedWritingMemoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR;
+    computeShaderFinishedWritingMemoryBarrier.srcAccessMask = VK_ACCESS_2_MEMORY_READ_BIT_KHR | VK_ACCESS_2_MEMORY_WRITE_BIT;
+    computeShaderFinishedWritingMemoryBarrier.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT_KHR | VK_ACCESS_2_MEMORY_WRITE_BIT;
+    computeShaderFinishedWritingMemoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    computeShaderFinishedWritingMemoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
 #endif
     VkDependencyInfo computeShaderFinishedWritingDependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
     computeShaderFinishedWritingDependencyInfo.pNext = nullptr;
@@ -1004,45 +1200,32 @@ void MainApp::copyFluidOutputTextureToInputTexture(Image *imageToCopyTo)
     computeShaderFinishedWritingDependencyInfo.imageMemoryBarrierCount = 0u;
     computeShaderFinishedWritingDependencyInfo.pImageMemoryBarriers = nullptr;
 
+    // TODO combine this pipeline barrier with the one above once debugging is finished
     vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame][0]->getHandle(), &computeShaderFinishedWritingDependencyInfo);
-
-    // Layout transitions for the fluidSimulationOutputTextures as a transfer src and the imageToCopyTo as the transfer dst
-    VkImageSubresourceRange subresourceRange = {};
-    subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    subresourceRange.baseMipLevel = 0;
-    subresourceRange.levelCount = 1;
-    subresourceRange.baseArrayLayer = 0;
-    subresourceRange.layerCount = 1;
-
-    imageToCopyTo->transitionImageLayout(*frameData.commandBuffers[currentFrame][0], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, subresourceRange);
-    frameData.fluidSimulationOutputTextures[currentFrame]->image->transitionImageLayout(*frameData.commandBuffers[currentFrame][0], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, subresourceRange);
 
     // Copy fluidVelocityOutputTextures to imageToCopyTo for subsequent compute stages
     VkImageCopy fluidVelocityTextureCopyRegion{};
-    fluidVelocityTextureCopyRegion.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+    fluidVelocityTextureCopyRegion.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u };
     fluidVelocityTextureCopyRegion.srcOffset = { 0, 0, 0 };
-    fluidVelocityTextureCopyRegion.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+    fluidVelocityTextureCopyRegion.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u };
     fluidVelocityTextureCopyRegion.dstOffset = { 0, 0, 0 };
-    fluidVelocityTextureCopyRegion.extent = { swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, 1 };
+    fluidVelocityTextureCopyRegion.extent = { swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, 1u };
 
-    vkCmdCopyImage(frameData.commandBuffers[currentFrame][0]->getHandle(), frameData.fluidSimulationOutputTextures[currentFrame]->image->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, imageToCopyTo->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &fluidVelocityTextureCopyRegion);
-
-    // Layout transitions for the fluidVelocityOutputTextures and the imageToCopyTo as general
-    imageToCopyTo->transitionImageLayout(*frameData.commandBuffers[currentFrame][0], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL, subresourceRange);
-    frameData.fluidSimulationOutputTextures[currentFrame]->image->transitionImageLayout(*frameData.commandBuffers[currentFrame][0], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL, subresourceRange);
+    vkCmdCopyImage(frameData.commandBuffers[currentFrame][0]->getHandle(), frameData.fluidSimulationOutputTextures[currentFrame]->image->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, imageToCopyTo->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &fluidVelocityTextureCopyRegion);
 
     // Add memory barrier to ensure that the computer shader has finished writing to the buffer
     VkMemoryBarrier2 textureCopyFinishedMemoryBarrier{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
-    textureCopyFinishedMemoryBarrier.srcAccessMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT_KHR;
+    textureCopyFinishedMemoryBarrier.pNext = nullptr;
+    textureCopyFinishedMemoryBarrier.srcAccessMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
     textureCopyFinishedMemoryBarrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-    textureCopyFinishedMemoryBarrier.srcStageMask = VK_ACCESS_2_MEMORY_WRITE_BIT_KHR;
+    textureCopyFinishedMemoryBarrier.srcStageMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
     textureCopyFinishedMemoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-#if 1
+#ifdef FULL_BARRIER
     // TODO remove full pipeline barrier after identifying synchronization issues
-    textureCopyFinishedMemoryBarrier.srcAccessMask = VK_ACCESS_2_MEMORY_READ_BIT_KHR | VK_ACCESS_2_MEMORY_WRITE_BIT_KHR;
-    textureCopyFinishedMemoryBarrier.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT_KHR | VK_ACCESS_2_MEMORY_WRITE_BIT_KHR;
-    textureCopyFinishedMemoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR;
-    textureCopyFinishedMemoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR;
+    textureCopyFinishedMemoryBarrier.srcAccessMask = VK_ACCESS_2_MEMORY_READ_BIT_KHR | VK_ACCESS_2_MEMORY_WRITE_BIT;
+    textureCopyFinishedMemoryBarrier.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT_KHR | VK_ACCESS_2_MEMORY_WRITE_BIT;
+    textureCopyFinishedMemoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    textureCopyFinishedMemoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
 #endif
     VkDependencyInfo textureCopyFinishedDependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
     textureCopyFinishedDependencyInfo.pNext = nullptr;
@@ -1054,7 +1237,46 @@ void MainApp::copyFluidOutputTextureToInputTexture(Image *imageToCopyTo)
     textureCopyFinishedDependencyInfo.imageMemoryBarrierCount = 0u;
     textureCopyFinishedDependencyInfo.pImageMemoryBarriers = nullptr;
 
+    // TODO combine this pipeline barrier with the one below once debugging is finished
     vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame][0]->getHandle(), &textureCopyFinishedDependencyInfo);
+
+    // Layout transitions for the fluidVelocityOutputTextures and the imageToCopyTo as general
+    transitionImageToCopyLayoutBarrier.pNext = nullptr;
+    transitionImageToCopyLayoutBarrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT; // Wait for write transfer to finish
+    transitionImageToCopyLayoutBarrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    transitionImageToCopyLayoutBarrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT; // The texture will be used as as a read target in a compute shader
+    transitionImageToCopyLayoutBarrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+    transitionImageToCopyLayoutBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    transitionImageToCopyLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    transitionImageToCopyLayoutBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    transitionImageToCopyLayoutBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    transitionImageToCopyLayoutBarrier.image = imageToCopyTo->getHandle();
+    transitionImageToCopyLayoutBarrier.subresourceRange = subresourceRange;
+
+    transitionFluidSimulationOutputLayoutBarrier.pNext = nullptr;
+    transitionFluidSimulationOutputLayoutBarrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT; // Wait for transfer to finish as the src
+    transitionFluidSimulationOutputLayoutBarrier.srcAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+    transitionFluidSimulationOutputLayoutBarrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT; // Image will be written to in a compute shader
+    transitionFluidSimulationOutputLayoutBarrier.dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+    transitionFluidSimulationOutputLayoutBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    transitionFluidSimulationOutputLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    transitionFluidSimulationOutputLayoutBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    transitionFluidSimulationOutputLayoutBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    transitionFluidSimulationOutputLayoutBarrier.image = frameData.fluidSimulationOutputTextures[currentFrame]->image->getHandle();
+    transitionFluidSimulationOutputLayoutBarrier.subresourceRange = subresourceRange;
+
+    std::array<VkImageMemoryBarrier2, 2> imageTransitionForComputeUsageMemoryBarriers{ transitionImageToCopyLayoutBarrier, transitionFluidSimulationOutputLayoutBarrier };
+
+    dependencyInfo.pNext = nullptr;
+    dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+    dependencyInfo.memoryBarrierCount = 0u;
+    dependencyInfo.pMemoryBarriers = nullptr;
+    dependencyInfo.bufferMemoryBarrierCount = 0u;
+    dependencyInfo.pBufferMemoryBarriers = nullptr;
+    dependencyInfo.imageMemoryBarrierCount = to_u32(imageTransitionForComputeUsageMemoryBarriers.size());
+    dependencyInfo.pImageMemoryBarriers = imageTransitionForComputeUsageMemoryBarriers.data();
+
+    vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame][0]->getHandle(), &dependencyInfo);
 }
 
 void MainApp::computeFluidSimulation()
@@ -1066,10 +1288,10 @@ void MainApp::computeFluidSimulation()
         // TODO this code has not been tested or verified
         VkImageSubresourceRange subresourceRange = {};
         subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        subresourceRange.baseMipLevel = 0;
-        subresourceRange.levelCount = 1;
-        subresourceRange.baseArrayLayer = 0;
-        subresourceRange.layerCount = 1;
+        subresourceRange.baseMipLevel = 0u;
+        subresourceRange.levelCount = 1u;
+        subresourceRange.baseArrayLayer = 0u;
+        subresourceRange.layerCount = 1u;
 
         VkImageMemoryBarrier2 fluidVelocityInputTextureImageMemoryBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
         fluidVelocityInputTextureImageMemoryBarrier.srcAccessMask = VK_ACCESS_2_NONE;
@@ -1151,8 +1373,8 @@ void MainApp::computeFluidSimulation()
     // TODO: for both the advection and gaussian splat shaders, we can refactor to just have one of each shader with differetn descriptor sets instead
     // First pass: Compute velocity advection
     vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeVelocityAdvection.pipeline->getBindPoint(), pipelines.computeVelocityAdvection.pipeline->getHandle());
-    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeVelocityAdvection.pipeline->getBindPoint(), pipelines.computeVelocityAdvection.pipelineState->getPipelineLayout().getHandle(), 0, 1, &frameData.fluidSimulationInputDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
-    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeVelocityAdvection.pipeline->getBindPoint(), pipelines.computeVelocityAdvection.pipelineState->getPipelineLayout().getHandle(), 1, 1, &frameData.fluidSimulationOutputDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
+    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeVelocityAdvection.pipeline->getBindPoint(), pipelines.computeVelocityAdvection.pipelineState->getPipelineLayout().getHandle(), 0u, 1u, &frameData.fluidSimulationInputDescriptorSets[currentFrame]->getHandle(), 0u, nullptr);
+    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeVelocityAdvection.pipeline->getBindPoint(), pipelines.computeVelocityAdvection.pipelineState->getPipelineLayout().getHandle(), 1u, 1u, &frameData.fluidSimulationOutputDescriptorSets[currentFrame]->getHandle(), 0u, nullptr);
     vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeVelocityAdvection.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(FluidSimulationPushConstant), &fluidSimulationPushConstant);
     vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), to_u32(fluidVelocityBufferSize / m_workGroupSize) + 1u, 1u, 1u);
 
@@ -1162,8 +1384,8 @@ void MainApp::computeFluidSimulation()
 
     // Second pass: Compute density advection
     vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeDensityAdvection.pipeline->getBindPoint(), pipelines.computeDensityAdvection.pipeline->getHandle());
-    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeDensityAdvection.pipeline->getBindPoint(), pipelines.computeDensityAdvection.pipelineState->getPipelineLayout().getHandle(), 0, 1, &frameData.fluidSimulationInputDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
-    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeDensityAdvection.pipeline->getBindPoint(), pipelines.computeDensityAdvection.pipelineState->getPipelineLayout().getHandle(), 1, 1, &frameData.fluidSimulationOutputDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
+    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeDensityAdvection.pipeline->getBindPoint(), pipelines.computeDensityAdvection.pipelineState->getPipelineLayout().getHandle(), 0u, 1u, &frameData.fluidSimulationInputDescriptorSets[currentFrame]->getHandle(), 0u, nullptr);
+    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeDensityAdvection.pipeline->getBindPoint(), pipelines.computeDensityAdvection.pipelineState->getPipelineLayout().getHandle(), 1u, 1u, &frameData.fluidSimulationOutputDescriptorSets[currentFrame]->getHandle(), 0u, nullptr);
     vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeDensityAdvection.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(FluidSimulationPushConstant), &fluidSimulationPushConstant);
     vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), to_u32(fluidVelocityBufferSize / m_workGroupSize) + 1u, 1u, 1u);
 
@@ -1173,16 +1395,16 @@ void MainApp::computeFluidSimulation()
     if (fluidSimulationPushConstant.splatForce != glm::vec3(0.0f))
     {
         vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeVelocityGaussianSplat.pipeline->getBindPoint(), pipelines.computeVelocityGaussianSplat.pipeline->getHandle());
-        vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeVelocityGaussianSplat.pipeline->getBindPoint(), pipelines.computeVelocityGaussianSplat.pipelineState->getPipelineLayout().getHandle(), 0, 1, &frameData.fluidSimulationInputDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
-        vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeVelocityGaussianSplat.pipeline->getBindPoint(), pipelines.computeVelocityGaussianSplat.pipelineState->getPipelineLayout().getHandle(), 1, 1, &frameData.fluidSimulationOutputDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
+        vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeVelocityGaussianSplat.pipeline->getBindPoint(), pipelines.computeVelocityGaussianSplat.pipelineState->getPipelineLayout().getHandle(), 0u, 1u, &frameData.fluidSimulationInputDescriptorSets[currentFrame]->getHandle(), 0u, nullptr);
+        vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeVelocityGaussianSplat.pipeline->getBindPoint(), pipelines.computeVelocityGaussianSplat.pipelineState->getPipelineLayout().getHandle(), 1u, 1u, &frameData.fluidSimulationOutputDescriptorSets[currentFrame]->getHandle(), 0u, nullptr);
         vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeVelocityGaussianSplat.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(FluidSimulationPushConstant), &fluidSimulationPushConstant);
         vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), to_u32(fluidVelocityBufferSize / m_workGroupSize) + 1u, 1u, 1u);
 
         copyFluidOutputTextureToInputTexture(frameData.fluidVelocityInputTextures[currentFrame]->image.get());
 
         vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeDensityGaussianSplat.pipeline->getBindPoint(), pipelines.computeDensityGaussianSplat.pipeline->getHandle());
-        vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeDensityGaussianSplat.pipeline->getBindPoint(), pipelines.computeDensityGaussianSplat.pipelineState->getPipelineLayout().getHandle(), 0, 1, &frameData.fluidSimulationInputDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
-        vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeDensityGaussianSplat.pipeline->getBindPoint(), pipelines.computeDensityGaussianSplat.pipelineState->getPipelineLayout().getHandle(), 1, 1, &frameData.fluidSimulationOutputDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
+        vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeDensityGaussianSplat.pipeline->getBindPoint(), pipelines.computeDensityGaussianSplat.pipelineState->getPipelineLayout().getHandle(), 0u, 1u, &frameData.fluidSimulationInputDescriptorSets[currentFrame]->getHandle(), 0u, nullptr);
+        vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeDensityGaussianSplat.pipeline->getBindPoint(), pipelines.computeDensityGaussianSplat.pipelineState->getPipelineLayout().getHandle(), 1u, 1u, &frameData.fluidSimulationOutputDescriptorSets[currentFrame]->getHandle(), 0u, nullptr);
         vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeDensityGaussianSplat.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(FluidSimulationPushConstant), &fluidSimulationPushConstant);
         vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), to_u32(fluidVelocityBufferSize / m_workGroupSize) + 1u, 1u, 1u);
 
@@ -1195,18 +1417,18 @@ void MainApp::computeFluidSimulation()
     // Projection steps: find divergence of velocity, solve the poisson pressure equation and then subtract the gradient of p from the intermediate velocity field
     // Fourth pass: Compute divergence of velocity
     vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeFluidVelocityDivergence.pipeline->getBindPoint(), pipelines.computeFluidVelocityDivergence.pipeline->getHandle());
-    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeFluidVelocityDivergence.pipeline->getBindPoint(), pipelines.computeFluidVelocityDivergence.pipelineState->getPipelineLayout().getHandle(), 0, 1, &frameData.fluidSimulationInputDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
-    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeFluidVelocityDivergence.pipeline->getBindPoint(), pipelines.computeFluidVelocityDivergence.pipelineState->getPipelineLayout().getHandle(), 1, 1, &frameData.fluidSimulationOutputDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
-    vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeFluidVelocityDivergence.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(FluidSimulationPushConstant), &fluidSimulationPushConstant);
+    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeFluidVelocityDivergence.pipeline->getBindPoint(), pipelines.computeFluidVelocityDivergence.pipelineState->getPipelineLayout().getHandle(), 0u, 1u, &frameData.fluidSimulationInputDescriptorSets[currentFrame]->getHandle(), 0u, nullptr);
+    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeFluidVelocityDivergence.pipeline->getBindPoint(), pipelines.computeFluidVelocityDivergence.pipelineState->getPipelineLayout().getHandle(), 1u, 1u, &frameData.fluidSimulationOutputDescriptorSets[currentFrame]->getHandle(), 0u, nullptr);
+    vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeFluidVelocityDivergence.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0u, sizeof(FluidSimulationPushConstant), &fluidSimulationPushConstant);
     vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), to_u32(fluidVelocityBufferSize / m_workGroupSize) + 1u, 1u, 1u);
 
     copyFluidOutputTextureToInputTexture(frameData.fluidVelocityDivergenceInputTextures[currentFrame]->image.get());
 
     // Fifth pass: Compute Jacobi Iteration
     vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeJacobi.pipeline->getBindPoint(), pipelines.computeJacobi.pipeline->getHandle());
-    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeJacobi.pipeline->getBindPoint(), pipelines.computeJacobi.pipelineState->getPipelineLayout().getHandle(), 0, 1, &frameData.fluidSimulationInputDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
-    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeJacobi.pipeline->getBindPoint(), pipelines.computeJacobi.pipelineState->getPipelineLayout().getHandle(), 1, 1, &frameData.fluidSimulationOutputDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
-    vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeJacobi.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(FluidSimulationPushConstant), &fluidSimulationPushConstant);
+    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeJacobi.pipeline->getBindPoint(), pipelines.computeJacobi.pipelineState->getPipelineLayout().getHandle(), 0u, 1u, &frameData.fluidSimulationInputDescriptorSets[currentFrame]->getHandle(), 0u, nullptr);
+    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeJacobi.pipeline->getBindPoint(), pipelines.computeJacobi.pipelineState->getPipelineLayout().getHandle(), 1u, 1u, &frameData.fluidSimulationOutputDescriptorSets[currentFrame]->getHandle(), 0u, nullptr);
+    vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeJacobi.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0u, sizeof(FluidSimulationPushConstant), &fluidSimulationPushConstant);
 
     const int jacobiIterationCount = 40;
     for (int i = 0; i < jacobiIterationCount; ++i)
@@ -1217,8 +1439,8 @@ void MainApp::computeFluidSimulation()
 
     // Sixth pass: Compute gradient and subtract it from velocity
     vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeGradientSubtraction.pipeline->getBindPoint(), pipelines.computeGradientSubtraction.pipeline->getHandle());
-    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeGradientSubtraction.pipeline->getBindPoint(), pipelines.computeGradientSubtraction.pipelineState->getPipelineLayout().getHandle(), 0, 1, &frameData.fluidSimulationInputDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
-    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeGradientSubtraction.pipeline->getBindPoint(), pipelines.computeGradientSubtraction.pipelineState->getPipelineLayout().getHandle(), 1, 1, &frameData.fluidSimulationOutputDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
+    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeGradientSubtraction.pipeline->getBindPoint(), pipelines.computeGradientSubtraction.pipelineState->getPipelineLayout().getHandle(), 0u, 1u, &frameData.fluidSimulationInputDescriptorSets[currentFrame]->getHandle(), 0u, nullptr);
+    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeGradientSubtraction.pipeline->getBindPoint(), pipelines.computeGradientSubtraction.pipelineState->getPipelineLayout().getHandle(), 1u, 1u, &frameData.fluidSimulationOutputDescriptorSets[currentFrame]->getHandle(), 0u, nullptr);
     vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeGradientSubtraction.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(FluidSimulationPushConstant), &fluidSimulationPushConstant);
     vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), to_u32(fluidVelocityBufferSize / m_workGroupSize) + 1u, 1u, 1u);
 
@@ -1234,10 +1456,10 @@ void MainApp::computeFluidSimulation()
         // TODO this code has not been tested or verified
         VkImageSubresourceRange subresourceRange = {};
         subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        subresourceRange.baseMipLevel = 0;
-        subresourceRange.levelCount = 1;
-        subresourceRange.baseArrayLayer = 0;
-        subresourceRange.layerCount = 1;
+        subresourceRange.baseMipLevel = 0u;
+        subresourceRange.levelCount = 1u;
+        subresourceRange.baseArrayLayer = 0u;
+        subresourceRange.layerCount = 1u;
 
         VkImageMemoryBarrier2 fluidVelocityInputTextureImageMemoryBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
         fluidVelocityInputTextureImageMemoryBarrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
@@ -1316,7 +1538,7 @@ void MainApp::computeFluidSimulation()
 
 void MainApp::initializeBufferData()
 {
-    for (uint32_t frame = 0; frame < maxFramesInFlight; ++frame)
+    for (uint32_t frame = 0u; frame < maxFramesInFlight; ++frame)
     {
         // Update the camera buffer
         CameraData cameraData{};
@@ -1381,38 +1603,38 @@ void MainApp::rasterize()
     vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipeline->getHandle());
 
     // Global data descriptor
-    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipelineState->getPipelineLayout().getHandle(), 0, 1, &frameData.globalDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
+    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipelineState->getPipelineLayout().getHandle(), 0u, 1u, &frameData.globalDescriptorSets[currentFrame]->getHandle(), 0u, nullptr);
 
     // Object data descriptor
-    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipelineState->getPipelineLayout().getHandle(), 1, 1, &frameData.objectDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
+    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipelineState->getPipelineLayout().getHandle(), 1u, 1u, &frameData.objectDescriptorSets[currentFrame]->getHandle(), 0u, nullptr);
 
     // Texture descriptor
-    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipelineState->getPipelineLayout().getHandle(), 2, 1, &textureDescriptorSet->getHandle(), 0, nullptr);
+    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipelineState->getPipelineLayout().getHandle(), 2u, 1u, &textureDescriptorSet->getHandle(), 0u, nullptr);
 
     // Taa data descriptor
-    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipelineState->getPipelineLayout().getHandle(), 3, 1, &frameData.taaDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
+    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipelineState->getPipelineLayout().getHandle(), 3u, 1u, &frameData.taaDescriptorSets[currentFrame]->getHandle(), 0u, nullptr);
 
     // Push constants
-    vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(TaaPushConstant), &taaPushConstant);
+    vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_VERTEX_BIT, 0u, sizeof(TaaPushConstant), &taaPushConstant);
     vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(TaaPushConstant), sizeof(RasterizationPushConstant), &rasterizationPushConstant);
 
     // Bind vertices, indices and call the draw method
-    uint64_t lastObjIndex{ 0u };
-    for (int index = 0; index < objInstances.size(); index++)
+    uint64_t lastObjIndex{ 0ull };
+    for (uint32_t index = 0u; index < objInstances.size(); index++)
     {
         ObjModel &objModel = objModels[objInstances[index].objIndex];
         // Bind the vertex and index buffers if the instance model is different from the previous one (we always bind for the first one)
         if (index == 0 || objInstances[index].objIndex != lastObjIndex)
         {
             VkBuffer vertexBuffers[] = { objModel.vertexBuffer->getHandle() };
-            VkDeviceSize offsets[] = { 0 };
-            vkCmdBindVertexBuffers(frameData.commandBuffers[currentFrame][0]->getHandle(), 0, 1, vertexBuffers, offsets);
-            vkCmdBindIndexBuffer(frameData.commandBuffers[currentFrame][0]->getHandle(), objModel.indexBuffer->getHandle(), 0, VK_INDEX_TYPE_UINT32);
+            VkDeviceSize offsets[] = { 0ull };
+            vkCmdBindVertexBuffers(frameData.commandBuffers[currentFrame][0]->getHandle(), 0u, 1u, vertexBuffers, offsets);
+            vkCmdBindIndexBuffer(frameData.commandBuffers[currentFrame][0]->getHandle(), objModel.indexBuffer->getHandle(), 0ull, VK_INDEX_TYPE_UINT32);
 
             lastObjIndex = objInstances[index].objIndex;
         }
 
-        vkCmdDrawIndexed(frameData.commandBuffers[currentFrame][0]->getHandle(), to_u32(objModel.indicesCount), 1, 0, 0, index);
+        vkCmdDrawIndexed(frameData.commandBuffers[currentFrame][0]->getHandle(), to_u32(objModel.indicesCount), 1u, 0u, 0, index);
     }
     
     debugUtilEndLabel(frameData.commandBuffers[currentFrame][0]->getHandle());
@@ -1446,22 +1668,22 @@ void MainApp::postProcess()
     vkCmdPushConstants(frameData.commandBuffers[currentFrame][1]->getHandle(), pipelineData.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PostProcessPushConstant), &postProcessPushConstant);
 
     // Bind vertices, indices and call the draw method
-    uint64_t lastObjIndex{ 0u };
-    for (int index = 0; index < objInstances.size(); index++)
+    uint64_t lastObjIndex{ 0ull };
+    for (uint32_t index = 0u; index < objInstances.size(); index++)
     {
         ObjModel &objModel = objModels[objInstances[index].objIndex];
         // Bind the objModel if it's a different one from last one (we always bind the first time)
         if (index == 0 || objInstances[index].objIndex != lastObjIndex)
         {
             VkBuffer vertexBuffers[] = { objModel.vertexBuffer->getHandle() };
-            VkDeviceSize offsets[] = { 0 };
-            vkCmdBindVertexBuffers(frameData.commandBuffers[currentFrame][1]->getHandle(), 0, 1, vertexBuffers, offsets);
-            vkCmdBindIndexBuffer(frameData.commandBuffers[currentFrame][1]->getHandle(), objModel.indexBuffer->getHandle(), 0, VK_INDEX_TYPE_UINT32);
+            VkDeviceSize offsets[] = { 0ull };
+            vkCmdBindVertexBuffers(frameData.commandBuffers[currentFrame][1]->getHandle(), 0u, 1u, vertexBuffers, offsets);
+            vkCmdBindIndexBuffer(frameData.commandBuffers[currentFrame][1]->getHandle(), objModel.indexBuffer->getHandle(), 0u, VK_INDEX_TYPE_UINT32);
 
             lastObjIndex = objInstances[index].objIndex;
         }
 
-        vkCmdDrawIndexed(frameData.commandBuffers[currentFrame][1]->getHandle(), to_u32(objModel.indicesCount), 1, 0, 0, index);
+        vkCmdDrawIndexed(frameData.commandBuffers[currentFrame][1]->getHandle(), to_u32(objModel.indicesCount), 1u, 0u, 0, index);
     }
 
     debugUtilEndLabel(frameData.commandBuffers[currentFrame][1]->getHandle());
@@ -2690,23 +2912,20 @@ void MainApp::createCommandBuffers()
 
 void MainApp::copyBufferToImage(const Buffer &srcBuffer, const Image &dstImage, uint32_t width, uint32_t height)
 {
-    std::unique_ptr<CommandBuffer> commandBuffer = std::make_unique<CommandBuffer>(*frameData.commandPools[currentFrame], VK_COMMAND_BUFFER_LEVEL_PRIMARY);
-
-    commandBuffer->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
-
     VkBufferImageCopy region{};
-    region.bufferOffset = 0;
-    region.bufferRowLength = 0;
-    region.bufferImageHeight = 0;
+    region.bufferOffset = 0ull;
+    region.bufferRowLength = 0u;
+    region.bufferImageHeight = 0u;
     region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    region.imageSubresource.mipLevel = 0;
-    region.imageSubresource.baseArrayLayer = 0;
-    region.imageSubresource.layerCount = 1;
+    region.imageSubresource.mipLevel = 0u;
+    region.imageSubresource.baseArrayLayer = 0u;
+    region.imageSubresource.layerCount = 1u;
     region.imageOffset = { 0, 0, 0 };
-    region.imageExtent = { width, height, 1 };
+    region.imageExtent = { width, height, 1u };
 
-    vkCmdCopyBufferToImage(commandBuffer->getHandle(), srcBuffer.getHandle(), dstImage.getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
-
+    std::unique_ptr<CommandBuffer> commandBuffer = std::make_unique<CommandBuffer>(*frameData.commandPools[currentFrame], VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+    commandBuffer->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
+    vkCmdCopyBufferToImage(commandBuffer->getHandle(), srcBuffer.getHandle(), dstImage.getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &region);
     commandBuffer->end();
 
     VkCommandBufferSubmitInfo commandBufferSubmitInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO };
@@ -2742,8 +2961,9 @@ void MainApp::createDepthResources()
 std::unique_ptr<Image> MainApp::createTextureImage(uint32_t texWidth, uint32_t texHeight, VkImageUsageFlags imageUsageFlags)
 {
     // TODO: we should probably do this initialization on the GPU side with a shader; this is inefficient since we have to mark the texture as a transfer destination, just for a one time initalization
+    // Create the staging buffer
     VkFormat format = VK_FORMAT_R32G32B32A32_SFLOAT;
-    VkDeviceSize imageSize{ static_cast<VkDeviceSize>(texWidth * texHeight * 16 /* bytes */)}; /* Since our format is VK_FORMAT_R32G32B32A32_SFLOAT, we allocate 4 byte (32 bits) per channel of which there are 4 */
+    VkDeviceSize imageSize{ static_cast<VkDeviceSize>(texWidth * texHeight * 16u /* bytes */)}; /* Since our format is VK_FORMAT_R32G32B32A32_SFLOAT, we allocate 4 byte (32 bits) per channel of which there are 4 */
     VkBufferCreateInfo bufferInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
     bufferInfo.size = imageSize;
     bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
@@ -2754,24 +2974,51 @@ std::unique_ptr<Image> MainApp::createTextureImage(uint32_t texWidth, uint32_t t
 
     std::unique_ptr<Buffer> stagingBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
 
+    // Initialize the texture with the initial values
+    const float initalValue = 0.85f;
     void *mappedData = stagingBuffer->map();
-    std::vector<float> initialData(imageSize, 0.85f);
-    memcpy(mappedData, initialData.data(), static_cast<size_t>(imageSize));
+    std::vector<float> initialTextureData(imageSize, initalValue);
+    memcpy(mappedData, initialTextureData.data(), static_cast<size_t>(imageSize));
     stagingBuffer->unmap();
 
+    // Create the texture image
     VkExtent3D extent{ texWidth, texHeight, 1u };
     std::unique_ptr<Image> textureImage = std::make_unique<Image>(*device, format, extent, imageUsageFlags, VMA_MEMORY_USAGE_GPU_ONLY /* default values for remaining params */);
 
+    // TODO: we can pass in VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL as the initial layout when we create these images to avoid this layout transition
+    // Transition the texture image to be prepared as a destination target
     VkImageSubresourceRange subresourceRange = {};
     subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    subresourceRange.baseMipLevel = 0;
-    subresourceRange.levelCount = 1;
-    subresourceRange.baseArrayLayer = 0;
-    subresourceRange.layerCount = 1;
-    // Transition the texture image to be prepared as a destination target
+    subresourceRange.baseMipLevel = 0u;
+    subresourceRange.levelCount = 1u;
+    subresourceRange.baseArrayLayer = 0u;
+    subresourceRange.layerCount = 1u;
+    VkImageMemoryBarrier2 transitionTextureImageLayoutBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+    transitionTextureImageLayoutBarrier.pNext = nullptr;
+    transitionTextureImageLayoutBarrier.srcStageMask = VK_PIPELINE_STAGE_2_NONE; // No dependencies
+    transitionTextureImageLayoutBarrier.srcAccessMask = VK_ACCESS_2_NONE;
+    transitionTextureImageLayoutBarrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT; // Image will be written to as transfer source
+    transitionTextureImageLayoutBarrier.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    transitionTextureImageLayoutBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    transitionTextureImageLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    transitionTextureImageLayoutBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    transitionTextureImageLayoutBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    transitionTextureImageLayoutBarrier.image = textureImage->getHandle();
+    transitionTextureImageLayoutBarrier.subresourceRange = subresourceRange;
+
+    VkDependencyInfo dependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+    dependencyInfo.pNext = nullptr;
+    dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+    dependencyInfo.memoryBarrierCount = 0u;
+    dependencyInfo.pMemoryBarriers = nullptr;
+    dependencyInfo.bufferMemoryBarrierCount = 0u;
+    dependencyInfo.pBufferMemoryBarriers = nullptr;
+    dependencyInfo.imageMemoryBarrierCount = 1u;
+    dependencyInfo.pImageMemoryBarriers = &transitionTextureImageLayoutBarrier;
+
     std::unique_ptr<CommandBuffer> commandBuffer = std::make_unique<CommandBuffer>(*frameData.commandPools[currentFrame], VK_COMMAND_BUFFER_LEVEL_PRIMARY);
     commandBuffer->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
-    textureImage->transitionImageLayout(*commandBuffer, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, subresourceRange);
+    vkCmdPipelineBarrier2KHR(commandBuffer->getHandle(), &dependencyInfo);
     commandBuffer->end();
 
     VkCommandBufferSubmitInfo commandBufferSubmitInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO };
@@ -2788,18 +3035,40 @@ std::unique_ptr<Image> MainApp::createTextureImage(uint32_t texWidth, uint32_t t
     submitInfo.signalSemaphoreInfoCount = 0u;
     submitInfo.pSignalSemaphoreInfos = nullptr;
 
+    // TODO: we can refactor this to only required one queuesubmit and no queuewaitidles
     VK_CHECK(vkQueueSubmit2KHR(m_graphicsQueue->getHandle(), 1u, &submitInfo, VK_NULL_HANDLE));
     vkQueueWaitIdle(m_graphicsQueue->getHandle());
 
     copyBufferToImage(*stagingBuffer, *textureImage, texWidth, texHeight);
 
     // Transition the texture image to be prepared to be read and written to by shaders
+    transitionTextureImageLayoutBarrier.pNext = nullptr;
+    transitionTextureImageLayoutBarrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT; // Wait for transfer to finish as the destination
+    transitionTextureImageLayoutBarrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    transitionTextureImageLayoutBarrier.dstStageMask = VK_PIPELINE_STAGE_2_NONE;
+    transitionTextureImageLayoutBarrier.dstAccessMask = VK_ACCESS_2_NONE;
+    transitionTextureImageLayoutBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    transitionTextureImageLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    transitionTextureImageLayoutBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    transitionTextureImageLayoutBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    transitionTextureImageLayoutBarrier.image = textureImage->getHandle();
+    transitionTextureImageLayoutBarrier.subresourceRange = subresourceRange;
+
+    dependencyInfo.pNext = nullptr;
+    dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+    dependencyInfo.memoryBarrierCount = 0u;
+    dependencyInfo.pMemoryBarriers = nullptr;
+    dependencyInfo.bufferMemoryBarrierCount = 0u;
+    dependencyInfo.pBufferMemoryBarriers = nullptr;
+    dependencyInfo.imageMemoryBarrierCount = 1u;
+    dependencyInfo.pImageMemoryBarriers = &transitionTextureImageLayoutBarrier;
+
     commandBuffer->reset();
     commandBuffer->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
-    textureImage->transitionImageLayout(*commandBuffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL, subresourceRange);
+    vkCmdPipelineBarrier2KHR(commandBuffer->getHandle(), &dependencyInfo);
     commandBuffer->end();
 
-    // Use the same submit info
+    // TODO: we can refactor this to only required one queuesubmit and no queuewaitidles
     VK_CHECK(vkQueueSubmit2KHR(m_graphicsQueue->getHandle(), 1u, &submitInfo, VK_NULL_HANDLE));
     vkQueueWaitIdle(m_graphicsQueue->getHandle());
 
@@ -2832,19 +3101,43 @@ std::unique_ptr<Image> MainApp::createTextureImage(const std::string &filename)
 
     stbi_image_free(pixels);
 
+    // Create the texture image
     VkExtent3D extent{ to_u32(texWidth), to_u32(texHeight), 1u };
     std::unique_ptr<Image> textureImage = std::make_unique<Image>(*device, VK_FORMAT_R8G8B8A8_SRGB, extent, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VMA_MEMORY_USAGE_GPU_ONLY /* default values for remaining params */);
 
+    // Transition the texture image to be prepared as a destination target
     VkImageSubresourceRange subresourceRange = {};
     subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    subresourceRange.baseMipLevel = 0;
-    subresourceRange.levelCount = 1;
-    subresourceRange.baseArrayLayer = 0;
-    subresourceRange.layerCount = 1;
-    // Transition the texture image to be prepared as a destination target
+    subresourceRange.baseMipLevel = 0u;
+    subresourceRange.levelCount = 1u;
+    subresourceRange.baseArrayLayer = 0u;
+    subresourceRange.layerCount = 1u;
+    VkImageMemoryBarrier2 transitionTextureImageLayoutBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+    transitionTextureImageLayoutBarrier.pNext = nullptr;
+    transitionTextureImageLayoutBarrier.srcStageMask = VK_PIPELINE_STAGE_2_NONE; // No dependencies
+    transitionTextureImageLayoutBarrier.srcAccessMask = VK_ACCESS_2_NONE;
+    transitionTextureImageLayoutBarrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT; // Image will be written to as transfer source
+    transitionTextureImageLayoutBarrier.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    transitionTextureImageLayoutBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    transitionTextureImageLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    transitionTextureImageLayoutBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    transitionTextureImageLayoutBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    transitionTextureImageLayoutBarrier.image = textureImage->getHandle();
+    transitionTextureImageLayoutBarrier.subresourceRange = subresourceRange;
+
+    VkDependencyInfo dependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+    dependencyInfo.pNext = nullptr;
+    dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+    dependencyInfo.memoryBarrierCount = 0u;
+    dependencyInfo.pMemoryBarriers = nullptr;
+    dependencyInfo.bufferMemoryBarrierCount = 0u;
+    dependencyInfo.pBufferMemoryBarriers = nullptr;
+    dependencyInfo.imageMemoryBarrierCount = 1u;
+    dependencyInfo.pImageMemoryBarriers = &transitionTextureImageLayoutBarrier;
+
     std::unique_ptr<CommandBuffer> commandBuffer = std::make_unique<CommandBuffer>(*frameData.commandPools[currentFrame], VK_COMMAND_BUFFER_LEVEL_PRIMARY);
     commandBuffer->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
-    textureImage->transitionImageLayout(*commandBuffer, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, subresourceRange);
+    vkCmdPipelineBarrier2KHR(commandBuffer->getHandle(), &dependencyInfo);
     commandBuffer->end();
 
     VkCommandBufferSubmitInfo commandBufferSubmitInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO };
@@ -2867,9 +3160,30 @@ std::unique_ptr<Image> MainApp::createTextureImage(const std::string &filename)
     copyBufferToImage(*stagingBuffer, *textureImage, to_u32(texWidth), to_u32(texHeight));
 
     // Transition the texture image to be prepared to be read by shaders
+    transitionTextureImageLayoutBarrier.pNext = nullptr;
+    transitionTextureImageLayoutBarrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT; // Wait for transfer to finish as the destination
+    transitionTextureImageLayoutBarrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    transitionTextureImageLayoutBarrier.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+    transitionTextureImageLayoutBarrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+    transitionTextureImageLayoutBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    transitionTextureImageLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    transitionTextureImageLayoutBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    transitionTextureImageLayoutBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    transitionTextureImageLayoutBarrier.image = textureImage->getHandle();
+    transitionTextureImageLayoutBarrier.subresourceRange = subresourceRange;
+
+    dependencyInfo.pNext = nullptr;
+    dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+    dependencyInfo.memoryBarrierCount = 0u;
+    dependencyInfo.pMemoryBarriers = nullptr;
+    dependencyInfo.bufferMemoryBarrierCount = 0u;
+    dependencyInfo.pBufferMemoryBarriers = nullptr;
+    dependencyInfo.imageMemoryBarrierCount = 1u;
+    dependencyInfo.pImageMemoryBarriers = &transitionTextureImageLayoutBarrier;
+
     commandBuffer->reset();
     commandBuffer->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
-    textureImage->transitionImageLayout(*commandBuffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresourceRange);
+    vkCmdPipelineBarrier2KHR(commandBuffer->getHandle(), &dependencyInfo);
     commandBuffer->end();
 
     // Use the same submit info
@@ -2908,13 +3222,15 @@ void MainApp::createTextureSampler()
 
 void MainApp::copyBufferToBuffer(const Buffer &srcBuffer, const Buffer &dstBuffer, VkDeviceSize size)
 {
-    std::unique_ptr<CommandBuffer> commandBuffer = std::make_unique<CommandBuffer>(*frameData.commandPools[currentFrame], VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+    VkBufferCopy bufferCopyRegion{};
+    bufferCopyRegion.srcOffset = 0ull;
+    bufferCopyRegion.dstOffset = 0ull;
+    bufferCopyRegion.size = size;
 
+    std::unique_ptr<CommandBuffer> commandBuffer = std::make_unique<CommandBuffer>(*frameData.commandPools[currentFrame], VK_COMMAND_BUFFER_LEVEL_PRIMARY);
     commandBuffer->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
 
-    VkBufferCopy copyRegion{};
-    copyRegion.size = size;
-    vkCmdCopyBuffer(commandBuffer->getHandle(), srcBuffer.getHandle(), dstBuffer.getHandle(), 1, &copyRegion);
+    vkCmdCopyBuffer(commandBuffer->getHandle(), srcBuffer.getHandle(), dstBuffer.getHandle(), 1, &bufferCopyRegion);
 
     // Execute a transfer to the compute queue, if necessary
     if (m_graphicsQueue->getFamilyIndex() != m_transferQueue->getFamilyIndex())
@@ -3345,15 +3661,15 @@ void MainApp::createDescriptorSets()
         VkDescriptorImageInfo historyImageInfo{};
         historyImageInfo.sampler = VK_NULL_HANDLE;
         historyImageInfo.imageView = frameData.historyImageViews[i]->getHandle();
-        historyImageInfo.imageLayout = frameData.historyImageViews[i]->getImage().getLayout();
+        historyImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
         VkDescriptorImageInfo velocityImageInfo{};
         velocityImageInfo.sampler = VK_NULL_HANDLE;
         velocityImageInfo.imageView = frameData.velocityImageViews[i]->getHandle();
-        velocityImageInfo.imageLayout = frameData.velocityImageViews[i]->getImage().getLayout();
+        velocityImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
         VkDescriptorImageInfo copyOutputImageInfo{};
         copyOutputImageInfo.sampler = VK_NULL_HANDLE;
         copyOutputImageInfo.imageView = frameData.copyOutputImageViews[i]->getHandle();
-        copyOutputImageInfo.imageLayout = frameData.copyOutputImageViews[i]->getImage().getLayout();
+        copyOutputImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
         std::array<VkDescriptorImageInfo, 3> postProcessingStorageImageInfos{ historyImageInfo, velocityImageInfo, copyOutputImageInfo };
         
         VkWriteDescriptorSet writePostProcessingStorageImageDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
@@ -3445,22 +3761,22 @@ void MainApp::createDescriptorSets()
         VkDescriptorImageInfo fluidVelocityInputTextureInfo{};
         fluidVelocityInputTextureInfo.sampler = textureSampler->getHandle();
         fluidVelocityInputTextureInfo.imageView = frameData.fluidVelocityInputTextures[i]->imageview->getHandle();
-        fluidVelocityInputTextureInfo.imageLayout = frameData.fluidVelocityInputTextures[i]->image->getLayout();
+        fluidVelocityInputTextureInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
         // Binding 1 is the fluid velocity divergence input texture
         VkDescriptorImageInfo fluidVelocityDivergenceInputTextureInfo{};
         fluidVelocityDivergenceInputTextureInfo.sampler = textureSampler->getHandle();
         fluidVelocityDivergenceInputTextureInfo.imageView = frameData.fluidVelocityDivergenceInputTextures[i]->imageview->getHandle();
-        fluidVelocityDivergenceInputTextureInfo.imageLayout = frameData.fluidVelocityDivergenceInputTextures[i]->image->getLayout();
+        fluidVelocityDivergenceInputTextureInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
         // Binding 2 is the fluid pressure input texture
         VkDescriptorImageInfo fluidPressureInputTextureInfo{};
         fluidPressureInputTextureInfo.sampler = textureSampler->getHandle();
         fluidPressureInputTextureInfo.imageView = frameData.fluidPressureInputTextures[i]->imageview->getHandle();
-        fluidPressureInputTextureInfo.imageLayout = frameData.fluidPressureInputTextures[i]->image->getLayout();
+        fluidPressureInputTextureInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
         // Binding 3 is the fluid density input texture
         VkDescriptorImageInfo fluidDensityInputTextureInfo{};
         fluidDensityInputTextureInfo.sampler = textureSampler->getHandle();
         fluidDensityInputTextureInfo.imageView = frameData.fluidDensityInputTextures[i]->imageview->getHandle();
-        fluidDensityInputTextureInfo.imageLayout = frameData.fluidDensityInputTextures[i]->image->getLayout();
+        fluidDensityInputTextureInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
         std::array<VkDescriptorImageInfo, 4> fluidSimulationInputTextureInfos{ fluidVelocityInputTextureInfo, fluidVelocityDivergenceInputTextureInfo, fluidPressureInputTextureInfo, fluidDensityInputTextureInfo };
 
         VkWriteDescriptorSet writeFluidSimulationInputDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
@@ -3486,7 +3802,7 @@ void MainApp::createDescriptorSets()
         VkDescriptorImageInfo fluidSimulationOutputTextureInfo{};
         fluidSimulationOutputTextureInfo.sampler = VK_NULL_HANDLE;
         fluidSimulationOutputTextureInfo.imageView = frameData.fluidSimulationOutputTextures[i]->imageview->getHandle();
-        fluidSimulationOutputTextureInfo.imageLayout = frameData.fluidSimulationOutputTextures[i]->image->getLayout();
+        fluidSimulationOutputTextureInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
         std::array<VkDescriptorImageInfo, 1> fluidSimulationOutputTextureInfos{ fluidSimulationOutputTextureInfo };
 
         VkWriteDescriptorSet writeFluidSimulationOutputDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
@@ -3853,15 +4169,17 @@ void MainApp::updateTaaState()
 
 void MainApp::createImageResourcesForFrames()
 {
-    VkExtent3D extent{ swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, 1 };
+    VkExtent3D extent{ swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, 1u };
     VkImageSubresourceRange subresourceRange = {};
     subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    subresourceRange.baseMipLevel = 0;
-    subresourceRange.levelCount = 1;
-    subresourceRange.baseArrayLayer = 0;
-    subresourceRange.layerCount = 1;
+    subresourceRange.baseMipLevel = 0u;
+    subresourceRange.levelCount = 1u;
+    subresourceRange.baseArrayLayer = 0u;
+    subresourceRange.layerCount = 1u;
 
-    for (uint32_t i = 0; i < maxFramesInFlight; ++i)
+    std::vector<VkImageMemoryBarrier2> imageTransitionMemoryBarriers;
+
+    for (uint32_t i = 0u; i < maxFramesInFlight; ++i)
     {
         frameData.outputImages[i] = std::make_unique<Image>(*device, swapchain->getProperties().surfaceFormat.format, extent, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
         frameData.outputImageViews[i] = std::make_unique<ImageView>(*(frameData.outputImages[i]), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, frameData.outputImages[i]->getFormat());
@@ -3881,32 +4199,96 @@ void MainApp::createImageResourcesForFrames()
         setDebugUtilsObjectName(device->getHandle(), frameData.velocityImages[i]->getHandle(), "velocityImage for frame #" + std::to_string(i));
         setDebugUtilsObjectName(device->getHandle(), frameData.velocityImageViews[i]->getHandle(), "velocityImageView for frame #" + std::to_string(i));
 
-        std::unique_ptr<CommandBuffer> commandBuffer = std::make_unique<CommandBuffer>(*frameData.commandPools[currentFrame], VK_COMMAND_BUFFER_LEVEL_PRIMARY);
-        commandBuffer->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
-        frameData.outputImages[i]->transitionImageLayout(*commandBuffer, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresourceRange);
-        frameData.copyOutputImages[i]->transitionImageLayout(*commandBuffer, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresourceRange);
-        frameData.historyImages[i]->transitionImageLayout(*commandBuffer, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresourceRange);
-        frameData.velocityImages[i]->transitionImageLayout(*commandBuffer, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresourceRange);
-        commandBuffer->end();
+        VkImageMemoryBarrier2 transitionOutputImageLayoutBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+        transitionOutputImageLayoutBarrier.pNext = nullptr;
+        transitionOutputImageLayoutBarrier.srcStageMask = VK_PIPELINE_STAGE_2_NONE; // No synchronization required on initial setup
+        transitionOutputImageLayoutBarrier.srcAccessMask = VK_ACCESS_2_NONE;
+        transitionOutputImageLayoutBarrier.dstStageMask = VK_PIPELINE_STAGE_2_NONE;
+        transitionOutputImageLayoutBarrier.dstAccessMask = VK_ACCESS_2_NONE;
+        transitionOutputImageLayoutBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        transitionOutputImageLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+        transitionOutputImageLayoutBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        transitionOutputImageLayoutBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        transitionOutputImageLayoutBarrier.image = frameData.outputImages[i]->getHandle();
+        transitionOutputImageLayoutBarrier.subresourceRange = subresourceRange;
 
-        VkCommandBufferSubmitInfo commandBufferSubmitInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO };
-        commandBufferSubmitInfo.pNext = nullptr;
-        commandBufferSubmitInfo.commandBuffer = commandBuffer->getHandle();
-        commandBufferSubmitInfo.deviceMask = 0u;
+        VkImageMemoryBarrier2 transitionCopyOutputImageLayoutBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+        transitionCopyOutputImageLayoutBarrier.pNext = nullptr;
+        transitionCopyOutputImageLayoutBarrier.srcStageMask = VK_PIPELINE_STAGE_2_NONE; // No synchronization required on initial setup
+        transitionCopyOutputImageLayoutBarrier.srcAccessMask = VK_ACCESS_2_NONE;
+        transitionCopyOutputImageLayoutBarrier.dstStageMask = VK_PIPELINE_STAGE_2_NONE;
+        transitionCopyOutputImageLayoutBarrier.dstAccessMask = VK_ACCESS_2_NONE;
+        transitionCopyOutputImageLayoutBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        transitionCopyOutputImageLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+        transitionCopyOutputImageLayoutBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        transitionCopyOutputImageLayoutBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        transitionCopyOutputImageLayoutBarrier.image = frameData.copyOutputImages[i]->getHandle();
+        transitionCopyOutputImageLayoutBarrier.subresourceRange = subresourceRange;
 
-        VkSubmitInfo2 submitInfo = { VK_STRUCTURE_TYPE_SUBMIT_INFO_2 };
-        submitInfo.pNext = nullptr;
-        submitInfo.flags = 0u;
-        submitInfo.waitSemaphoreInfoCount = 0u;
-        submitInfo.pWaitSemaphoreInfos = nullptr;
-        submitInfo.commandBufferInfoCount = 1u;
-        submitInfo.pCommandBufferInfos = &commandBufferSubmitInfo;
-        submitInfo.signalSemaphoreInfoCount = 0u;
-        submitInfo.pSignalSemaphoreInfos = nullptr;
+        VkImageMemoryBarrier2 transitionHistoryImageLayoutBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+        transitionHistoryImageLayoutBarrier.pNext = nullptr;
+        transitionHistoryImageLayoutBarrier.srcStageMask = VK_PIPELINE_STAGE_2_NONE; // No synchronization required on initial setup
+        transitionHistoryImageLayoutBarrier.srcAccessMask = VK_ACCESS_2_NONE;
+        transitionHistoryImageLayoutBarrier.dstStageMask = VK_PIPELINE_STAGE_2_NONE;
+        transitionHistoryImageLayoutBarrier.dstAccessMask = VK_ACCESS_2_NONE;
+        transitionHistoryImageLayoutBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        transitionHistoryImageLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+        transitionHistoryImageLayoutBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        transitionHistoryImageLayoutBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        transitionHistoryImageLayoutBarrier.image = frameData.historyImages[i]->getHandle();
+        transitionHistoryImageLayoutBarrier.subresourceRange = subresourceRange;
 
-        VK_CHECK(vkQueueSubmit2KHR(m_graphicsQueue->getHandle(), 1u, &submitInfo, VK_NULL_HANDLE));
-        vkQueueWaitIdle(m_graphicsQueue->getHandle());
+        VkImageMemoryBarrier2 transitionVelocityImageLayoutBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+        transitionVelocityImageLayoutBarrier.pNext = nullptr;
+        transitionVelocityImageLayoutBarrier.srcStageMask = VK_PIPELINE_STAGE_2_NONE; // No synchronization required on initial setup
+        transitionVelocityImageLayoutBarrier.srcAccessMask = VK_ACCESS_2_NONE;
+        transitionVelocityImageLayoutBarrier.dstStageMask = VK_PIPELINE_STAGE_2_NONE;
+        transitionVelocityImageLayoutBarrier.dstAccessMask = VK_ACCESS_2_NONE;
+        transitionVelocityImageLayoutBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        transitionVelocityImageLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+        transitionVelocityImageLayoutBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        transitionVelocityImageLayoutBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        transitionVelocityImageLayoutBarrier.image = frameData.velocityImages[i]->getHandle();
+        transitionVelocityImageLayoutBarrier.subresourceRange = subresourceRange;
+
+        imageTransitionMemoryBarriers.push_back(transitionOutputImageLayoutBarrier);
+        imageTransitionMemoryBarriers.push_back(transitionCopyOutputImageLayoutBarrier);
+        imageTransitionMemoryBarriers.push_back(transitionHistoryImageLayoutBarrier);
+        imageTransitionMemoryBarriers.push_back(transitionVelocityImageLayoutBarrier);
     }
+
+    VkDependencyInfo dependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+    dependencyInfo.pNext = nullptr;
+    dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+    dependencyInfo.memoryBarrierCount = 0u;
+    dependencyInfo.pMemoryBarriers = nullptr;
+    dependencyInfo.bufferMemoryBarrierCount = 0u;
+    dependencyInfo.pBufferMemoryBarriers = nullptr;
+    dependencyInfo.imageMemoryBarrierCount = to_u32(imageTransitionMemoryBarriers.size());
+    dependencyInfo.pImageMemoryBarriers = imageTransitionMemoryBarriers.data();
+
+    std::unique_ptr<CommandBuffer> commandBuffer = std::make_unique<CommandBuffer>(*frameData.commandPools[currentFrame], VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+    commandBuffer->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
+    vkCmdPipelineBarrier2KHR(commandBuffer->getHandle(), &dependencyInfo);
+    commandBuffer->end();
+
+    VkCommandBufferSubmitInfo commandBufferSubmitInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO };
+    commandBufferSubmitInfo.pNext = nullptr;
+    commandBufferSubmitInfo.commandBuffer = commandBuffer->getHandle();
+    commandBufferSubmitInfo.deviceMask = 0u;
+    VkSubmitInfo2 submitInfo = { VK_STRUCTURE_TYPE_SUBMIT_INFO_2 };
+    submitInfo.pNext = nullptr;
+    submitInfo.flags = 0u;
+    submitInfo.waitSemaphoreInfoCount = 0u;
+    submitInfo.pWaitSemaphoreInfos = nullptr;
+    submitInfo.commandBufferInfoCount = 1u;
+    submitInfo.pCommandBufferInfos = &commandBufferSubmitInfo;
+    submitInfo.signalSemaphoreInfoCount = 0u;
+    submitInfo.pSignalSemaphoreInfos = nullptr;
+
+    VK_CHECK(vkQueueSubmit2KHR(m_graphicsQueue->getHandle(), 1u, &submitInfo, VK_NULL_HANDLE));
+    // TODO evaluate whether we can reduce the number of vkQueueWaitIdle and have just one at the end of the setup phrase before the main rendering loop begins
+    vkQueueWaitIdle(m_graphicsQueue->getHandle());
 }
 
 // Convert an OBJ model into the ray tracing geometry used to build the BLAS
@@ -4008,7 +4390,7 @@ void MainApp::buildBlas()
 
     // Finding sizes to create acceleration structures and scratch
     // Keep the largest scratch buffer size, to use only one scratch for all build
-    VkDeviceSize              maxScratch{ 0 };          // Largest scratch buffer for our BLAS
+    VkDeviceSize              maxScratch{ 0ull };          // Largest scratch buffer for our BLAS
     std::vector<VkDeviceSize> originalSizes(blasCount);  // use for stats
 
     for (size_t idx = 0; idx < blasCount; idx++)
