@@ -21,9 +21,8 @@
  */
 
 #version 460
-#extension GL_EXT_debug_printf : enable
 
-layout(constant_id = 0) const uint workGroupSize = 64;
+layout(constant_id = 0) const uint workGroupSize = 64u;
 layout(local_size_x_id = 0) in; // Maps to the constant_id = 0 specialization constant
 
 // layout(set = 0, binding = 0) uniform sampler2D fluidVelocityInputTextureImage;
@@ -44,8 +43,8 @@ layout(push_constant) uniform FluidSimulationPushConstant
 	int blank; // padding
 } pushConstant;
 
-float alpha = -1.0f;
-float reciprocalBeta = 1.0f / 4.0f;
+float alpha = -pushConstant.gridScale * pushConstant.gridScale;
+float reciprocalBeta = 0.25f;
 
 // We are iteratively solving Ax = b where x and b are both fluidVelocityInputTextureImage
 void main() 
@@ -65,8 +64,8 @@ void main()
 	// The pressure texture is the x component of the jacobi iterations, which is updated each iteration
 	float xRight = texture(fluidPressureInputTextureImage, uv + xOffset).x;
 	float xLeft = texture(fluidPressureInputTextureImage, uv - xOffset).x;
-	float xTop = texture(fluidPressureInputTextureImage, uv + yOffset).x;
-	float xBot = texture(fluidPressureInputTextureImage, uv - yOffset).x;
+	float xTop = texture(fluidPressureInputTextureImage, uv - yOffset).x; // Top is at y = 0
+	float xBot = texture(fluidPressureInputTextureImage, uv + yOffset).x;
 
 	// velocityDivergence texture is the b component
 	float bCenter = texture(fluidVelocityDivergenceInputTextureImage, uv).x;

@@ -21,9 +21,8 @@
  */
 
 #version 460
-#extension GL_EXT_debug_printf : enable
 
-layout(constant_id = 0) const uint workGroupSize = 64;
+layout(constant_id = 0) const uint workGroupSize = 64u;
 layout(local_size_x_id = 0) in; // Maps to the constant_id = 0 specialization constant
 
 layout(set = 0, binding = 0) uniform sampler2D fluidVelocityInputTextureImage;
@@ -60,8 +59,8 @@ void main()
 
     float velocityRightX = texture(fluidVelocityInputTextureImage, uv + xOffset).x;
     float velocityLeftX = texture(fluidVelocityInputTextureImage, uv - xOffset).x;
-    float velocityTopY = texture(fluidVelocityInputTextureImage, uv + yOffset).y;
-    float velocityBotY = texture(fluidVelocityInputTextureImage, uv - yOffset).y;
+    float velocityTopY = texture(fluidVelocityInputTextureImage, uv - yOffset).y; // Top is at y = 0
+    float velocityBotY = texture(fluidVelocityInputTextureImage, uv + yOffset).y;
 
     float scale =  0.5f / pushConstant.gridScale;
     float divergence = scale * (velocityRightX - velocityLeftX + velocityTopY - velocityBotY);

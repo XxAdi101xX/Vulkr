@@ -21,9 +21,8 @@
  */
 
 #version 460
-//#extension GL_EXT_debug_printf : enable
 
-layout(constant_id = 0) const uint workGroupSize = 64;
+layout(constant_id = 0) const uint workGroupSize = 64u;
 layout(local_size_x_id = 0) in; // Maps to the constant_id = 0 specialization constant
 
 layout(set = 0, binding = 0) uniform sampler2D fluidVelocityInputTextureImage;
@@ -61,7 +60,7 @@ void main()
 	vec2 uv = screenSpaceCoords / pushConstant.gridSize;
 
 	vec2 distanceFromSplat = pushConstant.splatPosition - screenSpaceCoords;
-	vec3 splatColor = pushConstant.splatForce.xyz * gaussianSplat(distanceFromSplat, pushConstant.gridSize.x * pushConstant.splatRadius);
+	vec3 splatValue = pushConstant.splatForce.xyz * gaussianSplat(distanceFromSplat, pushConstant.gridSize.x * pushConstant.splatRadius);
 
-	imageStore(fluidSimulationOutputTextureImage, imageIndex, vec4(texture(fluidVelocityInputTextureImage, uv).xyz + splatColor, 1.0f));
+	imageStore(fluidSimulationOutputTextureImage, imageIndex, vec4(texture(fluidVelocityInputTextureImage, uv).xyz + splatValue, 1.0f));
 }

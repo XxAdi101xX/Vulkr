@@ -1272,17 +1272,17 @@ void MainApp::computeFluidSimulation()
         fluidPressureInputTextureImageMemoryBarrier.image = frameData.fluidPressureInputTextures[currentFrame]->image->getHandle();
         fluidPressureInputTextureImageMemoryBarrier.subresourceRange = subresourceRange;
 
-        VkImageMemoryBarrier2 fluidDenistyInputTextureImageMemoryBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
-        fluidDenistyInputTextureImageMemoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_VERTEX_INPUT_BIT;
-        fluidDenistyInputTextureImageMemoryBarrier.srcAccessMask = VK_ACCESS_2_NONE;
-        fluidDenistyInputTextureImageMemoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        fluidDenistyInputTextureImageMemoryBarrier.dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-        fluidDenistyInputTextureImageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
-        fluidDenistyInputTextureImageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-        fluidDenistyInputTextureImageMemoryBarrier.srcQueueFamilyIndex = m_graphicsQueue->getFamilyIndex();
-        fluidDenistyInputTextureImageMemoryBarrier.dstQueueFamilyIndex = m_computeQueue->getFamilyIndex();
-        fluidDenistyInputTextureImageMemoryBarrier.image = frameData.fluidDensityInputTextures[currentFrame]->image->getHandle();
-        fluidDenistyInputTextureImageMemoryBarrier.subresourceRange = subresourceRange;
+        VkImageMemoryBarrier2 fluidDensityInputTextureImageMemoryBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+        fluidDensityInputTextureImageMemoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_VERTEX_INPUT_BIT;
+        fluidDensityInputTextureImageMemoryBarrier.srcAccessMask = VK_ACCESS_2_NONE;
+        fluidDensityInputTextureImageMemoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        fluidDensityInputTextureImageMemoryBarrier.dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+        fluidDensityInputTextureImageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+        fluidDensityInputTextureImageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+        fluidDensityInputTextureImageMemoryBarrier.srcQueueFamilyIndex = m_graphicsQueue->getFamilyIndex();
+        fluidDensityInputTextureImageMemoryBarrier.dstQueueFamilyIndex = m_computeQueue->getFamilyIndex();
+        fluidDensityInputTextureImageMemoryBarrier.image = frameData.fluidDensityInputTextures[currentFrame]->image->getHandle();
+        fluidDensityInputTextureImageMemoryBarrier.subresourceRange = subresourceRange;
 
         VkImageMemoryBarrier2 fluidSimulationOutputTextureImageMemoryBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
         fluidSimulationOutputTextureImageMemoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_VERTEX_INPUT_BIT;
@@ -1296,7 +1296,14 @@ void MainApp::computeFluidSimulation()
         fluidSimulationOutputTextureImageMemoryBarrier.image = frameData.fluidSimulationOutputTextures[currentFrame]->image->getHandle();
         fluidSimulationOutputTextureImageMemoryBarrier.subresourceRange = subresourceRange;
 
-        std::array<VkImageMemoryBarrier2, 5> imageMemoryBarriers{ fluidVelocityInputTextureImageMemoryBarrier, fluidVelocityDivergenceInputTextureImageMemoryBarrier, fluidPressureInputTextureImageMemoryBarrier, fluidDenistyInputTextureImageMemoryBarrier, fluidSimulationOutputTextureImageMemoryBarrier };
+        std::array<VkImageMemoryBarrier2, 5> imageMemoryBarriers
+        {
+            fluidVelocityInputTextureImageMemoryBarrier,
+            fluidVelocityDivergenceInputTextureImageMemoryBarrier,
+            fluidPressureInputTextureImageMemoryBarrier,
+            fluidDensityInputTextureImageMemoryBarrier,
+            fluidSimulationOutputTextureImageMemoryBarrier
+        };
         VkDependencyInfo dependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
         dependencyInfo.pNext = nullptr;
         dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
@@ -1374,8 +1381,8 @@ void MainApp::computeFluidSimulation()
     vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeJacobi.pipeline->getBindPoint(), pipelines.computeJacobi.pipelineState->getPipelineLayout().getHandle(), 1u, 1u, &frameData.fluidSimulationOutputDescriptorSets[currentFrame]->getHandle(), 0u, nullptr);
     vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeJacobi.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0u, sizeof(FluidSimulationPushConstant), &fluidSimulationPushConstant);
 
-    const int jacobiIterationCount = 40;
-    for (int i = 0; i < jacobiIterationCount; ++i)
+    const uint32_t jacobiIterationCount = 40u;
+    for (uint32_t i = 0u; i < jacobiIterationCount; ++i)
     {
         vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), to_u32(fluidSimulationGridSize / m_workGroupSize) + 1u, 1u, 1u);
         copyFluidOutputTextureToInputTexture(frameData.fluidPressureInputTextures[currentFrame]->image.get());
@@ -1448,7 +1455,7 @@ void MainApp::computeFluidSimulation()
         fluidDensityInputTextureImageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
         fluidDensityInputTextureImageMemoryBarrier.srcQueueFamilyIndex = m_graphicsQueue->getFamilyIndex();
         fluidDensityInputTextureImageMemoryBarrier.dstQueueFamilyIndex = m_computeQueue->getFamilyIndex();
-        fluidDensityInputTextureImageMemoryBarrier.image = frameData.fluidPressureInputTextures[currentFrame]->image->getHandle();
+        fluidDensityInputTextureImageMemoryBarrier.image = frameData.fluidDensityInputTextures[currentFrame]->image->getHandle();
         fluidDensityInputTextureImageMemoryBarrier.subresourceRange = subresourceRange;
 
         VkImageMemoryBarrier2 fluidSimulationOutputTextureImageMemoryBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
@@ -1462,7 +1469,14 @@ void MainApp::computeFluidSimulation()
         fluidSimulationOutputTextureImageMemoryBarrier.image = frameData.fluidSimulationOutputTextures[currentFrame]->image->getHandle();
         fluidSimulationOutputTextureImageMemoryBarrier.subresourceRange = subresourceRange;
 
-        std::array<VkImageMemoryBarrier2, 5> imageMemoryBarriers{ fluidVelocityInputTextureImageMemoryBarrier, fluidVelocityDivergenceInputTextureImageMemoryBarrier, fluidPressureInputTextureImageMemoryBarrier, fluidDensityInputTextureImageMemoryBarrier, fluidSimulationOutputTextureImageMemoryBarrier };
+        std::array<VkImageMemoryBarrier2, 5> imageMemoryBarriers
+        {
+            fluidVelocityInputTextureImageMemoryBarrier,
+            fluidVelocityDivergenceInputTextureImageMemoryBarrier,
+            fluidPressureInputTextureImageMemoryBarrier,
+            fluidDensityInputTextureImageMemoryBarrier,
+            fluidSimulationOutputTextureImageMemoryBarrier
+        };
         VkDependencyInfo dependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
         dependencyInfo.pNext = nullptr;
         dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
@@ -2916,7 +2930,7 @@ std::unique_ptr<Image> MainApp::createTextureImage(uint32_t texWidth, uint32_t t
     std::unique_ptr<Buffer> stagingBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
 
     // Initialize the texture with the initial values
-    const float initalValue = 0.85f;
+    const float initalValue = 0.0f;
     void *mappedData = stagingBuffer->map();
     std::vector<float> initialTextureData(imageSize, initalValue);
     memcpy(mappedData, initialTextureData.data(), static_cast<size_t>(imageSize));

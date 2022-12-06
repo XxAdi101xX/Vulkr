@@ -17,6 +17,7 @@
 
 #version 460
 #extension GL_GOOGLE_include_directive : enable
+
 #include "../common.glsl"
 
 // Binding 0 : Particle storage buffer
@@ -33,7 +34,7 @@ layout(push_constant) uniform ComputeParticlesPushConstant
 	int blank; // alignment
 } pushConstant;
 
-layout(constant_id = 0) const uint workGroupSize = 64;
+layout(constant_id = 0) const uint workGroupSize = 64u;
 layout(constant_id = 1) const uint SHARED_DATA_SIZE = 1024;
 layout(constant_id = 2) const float GRAVITY = 0.002;
 layout(constant_id = 3) const float POWER = 0.75;

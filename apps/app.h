@@ -89,17 +89,20 @@ PFN_vkVoidFunction loadFunction(const char *function_name, void *user_data) { re
 namespace vulkr
 {
 
-constexpr uint32_t maxFramesInFlight{ 2 }; // Explanation on this how we got this number: https://software.intel.com/content/www/us/en/develop/articles/practical-approach-to-vulkan-part-1.html
-constexpr uint32_t commandBufferCountForFrame{ 3 };
-constexpr uint32_t taaDepth{ 128 };
-constexpr uint32_t maxInstanceCount{ 10000 };
-constexpr uint32_t maxLightCount{ 100 };
+constexpr uint32_t maxFramesInFlight{ 2u }; // Explanation on this how we got this number: https://software.intel.com/content/www/us/en/develop/articles/practical-approach-to-vulkan-part-1.html
+constexpr uint32_t commandBufferCountForFrame{ 3u };
+constexpr uint32_t taaDepth{ 128u };
+constexpr uint32_t maxInstanceCount{ 10000u };
+constexpr uint32_t maxLightCount{ 100u };
 
 #ifdef VULKR_DEBUG
-//constexpr uint32_t particlesPerAttractor{ 64 };
-constexpr uint32_t particlesPerAttractor{ 4 }; // TODO remove this after fluid simulation app is separated out
+#ifdef FLUID_SIMULATION
+constexpr uint32_t particlesPerAttractor{ 4u };
 #else
-constexpr uint32_t particlesPerAttractor{ 1024 };
+constexpr uint32_t particlesPerAttractor{ 64u };
+#endif
+#else
+constexpr uint32_t particlesPerAttractor{ 1024u };
 #endif
 
 constexpr std::array<glm::vec3, 6> attractors = {
@@ -113,7 +116,7 @@ constexpr std::array<glm::vec3, 6> attractors = {
 
 // TODO: enabling multi-threaded loading tentatively works with rasterization but fails for the raytracing pipeline during the buildTlas second call; still a WIP
 // #define MULTI_THREAD
-//#define FLUID_SIMULATION
+#define FLUID_SIMULATION
 bool raytracingEnabled{ false }; // Flag to enable ray tracing vs rasterization
 bool temporalAntiAliasingEnabled{ false }; // Flag to enable temporal anti-aliasing
 
@@ -214,7 +217,7 @@ struct FluidSimulationPushConstant
     glm::vec3 splatForce{ glm::vec3(0.0f) };
     float splatRadius{ 1.0f };
     glm::vec2 splatPosition{ glm::vec2(0.0f) };
-    float dissipation{ 0.9995f };
+    float dissipation{ 1.0f };
     int blank{ 0 }; // padding
 } fluidSimulationPushConstant;
 

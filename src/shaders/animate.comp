@@ -4,11 +4,10 @@
 #extension GL_EXT_scalar_block_layout : enable
 #extension GL_GOOGLE_include_directive : enable
 #extension GL_EXT_buffer_reference2 : require
-//#extension GL_EXT_debug_printf : enable
 
 #include "common.glsl"
 
-layout(constant_id = 0) const uint workGroupSize = 64;
+layout(constant_id = 0) const uint workGroupSize = 64u;
 layout(local_size_x_id = 0) in;
 
 layout(buffer_reference, scalar) buffer Vertices { Vertex v[]; }; // Positions of an object
@@ -28,7 +27,6 @@ layout(push_constant) uniform ComputePushConstant
 
 void main()
 {
-    //debugPrintfEXT("workGroupSize is %d", workGroupSize);
     uint globalInvocationId = gl_GlobalInvocationID.x;
     if (globalInvocationId >= pushConstant.indexCount) return;
 
