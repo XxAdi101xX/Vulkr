@@ -116,7 +116,7 @@ constexpr std::array<glm::vec3, 6> attractors = {
 
 // TODO: enabling multi-threaded loading tentatively works with rasterization but fails for the raytracing pipeline during the buildTlas second call; still a WIP
 // #define MULTI_THREAD
-#define FLUID_SIMULATION
+//#define FLUID_SIMULATION
 bool raytracingEnabled{ false }; // Flag to enable ray tracing vs rasterization
 bool temporalAntiAliasingEnabled{ false }; // Flag to enable temporal anti-aliasing
 
@@ -381,14 +381,10 @@ private:
     // In other cases like particle system simulation, each time step can be calculated without the previous frame's value so you could argue for duplicate buffers to avoid dealing with synchronized buffer accesses
     struct FrameData
     {
-        std::array<std::unique_ptr<Image>, maxFramesInFlight> outputImages;
-        std::array<std::unique_ptr<ImageView>, maxFramesInFlight> outputImageViews;
-        std::array<std::unique_ptr<Image>, maxFramesInFlight> copyOutputImages;
-        std::array<std::unique_ptr<ImageView>, maxFramesInFlight> copyOutputImageViews;
-        std::array<std::unique_ptr<Image>, maxFramesInFlight> historyImages;
-        std::array<std::unique_ptr<ImageView>, maxFramesInFlight> historyImageViews;
-        std::array<std::unique_ptr<Image>, maxFramesInFlight> velocityImages;
-        std::array<std::unique_ptr<ImageView>, maxFramesInFlight> velocityImageViews;
+        std::array<std::unique_ptr<Texture>, maxFramesInFlight> outputImageTextures;
+        std::array<std::unique_ptr<Texture>, maxFramesInFlight> copyOutputImageTextures;
+        std::array<std::unique_ptr<Texture>, maxFramesInFlight> historyImageTextures;
+        std::array<std::unique_ptr<Texture>, maxFramesInFlight> velocityImageTextures;
 
         std::array<std::unique_ptr<Framebuffer>, maxFramesInFlight> offscreenFramebuffers;
         std::array<std::unique_ptr<Framebuffer>, maxFramesInFlight> postProcessFramebuffers;
@@ -508,7 +504,6 @@ private:
     void createDepthResources();
     std::unique_ptr<Image> createTextureImage(uint32_t texWidth, uint32_t texHeight, VkImageUsageFlags imageUsageFlags); // Create an empty texture image
     std::unique_ptr<Image> createTextureImage(const std::string &filename); // Reads a texture file and populate the texture image with the contents
-    std::unique_ptr<ImageView> createTextureImageView(const Image &image);
     void createTextureSampler();
     void loadTextureImages(const std::vector<std::string> &textureFiles);
     void copyBufferToBuffer(const Buffer &srcBuffer, const Buffer &dstBuffer, VkDeviceSize size);

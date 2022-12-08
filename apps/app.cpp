@@ -82,14 +82,14 @@ MainApp::~MainApp()
 
     for (uint32_t i = 0; i < maxFramesInFlight; ++i)
     {
-        frameData.outputImages[i].reset();
-        frameData.outputImageViews[i].reset();
-        frameData.copyOutputImages[i].reset();
-        frameData.copyOutputImageViews[i].reset();
-        frameData.historyImages[i].reset();
-        frameData.historyImageViews[i].reset();
-        frameData.velocityImages[i].reset();
-        frameData.velocityImageViews[i].reset();
+        frameData.outputImageTextures[i]->image.reset();
+        frameData.outputImageTextures[i]->imageview.reset();
+        frameData.copyOutputImageTextures[i]->image.reset();
+        frameData.copyOutputImageTextures[i]->imageview.reset();
+        frameData.historyImageTextures[i]->image.reset();
+        frameData.historyImageTextures[i]->imageview.reset();
+        frameData.velocityImageTextures[i]->image.reset();
+        frameData.velocityImageTextures[i]->imageview.reset();
         frameData.commandPools[i].reset();
     }
     imguiPool.reset();
@@ -648,7 +648,7 @@ void MainApp::update()
     transitionHistoryImageLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
     transitionHistoryImageLayoutBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     transitionHistoryImageLayoutBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    transitionHistoryImageLayoutBarrier.image = frameData.historyImages[currentFrame]->getHandle();
+    transitionHistoryImageLayoutBarrier.image = frameData.historyImageTextures[currentFrame]->image->getHandle();
     transitionHistoryImageLayoutBarrier.subresourceRange = subresourceRange;
 
     dependencyInfo.pNext = nullptr;
@@ -670,8 +670,8 @@ void MainApp::update()
     outputImageCopyRegion.dstOffset = { 0, 0, 0 };
     outputImageCopyRegion.extent = { swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, 1u };
     // Copy output image to swapchain image and history image (note that they can execute in any order due to lack of barriers)
-    vkCmdCopyImage(frameData.commandBuffers[currentFrame][2]->getHandle(), frameData.outputImages[currentFrame]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swapchain->getImages()[swapchainImageIndex]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &outputImageCopyRegion);
-    vkCmdCopyImage(frameData.commandBuffers[currentFrame][2]->getHandle(), frameData.outputImages[currentFrame]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, frameData.historyImages[currentFrame]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &outputImageCopyRegion);
+    vkCmdCopyImage(frameData.commandBuffers[currentFrame][2]->getHandle(), frameData.outputImageTextures[currentFrame]->image->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swapchain->getImages()[swapchainImageIndex]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &outputImageCopyRegion);
+    vkCmdCopyImage(frameData.commandBuffers[currentFrame][2]->getHandle(), frameData.outputImageTextures[currentFrame]->image->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, frameData.historyImageTextures[currentFrame]->image->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &outputImageCopyRegion);
 
     VkBufferCopy cameraBufferCopyRegion{};
     cameraBufferCopyRegion.srcOffset = 0ull;
@@ -695,7 +695,7 @@ void MainApp::update()
     transitionHistoryImageLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
     transitionHistoryImageLayoutBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     transitionHistoryImageLayoutBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    transitionHistoryImageLayoutBarrier.image = frameData.historyImages[currentFrame]->getHandle();
+    transitionHistoryImageLayoutBarrier.image = frameData.historyImageTextures[currentFrame]->image->getHandle();
     transitionHistoryImageLayoutBarrier.subresourceRange = subresourceRange;
 
 
@@ -709,7 +709,7 @@ void MainApp::update()
     transitionOutputImageLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
     transitionOutputImageLayoutBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     transitionOutputImageLayoutBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    transitionOutputImageLayoutBarrier.image = frameData.outputImages[currentFrame]->getHandle();
+    transitionOutputImageLayoutBarrier.image = frameData.outputImageTextures[currentFrame]->image->getHandle();
     transitionOutputImageLayoutBarrier.subresourceRange = subresourceRange;
 
     std::array<VkImageMemoryBarrier2, 2> transitionImageBarriers{ transitionHistoryImageLayoutBarrier, transitionOutputImageLayoutBarrier };
@@ -2792,11 +2792,11 @@ void MainApp::createFramebuffers()
 {
     for (uint32_t i = 0; i < maxFramesInFlight; ++i)
     {
-        std::vector<VkImageView> offscreenAttachments{ frameData.outputImageViews[i]->getHandle(), frameData.copyOutputImageViews[i]->getHandle(), frameData.velocityImageViews[i]->getHandle(), depthImageView->getHandle() };
+        std::vector<VkImageView> offscreenAttachments{ frameData.outputImageTextures[i]->imageview->getHandle(), frameData.copyOutputImageTextures[i]->imageview->getHandle(), frameData.velocityImageTextures[i]->imageview->getHandle(), depthImageView->getHandle() };
         frameData.offscreenFramebuffers[i] = std::make_unique<Framebuffer>(*device, *swapchain, *mainRenderPass.renderPass, offscreenAttachments);
         setDebugUtilsObjectName(device->getHandle(), frameData.offscreenFramebuffers[i]->getHandle(), "outputImageFramebuffer for frame #" + std::to_string(i));
 
-        std::vector<VkImageView> postProcessingAttachments{ frameData.outputImageViews[i]->getHandle(), depthImageView->getHandle() };
+        std::vector<VkImageView> postProcessingAttachments{ frameData.outputImageTextures[i]->imageview->getHandle(), depthImageView->getHandle() };
         frameData.postProcessFramebuffers[i] = std::make_unique<Framebuffer>(*device, *swapchain, *postRenderPass.renderPass, postProcessingAttachments);
         setDebugUtilsObjectName(device->getHandle(), frameData.postProcessFramebuffers[i]->getHandle(), "postProcessingFramebuffer for frame #" + std::to_string(i));
     }
@@ -3150,11 +3150,6 @@ std::unique_ptr<Image> MainApp::createTextureImage(const std::string &filename)
     return textureImage;
 }
 
-std::unique_ptr<ImageView> MainApp::createTextureImageView(const Image &textureImage)
-{
-    return std::make_unique<ImageView>(textureImage, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, textureImage.getFormat());
-}
-
 void MainApp::createTextureSampler()
 {
     VkSamplerCreateInfo samplerInfo{ VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
@@ -3472,32 +3467,33 @@ void MainApp::initializeFluidSimulationResources()
 {
     fluidVelocityInputTexture = std::make_unique<Texture>();
     fluidVelocityInputTexture->image = createTextureImage(swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
-    fluidVelocityInputTexture->imageview = createTextureImageView(*(fluidVelocityInputTexture->image));
-    setDebugUtilsObjectName(device->getHandle(), fluidVelocityInputTexture->image->getHandle(), "fluidVelocityInputTexture image");
-    setDebugUtilsObjectName(device->getHandle(), fluidVelocityInputTexture->imageview->getHandle(), "fluidVelocityInputTexture imageView");
+    fluidVelocityInputTexture->imageview = std::make_unique<ImageView>(*fluidVelocityInputTexture->image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, fluidVelocityInputTexture->image->getFormat());
 
     fluidVelocityDivergenceInputTexture = std::make_unique<Texture>();
     fluidVelocityDivergenceInputTexture->image = createTextureImage(swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
-    fluidVelocityDivergenceInputTexture->imageview = createTextureImageView(*(fluidVelocityDivergenceInputTexture->image));
-    setDebugUtilsObjectName(device->getHandle(), fluidVelocityDivergenceInputTexture->image->getHandle(), "fluidVelocityDivergenceInputTexture image");
-    setDebugUtilsObjectName(device->getHandle(), fluidVelocityDivergenceInputTexture->imageview->getHandle(), "fluidVelocityDivergenceInputTexture imageView");
+    fluidVelocityDivergenceInputTexture->imageview = std::make_unique<ImageView>(*fluidVelocityDivergenceInputTexture->image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, fluidVelocityDivergenceInputTexture->image->getFormat());
 
     fluidPressureInputTexture = std::make_unique<Texture>();
     fluidPressureInputTexture->image = createTextureImage(swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
-    fluidPressureInputTexture->imageview = createTextureImageView(*(fluidPressureInputTexture->image));
-    setDebugUtilsObjectName(device->getHandle(), fluidPressureInputTexture->image->getHandle(), "fluidPressureInputTexture image");
-    setDebugUtilsObjectName(device->getHandle(), fluidPressureInputTexture->imageview->getHandle(), "fluidPressureInputTexture imageView");
+    fluidPressureInputTexture->imageview = std::make_unique<ImageView>(*fluidPressureInputTexture->image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, fluidPressureInputTexture->image->getFormat());
 
     fluidDensityInputTexture = std::make_unique<Texture>();
     fluidDensityInputTexture->image = createTextureImage(swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
-    fluidDensityInputTexture->imageview = createTextureImageView(*(fluidDensityInputTexture->image));
-    setDebugUtilsObjectName(device->getHandle(), fluidDensityInputTexture->image->getHandle(), "fluidDensityInputTexture image");
-    setDebugUtilsObjectName(device->getHandle(), fluidDensityInputTexture->imageview->getHandle(), "fluidDensityInputTexture imageView");
+    fluidDensityInputTexture->imageview = std::make_unique<ImageView>(*fluidDensityInputTexture->image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, fluidDensityInputTexture->image->getFormat());
 
     fluidSimulationOutputTexture = std::make_unique<Texture>();
     // TODO: the VK_IMAGE_USAGE_TRANSFER_DST_BIT flag is required since in createTextureImage, there is code to 0 initialize we should do the initialization in a shader and remove this flag eventually
     fluidSimulationOutputTexture->image = createTextureImage(swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
-    fluidSimulationOutputTexture->imageview = createTextureImageView(*(fluidSimulationOutputTexture->image));
+    fluidSimulationOutputTexture->imageview = std::make_unique<ImageView>(*fluidSimulationOutputTexture->image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, fluidSimulationOutputTexture->image->getFormat());
+
+    setDebugUtilsObjectName(device->getHandle(), fluidVelocityInputTexture->image->getHandle(), "fluidVelocityInputTexture image");
+    setDebugUtilsObjectName(device->getHandle(), fluidVelocityInputTexture->imageview->getHandle(), "fluidVelocityInputTexture imageView");
+    setDebugUtilsObjectName(device->getHandle(), fluidVelocityDivergenceInputTexture->image->getHandle(), "fluidVelocityDivergenceInputTexture image");
+    setDebugUtilsObjectName(device->getHandle(), fluidVelocityDivergenceInputTexture->imageview->getHandle(), "fluidVelocityDivergenceInputTexture imageView");
+    setDebugUtilsObjectName(device->getHandle(), fluidPressureInputTexture->image->getHandle(), "fluidPressureInputTexture image");
+    setDebugUtilsObjectName(device->getHandle(), fluidPressureInputTexture->imageview->getHandle(), "fluidPressureInputTexture imageView");
+    setDebugUtilsObjectName(device->getHandle(), fluidDensityInputTexture->image->getHandle(), "fluidDensityInputTexture image");
+    setDebugUtilsObjectName(device->getHandle(), fluidDensityInputTexture->imageview->getHandle(), "fluidDensityInputTexture imageView");
     setDebugUtilsObjectName(device->getHandle(), fluidSimulationOutputTexture->image->getHandle(), "fluidSimulationOutputTexture image");
     setDebugUtilsObjectName(device->getHandle(), fluidSimulationOutputTexture->imageview->getHandle(), "fluidSimulationOutputTexture imageView");
 
@@ -3614,15 +3610,15 @@ void MainApp::createDescriptorSets()
         // Bindings 2, 3 and 4 are the history image, velocity image and copy output image respectively
         VkDescriptorImageInfo historyImageInfo{};
         historyImageInfo.sampler = VK_NULL_HANDLE;
-        historyImageInfo.imageView = frameData.historyImageViews[i]->getHandle();
+        historyImageInfo.imageView = frameData.historyImageTextures[i]->imageview->getHandle();
         historyImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
         VkDescriptorImageInfo velocityImageInfo{};
         velocityImageInfo.sampler = VK_NULL_HANDLE;
-        velocityImageInfo.imageView = frameData.velocityImageViews[i]->getHandle();
+        velocityImageInfo.imageView = frameData.velocityImageTextures[i]->imageview->getHandle();
         velocityImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
         VkDescriptorImageInfo copyOutputImageInfo{};
         copyOutputImageInfo.sampler = VK_NULL_HANDLE;
-        copyOutputImageInfo.imageView = frameData.copyOutputImageViews[i]->getHandle();
+        copyOutputImageInfo.imageView = frameData.copyOutputImageTextures[i]->imageview->getHandle();
         copyOutputImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
         std::array<VkDescriptorImageInfo, 3> postProcessingStorageImageInfos{ historyImageInfo, velocityImageInfo, copyOutputImageInfo };
         
@@ -3840,7 +3836,7 @@ void MainApp::loadTextureImages(const std::vector<std::string> &textureFiles)
         LOGI(std::to_string(x++) + ": processing " + textureFile);
         Texture texture;
         texture.image = createTextureImage(std::string("../../assets/textures/" + textureFile).c_str());
-        texture.imageview = createTextureImageView(*(texture.image));
+        texture.imageview = std::make_unique<ImageView>(*texture.image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, texture.image->getFormat());
         textures.emplace_back(std::move(texture));
     }
 }
@@ -4138,23 +4134,30 @@ void MainApp::createImageResourcesForFrames()
 
     for (uint32_t i = 0u; i < maxFramesInFlight; ++i)
     {
-        frameData.outputImages[i] = std::make_unique<Image>(*device, swapchain->getProperties().surfaceFormat.format, extent, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
-        frameData.outputImageViews[i] = std::make_unique<ImageView>(*(frameData.outputImages[i]), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, frameData.outputImages[i]->getFormat());
-        frameData.copyOutputImages[i] = std::make_unique<Image>(*device, swapchain->getProperties().surfaceFormat.format, extent, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
-        frameData.copyOutputImageViews[i] = std::make_unique<ImageView>(*(frameData.copyOutputImages[i]), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, frameData.copyOutputImages[i]->getFormat());
-        frameData.historyImages[i] = std::make_unique<Image>(*device, swapchain->getProperties().surfaceFormat.format, extent, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
-        frameData.historyImageViews[i] = std::make_unique<ImageView>(*(frameData.historyImages[i]), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, frameData.historyImages[i]->getFormat());
-        frameData.velocityImages[i] = std::make_unique<Image>(*device, swapchain->getProperties().surfaceFormat.format, extent, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
-        frameData.velocityImageViews[i] = std::make_unique<ImageView>(*(frameData.velocityImages[i]), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, frameData.velocityImages[i]->getFormat());
+        frameData.outputImageTextures[i] = std::make_unique<Texture>();
+        frameData.outputImageTextures[i]->image = std::make_unique<Image>(*device, swapchain->getProperties().surfaceFormat.format, extent, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+        frameData.outputImageTextures[i]->imageview = std::make_unique<ImageView>(*(frameData.outputImageTextures[i]->image), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, frameData.outputImageTextures[i]->image->getFormat());
 
-        setDebugUtilsObjectName(device->getHandle(), frameData.outputImages[i]->getHandle(), "outputImage for frame #" + std::to_string(i));
-        setDebugUtilsObjectName(device->getHandle(), frameData.outputImageViews[i]->getHandle(), "outputImageView for frame #" + std::to_string(i));
-        setDebugUtilsObjectName(device->getHandle(), frameData.copyOutputImages[i]->getHandle(), "copyOutputImage for frame #" + std::to_string(i));
-        setDebugUtilsObjectName(device->getHandle(), frameData.copyOutputImageViews[i]->getHandle(), "copyOutputImageView for frame #" + std::to_string(i));
-        setDebugUtilsObjectName(device->getHandle(), frameData.historyImages[i]->getHandle(), "historyImage for frame #" + std::to_string(i));
-        setDebugUtilsObjectName(device->getHandle(), frameData.historyImageViews[i]->getHandle(), "historyImageView for frame #" + std::to_string(i));
-        setDebugUtilsObjectName(device->getHandle(), frameData.velocityImages[i]->getHandle(), "velocityImage for frame #" + std::to_string(i));
-        setDebugUtilsObjectName(device->getHandle(), frameData.velocityImageViews[i]->getHandle(), "velocityImageView for frame #" + std::to_string(i));
+        frameData.copyOutputImageTextures[i] = std::make_unique<Texture>();
+        frameData.copyOutputImageTextures[i]->image = std::make_unique<Image>(*device, swapchain->getProperties().surfaceFormat.format, extent, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+        frameData.copyOutputImageTextures[i]->imageview = std::make_unique<ImageView>(*(frameData.copyOutputImageTextures[i]->image), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, frameData.copyOutputImageTextures[i]->image->getFormat());
+
+        frameData.historyImageTextures[i] = std::make_unique<Texture>();
+        frameData.historyImageTextures[i]->image = std::make_unique<Image>(*device, swapchain->getProperties().surfaceFormat.format, extent, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+        frameData.historyImageTextures[i]->imageview = std::make_unique<ImageView>(*(frameData.historyImageTextures[i]->image), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, frameData.historyImageTextures[i]->image->getFormat());
+
+        frameData.velocityImageTextures[i] = std::make_unique<Texture>();
+        frameData.velocityImageTextures[i]->image = std::make_unique<Image>(*device, swapchain->getProperties().surfaceFormat.format, extent, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+        frameData.velocityImageTextures[i]->imageview = std::make_unique<ImageView>(*(frameData.velocityImageTextures[i]->image), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, frameData.velocityImageTextures[i]->image->getFormat());
+
+        setDebugUtilsObjectName(device->getHandle(), frameData.outputImageTextures[i]->image->getHandle(), "outputImage for frame #" + std::to_string(i));
+        setDebugUtilsObjectName(device->getHandle(), frameData.outputImageTextures[i]->imageview->getHandle(), "outputImageView for frame #" + std::to_string(i));
+        setDebugUtilsObjectName(device->getHandle(), frameData.copyOutputImageTextures[i]->image->getHandle(), "copyOutputImage for frame #" + std::to_string(i));
+        setDebugUtilsObjectName(device->getHandle(), frameData.copyOutputImageTextures[i]->imageview->getHandle(), "copyOutputImageView for frame #" + std::to_string(i));
+        setDebugUtilsObjectName(device->getHandle(), frameData.historyImageTextures[i]->image->getHandle(), "historyImage for frame #" + std::to_string(i));
+        setDebugUtilsObjectName(device->getHandle(), frameData.historyImageTextures[i]->imageview->getHandle(), "historyImageView for frame #" + std::to_string(i));
+        setDebugUtilsObjectName(device->getHandle(), frameData.velocityImageTextures[i]->image->getHandle(), "velocityImage for frame #" + std::to_string(i));
+        setDebugUtilsObjectName(device->getHandle(), frameData.velocityImageTextures[i]->imageview->getHandle(), "velocityImageView for frame #" + std::to_string(i));
 
         VkImageMemoryBarrier2 transitionOutputImageLayoutBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
         transitionOutputImageLayoutBarrier.pNext = nullptr;
@@ -4166,7 +4169,7 @@ void MainApp::createImageResourcesForFrames()
         transitionOutputImageLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
         transitionOutputImageLayoutBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         transitionOutputImageLayoutBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        transitionOutputImageLayoutBarrier.image = frameData.outputImages[i]->getHandle();
+        transitionOutputImageLayoutBarrier.image = frameData.outputImageTextures[i]->image->getHandle();
         transitionOutputImageLayoutBarrier.subresourceRange = subresourceRange;
 
         VkImageMemoryBarrier2 transitionCopyOutputImageLayoutBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
@@ -4179,7 +4182,7 @@ void MainApp::createImageResourcesForFrames()
         transitionCopyOutputImageLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
         transitionCopyOutputImageLayoutBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         transitionCopyOutputImageLayoutBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        transitionCopyOutputImageLayoutBarrier.image = frameData.copyOutputImages[i]->getHandle();
+        transitionCopyOutputImageLayoutBarrier.image = frameData.copyOutputImageTextures[i]->image->getHandle();
         transitionCopyOutputImageLayoutBarrier.subresourceRange = subresourceRange;
 
         VkImageMemoryBarrier2 transitionHistoryImageLayoutBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
@@ -4192,7 +4195,7 @@ void MainApp::createImageResourcesForFrames()
         transitionHistoryImageLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
         transitionHistoryImageLayoutBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         transitionHistoryImageLayoutBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        transitionHistoryImageLayoutBarrier.image = frameData.historyImages[i]->getHandle();
+        transitionHistoryImageLayoutBarrier.image = frameData.historyImageTextures[i]->image->getHandle();
         transitionHistoryImageLayoutBarrier.subresourceRange = subresourceRange;
 
         VkImageMemoryBarrier2 transitionVelocityImageLayoutBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
@@ -4205,7 +4208,7 @@ void MainApp::createImageResourcesForFrames()
         transitionVelocityImageLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
         transitionVelocityImageLayoutBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         transitionVelocityImageLayoutBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        transitionVelocityImageLayoutBarrier.image = frameData.velocityImages[i]->getHandle();
+        transitionVelocityImageLayoutBarrier.image = frameData.velocityImageTextures[i]->image->getHandle();
         transitionVelocityImageLayoutBarrier.subresourceRange = subresourceRange;
 
         imageTransitionMemoryBarriers.push_back(transitionOutputImageLayoutBarrier);
@@ -4817,7 +4820,7 @@ void MainApp::createRtDescriptorSets()
 
         VkDescriptorImageInfo outputImageInfo{};
         outputImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-        outputImageInfo.imageView = frameData.outputImageViews[i]->getHandle();
+        outputImageInfo.imageView = frameData.outputImageTextures[i]->imageview->getHandle();
         outputImageInfo.sampler = {};
 
         VkWriteDescriptorSet writeOutputImage{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
@@ -4840,7 +4843,7 @@ void MainApp::updateRtDescriptorSet()
     {
         VkDescriptorImageInfo outputImageInfo{};
         outputImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-        outputImageInfo.imageView = frameData.outputImageViews[i]->getHandle();
+        outputImageInfo.imageView = frameData.outputImageTextures[i]->imageview->getHandle();
         outputImageInfo.sampler = {};
         VkWriteDescriptorSet writeOutputImage{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
         writeOutputImage.dstSet = frameData.rtDescriptorSets[i]->getHandle();
