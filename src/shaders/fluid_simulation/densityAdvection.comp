@@ -77,7 +77,8 @@ void main()
 	vec2 pos = screenSpaceCoords - pushConstant.timestep * scale * texture(fluidVelocityInputTextureImage, uv).xy;
 
 	// Advect the fluid density
-	imageStore(fluidSimulationOutputTextureImage, imageIndex, vec4(bilerp(fluidDensityInputTextureImage, pos), 0.0f, 1.0f));
+	vec4 advectedDensity = vec4(bilerp(fluidDensityInputTextureImage, pos), 0.0f, 1.0f);
+	imageStore(fluidSimulationOutputTextureImage, imageIndex, advectedDensity);
 
 	//imageStore(fluidSimulationOutputTextureImage, imageIndex, vec4((sin(pushConstant.timestep* 10) + 1.0f) / 2.0f, 0.0f, 0.0f, 1.0f));
 }

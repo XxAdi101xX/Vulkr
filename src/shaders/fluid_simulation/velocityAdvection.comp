@@ -76,7 +76,8 @@ void main()
 	vec2 pos = screenSpaceCoords - pushConstant.timestep * scale * texture(fluidVelocityInputTextureImage, uv).xy;
 
 	// Advect the fluid velocity
-	imageStore(fluidSimulationOutputTextureImage, imageIndex, vec4(pushConstant.dissipation * bilerp(fluidVelocityInputTextureImage, pos), 0.0f, 1.0f));
+	vec4 advectedVelocity = vec4(pushConstant.dissipation * bilerp(fluidVelocityInputTextureImage, pos), 0.0f, 1.0f);
+	imageStore(fluidSimulationOutputTextureImage, imageIndex, advectedVelocity);
 
 	//debugPrintfEXT("splatradius is %f", pushConstant.dissipation);
 }

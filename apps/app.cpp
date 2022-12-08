@@ -187,19 +187,19 @@ void MainApp::cleanupSwapchain()
         frameData.objectBuffers[i].reset();
         frameData.previousFrameObjectBuffers[i].reset();
         frameData.particleBuffers[i].reset();
-
-        // Images
-        frameData.fluidVelocityInputTextures[i]->image.reset();
-        frameData.fluidVelocityInputTextures[i]->imageview.reset();
-        frameData.fluidVelocityDivergenceInputTextures[i]->image.reset();
-        frameData.fluidVelocityDivergenceInputTextures[i]->imageview.reset();
-        frameData.fluidPressureInputTextures[i]->image.reset();
-        frameData.fluidPressureInputTextures[i]->imageview.reset();
-        frameData.fluidDensityInputTextures[i]->image.reset();
-        frameData.fluidDensityInputTextures[i]->imageview.reset();
-        frameData.fluidSimulationOutputTextures[i]->image.reset();
-        frameData.fluidSimulationOutputTextures[i]->imageview.reset();
     }
+
+    // Images
+    fluidVelocityInputTexture->image.reset();
+    fluidVelocityInputTexture->imageview.reset();
+    fluidVelocityDivergenceInputTexture->image.reset();
+    fluidVelocityDivergenceInputTexture->imageview.reset();
+    fluidPressureInputTexture->image.reset();
+    fluidPressureInputTexture->imageview.reset();
+    fluidDensityInputTexture->image.reset();
+    fluidDensityInputTexture->imageview.reset();
+    fluidSimulationOutputTexture->image.reset();
+    fluidSimulationOutputTexture->imageview.reset();
 
     for (uint8_t i = 0; i < std::thread::hardware_concurrency(); ++i)
     {
@@ -577,7 +577,7 @@ void MainApp::update()
     transitionDensityTextureBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
     transitionDensityTextureBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     transitionDensityTextureBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    transitionDensityTextureBarrier.image = frameData.fluidDensityInputTextures[currentFrame]->image->getHandle();
+    transitionDensityTextureBarrier.image = fluidDensityInputTexture->image->getHandle();
     transitionDensityTextureBarrier.subresourceRange = subresourceRange;
 
     dependencyInfo.pNext = nullptr;
@@ -602,7 +602,7 @@ void MainApp::update()
 
     VkBlitImageInfo2 blitImageInfo{ VK_STRUCTURE_TYPE_BLIT_IMAGE_INFO_2 };
     blitImageInfo.pNext = nullptr;
-    blitImageInfo.srcImage = frameData.fluidDensityInputTextures[currentFrame]->image->getHandle();
+    blitImageInfo.srcImage = fluidDensityInputTexture->image->getHandle();
     blitImageInfo.srcImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
     blitImageInfo.dstImage = swapchain->getImages()[swapchainImageIndex]->getHandle();
     blitImageInfo.dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
@@ -623,7 +623,7 @@ void MainApp::update()
     transitionDensityTextureBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
     transitionDensityTextureBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     transitionDensityTextureBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    transitionDensityTextureBarrier.image = frameData.fluidDensityInputTextures[currentFrame]->image->getHandle();
+    transitionDensityTextureBarrier.image = fluidDensityInputTexture->image->getHandle();
     transitionDensityTextureBarrier.subresourceRange = subresourceRange;
 
     dependencyInfo.pNext = nullptr;
@@ -1127,7 +1127,7 @@ void MainApp::computeParticles()
 
 void MainApp::copyFluidOutputTextureToInputTexture(Image *imageToCopyTo)
 {
-    // Layout transitions for the fluidSimulationOutputTextures as a transfer src and the imageToCopyTo as the transfer dst
+    // Layout transitions for the fluidSimulationOutputTexture as a transfer src and the imageToCopyTo as the transfer dst
     VkImageSubresourceRange subresourceRange = {};
     subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     subresourceRange.baseMipLevel = 0u;
@@ -1158,7 +1158,7 @@ void MainApp::copyFluidOutputTextureToInputTexture(Image *imageToCopyTo)
     transitionFluidSimulationOutputLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
     transitionFluidSimulationOutputLayoutBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     transitionFluidSimulationOutputLayoutBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    transitionFluidSimulationOutputLayoutBarrier.image = frameData.fluidSimulationOutputTextures[currentFrame]->image->getHandle();
+    transitionFluidSimulationOutputLayoutBarrier.image = fluidSimulationOutputTexture->image->getHandle();
     transitionFluidSimulationOutputLayoutBarrier.subresourceRange = subresourceRange;
     
     std::array<VkImageMemoryBarrier2, 2> imageTransitionForTransferMemoryBarriers{ transitionImageToCopyLayoutBarrier, transitionFluidSimulationOutputLayoutBarrier };
@@ -1182,7 +1182,7 @@ void MainApp::copyFluidOutputTextureToInputTexture(Image *imageToCopyTo)
     fluidVelocityTextureCopyRegion.dstOffset = { 0, 0, 0 };
     fluidVelocityTextureCopyRegion.extent = { swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, 1u };
 
-    vkCmdCopyImage(frameData.commandBuffers[currentFrame][0]->getHandle(), frameData.fluidSimulationOutputTextures[currentFrame]->image->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, imageToCopyTo->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &fluidVelocityTextureCopyRegion);
+    vkCmdCopyImage(frameData.commandBuffers[currentFrame][0]->getHandle(), fluidSimulationOutputTexture->image->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, imageToCopyTo->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &fluidVelocityTextureCopyRegion);
 
     // Layout transitions for the fluidVelocityOutputTextures and the imageToCopyTo as general
     transitionImageToCopyLayoutBarrier.pNext = nullptr;
@@ -1206,7 +1206,7 @@ void MainApp::copyFluidOutputTextureToInputTexture(Image *imageToCopyTo)
     transitionFluidSimulationOutputLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
     transitionFluidSimulationOutputLayoutBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     transitionFluidSimulationOutputLayoutBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    transitionFluidSimulationOutputLayoutBarrier.image = frameData.fluidSimulationOutputTextures[currentFrame]->image->getHandle();
+    transitionFluidSimulationOutputLayoutBarrier.image = fluidSimulationOutputTexture->image->getHandle();
     transitionFluidSimulationOutputLayoutBarrier.subresourceRange = subresourceRange;
 
     std::array<VkImageMemoryBarrier2, 2> imageTransitionForComputeUsageMemoryBarriers{ transitionImageToCopyLayoutBarrier, transitionFluidSimulationOutputLayoutBarrier };
@@ -1245,7 +1245,7 @@ void MainApp::computeFluidSimulation()
         fluidVelocityInputTextureImageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
         fluidVelocityInputTextureImageMemoryBarrier.srcQueueFamilyIndex = m_graphicsQueue->getFamilyIndex();
         fluidVelocityInputTextureImageMemoryBarrier.dstQueueFamilyIndex = m_computeQueue->getFamilyIndex();
-        fluidVelocityInputTextureImageMemoryBarrier.image = frameData.fluidVelocityInputTextures[currentFrame]->image->getHandle();
+        fluidVelocityInputTextureImageMemoryBarrier.image = fluidVelocityInputTexture->image->getHandle();
         fluidVelocityInputTextureImageMemoryBarrier.subresourceRange = subresourceRange;
 
         VkImageMemoryBarrier2 fluidVelocityDivergenceInputTextureImageMemoryBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
@@ -1257,7 +1257,7 @@ void MainApp::computeFluidSimulation()
         fluidVelocityDivergenceInputTextureImageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
         fluidVelocityDivergenceInputTextureImageMemoryBarrier.srcQueueFamilyIndex = m_graphicsQueue->getFamilyIndex();
         fluidVelocityDivergenceInputTextureImageMemoryBarrier.dstQueueFamilyIndex = m_computeQueue->getFamilyIndex();
-        fluidVelocityDivergenceInputTextureImageMemoryBarrier.image = frameData.fluidVelocityDivergenceInputTextures[currentFrame]->image->getHandle();
+        fluidVelocityDivergenceInputTextureImageMemoryBarrier.image = fluidVelocityDivergenceInputTexture->image->getHandle();
         fluidVelocityDivergenceInputTextureImageMemoryBarrier.subresourceRange = subresourceRange;
 
         VkImageMemoryBarrier2 fluidPressureInputTextureImageMemoryBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
@@ -1269,7 +1269,7 @@ void MainApp::computeFluidSimulation()
         fluidPressureInputTextureImageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
         fluidPressureInputTextureImageMemoryBarrier.srcQueueFamilyIndex = m_graphicsQueue->getFamilyIndex();
         fluidPressureInputTextureImageMemoryBarrier.dstQueueFamilyIndex = m_computeQueue->getFamilyIndex();
-        fluidPressureInputTextureImageMemoryBarrier.image = frameData.fluidPressureInputTextures[currentFrame]->image->getHandle();
+        fluidPressureInputTextureImageMemoryBarrier.image = fluidPressureInputTexture->image->getHandle();
         fluidPressureInputTextureImageMemoryBarrier.subresourceRange = subresourceRange;
 
         VkImageMemoryBarrier2 fluidDensityInputTextureImageMemoryBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
@@ -1281,7 +1281,7 @@ void MainApp::computeFluidSimulation()
         fluidDensityInputTextureImageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
         fluidDensityInputTextureImageMemoryBarrier.srcQueueFamilyIndex = m_graphicsQueue->getFamilyIndex();
         fluidDensityInputTextureImageMemoryBarrier.dstQueueFamilyIndex = m_computeQueue->getFamilyIndex();
-        fluidDensityInputTextureImageMemoryBarrier.image = frameData.fluidDensityInputTextures[currentFrame]->image->getHandle();
+        fluidDensityInputTextureImageMemoryBarrier.image = fluidDensityInputTexture->image->getHandle();
         fluidDensityInputTextureImageMemoryBarrier.subresourceRange = subresourceRange;
 
         VkImageMemoryBarrier2 fluidSimulationOutputTextureImageMemoryBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
@@ -1293,7 +1293,7 @@ void MainApp::computeFluidSimulation()
         fluidSimulationOutputTextureImageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
         fluidSimulationOutputTextureImageMemoryBarrier.srcQueueFamilyIndex = m_graphicsQueue->getFamilyIndex();
         fluidSimulationOutputTextureImageMemoryBarrier.dstQueueFamilyIndex = m_computeQueue->getFamilyIndex();
-        fluidSimulationOutputTextureImageMemoryBarrier.image = frameData.fluidSimulationOutputTextures[currentFrame]->image->getHandle();
+        fluidSimulationOutputTextureImageMemoryBarrier.image = fluidSimulationOutputTexture->image->getHandle();
         fluidSimulationOutputTextureImageMemoryBarrier.subresourceRange = subresourceRange;
 
         std::array<VkImageMemoryBarrier2, 5> imageMemoryBarriers
@@ -1325,41 +1325,41 @@ void MainApp::computeFluidSimulation()
     // TODO: for both the advection and gaussian splat shaders, we can refactor to just have one of each shader with differetn descriptor sets instead
     // First pass: Compute velocity advection
     vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeVelocityAdvection.pipeline->getBindPoint(), pipelines.computeVelocityAdvection.pipeline->getHandle());
-    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeVelocityAdvection.pipeline->getBindPoint(), pipelines.computeVelocityAdvection.pipelineState->getPipelineLayout().getHandle(), 0u, 1u, &frameData.fluidSimulationInputDescriptorSets[currentFrame]->getHandle(), 0u, nullptr);
-    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeVelocityAdvection.pipeline->getBindPoint(), pipelines.computeVelocityAdvection.pipelineState->getPipelineLayout().getHandle(), 1u, 1u, &frameData.fluidSimulationOutputDescriptorSets[currentFrame]->getHandle(), 0u, nullptr);
+    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeVelocityAdvection.pipeline->getBindPoint(), pipelines.computeVelocityAdvection.pipelineState->getPipelineLayout().getHandle(), 0u, 1u, &fluidSimulationInputDescriptorSet->getHandle(), 0u, nullptr);
+    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeVelocityAdvection.pipeline->getBindPoint(), pipelines.computeVelocityAdvection.pipelineState->getPipelineLayout().getHandle(), 1u, 1u, &fluidSimulationOutputDescriptorSet->getHandle(), 0u, nullptr);
     vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeVelocityAdvection.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(FluidSimulationPushConstant), &fluidSimulationPushConstant);
     vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), to_u32(fluidSimulationGridSize / m_workGroupSize) + 1u, 1u, 1u);
 
     // Ensures that compute shader has finished its writing before the transfer operation is done and ensures that it completes before any future compute operations
-    copyFluidOutputTextureToInputTexture(frameData.fluidVelocityInputTextures[currentFrame]->image.get());
+    copyFluidOutputTextureToInputTexture(fluidVelocityInputTexture->image.get());
 
     // Second pass: Compute density advection
     vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeDensityAdvection.pipeline->getBindPoint(), pipelines.computeDensityAdvection.pipeline->getHandle());
-    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeDensityAdvection.pipeline->getBindPoint(), pipelines.computeDensityAdvection.pipelineState->getPipelineLayout().getHandle(), 0u, 1u, &frameData.fluidSimulationInputDescriptorSets[currentFrame]->getHandle(), 0u, nullptr);
-    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeDensityAdvection.pipeline->getBindPoint(), pipelines.computeDensityAdvection.pipelineState->getPipelineLayout().getHandle(), 1u, 1u, &frameData.fluidSimulationOutputDescriptorSets[currentFrame]->getHandle(), 0u, nullptr);
+    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeDensityAdvection.pipeline->getBindPoint(), pipelines.computeDensityAdvection.pipelineState->getPipelineLayout().getHandle(), 0u, 1u, &fluidSimulationInputDescriptorSet->getHandle(), 0u, nullptr);
+    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeDensityAdvection.pipeline->getBindPoint(), pipelines.computeDensityAdvection.pipelineState->getPipelineLayout().getHandle(), 1u, 1u, &fluidSimulationOutputDescriptorSet->getHandle(), 0u, nullptr);
     vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeDensityAdvection.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(FluidSimulationPushConstant), &fluidSimulationPushConstant);
     vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), to_u32(fluidSimulationGridSize / m_workGroupSize) + 1u, 1u, 1u);
 
-    copyFluidOutputTextureToInputTexture(frameData.fluidDensityInputTextures[currentFrame]->image.get());
+    copyFluidOutputTextureToInputTexture(fluidDensityInputTexture->image.get());
 
     // Third pass: Compute velocity and density gaussian splat from key input; if splatForce is 0, we don't have to run this pass
     if (fluidSimulationPushConstant.splatForce != glm::vec3(0.0f))
     {
         vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeVelocityGaussianSplat.pipeline->getBindPoint(), pipelines.computeVelocityGaussianSplat.pipeline->getHandle());
-        vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeVelocityGaussianSplat.pipeline->getBindPoint(), pipelines.computeVelocityGaussianSplat.pipelineState->getPipelineLayout().getHandle(), 0u, 1u, &frameData.fluidSimulationInputDescriptorSets[currentFrame]->getHandle(), 0u, nullptr);
-        vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeVelocityGaussianSplat.pipeline->getBindPoint(), pipelines.computeVelocityGaussianSplat.pipelineState->getPipelineLayout().getHandle(), 1u, 1u, &frameData.fluidSimulationOutputDescriptorSets[currentFrame]->getHandle(), 0u, nullptr);
+        vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeVelocityGaussianSplat.pipeline->getBindPoint(), pipelines.computeVelocityGaussianSplat.pipelineState->getPipelineLayout().getHandle(), 0u, 1u, &fluidSimulationInputDescriptorSet->getHandle(), 0u, nullptr);
+        vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeVelocityGaussianSplat.pipeline->getBindPoint(), pipelines.computeVelocityGaussianSplat.pipelineState->getPipelineLayout().getHandle(), 1u, 1u, &fluidSimulationOutputDescriptorSet->getHandle(), 0u, nullptr);
         vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeVelocityGaussianSplat.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(FluidSimulationPushConstant), &fluidSimulationPushConstant);
         vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), to_u32(fluidSimulationGridSize / m_workGroupSize) + 1u, 1u, 1u);
 
-        copyFluidOutputTextureToInputTexture(frameData.fluidVelocityInputTextures[currentFrame]->image.get());
+        copyFluidOutputTextureToInputTexture(fluidVelocityInputTexture->image.get());
 
         vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeDensityGaussianSplat.pipeline->getBindPoint(), pipelines.computeDensityGaussianSplat.pipeline->getHandle());
-        vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeDensityGaussianSplat.pipeline->getBindPoint(), pipelines.computeDensityGaussianSplat.pipelineState->getPipelineLayout().getHandle(), 0u, 1u, &frameData.fluidSimulationInputDescriptorSets[currentFrame]->getHandle(), 0u, nullptr);
-        vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeDensityGaussianSplat.pipeline->getBindPoint(), pipelines.computeDensityGaussianSplat.pipelineState->getPipelineLayout().getHandle(), 1u, 1u, &frameData.fluidSimulationOutputDescriptorSets[currentFrame]->getHandle(), 0u, nullptr);
+        vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeDensityGaussianSplat.pipeline->getBindPoint(), pipelines.computeDensityGaussianSplat.pipelineState->getPipelineLayout().getHandle(), 0u, 1u, &fluidSimulationInputDescriptorSet->getHandle(), 0u, nullptr);
+        vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeDensityGaussianSplat.pipeline->getBindPoint(), pipelines.computeDensityGaussianSplat.pipelineState->getPipelineLayout().getHandle(), 1u, 1u, &fluidSimulationOutputDescriptorSet->getHandle(), 0u, nullptr);
         vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeDensityGaussianSplat.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(FluidSimulationPushConstant), &fluidSimulationPushConstant);
         vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), to_u32(fluidSimulationGridSize / m_workGroupSize) + 1u, 1u, 1u);
 
-        copyFluidOutputTextureToInputTexture(frameData.fluidDensityInputTextures[currentFrame]->image.get());
+        copyFluidOutputTextureToInputTexture(fluidDensityInputTexture->image.get());
 
 
         fluidSimulationPushConstant.splatForce = glm::vec3(0.0f); // Reset to zero; will be overriden by the inputController if it detects any mouse drags
@@ -1368,34 +1368,34 @@ void MainApp::computeFluidSimulation()
     // Projection steps: find divergence of velocity, solve the poisson pressure equation and then subtract the gradient of p from the intermediate velocity field
     // Fourth pass: Compute divergence of velocity
     vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeFluidVelocityDivergence.pipeline->getBindPoint(), pipelines.computeFluidVelocityDivergence.pipeline->getHandle());
-    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeFluidVelocityDivergence.pipeline->getBindPoint(), pipelines.computeFluidVelocityDivergence.pipelineState->getPipelineLayout().getHandle(), 0u, 1u, &frameData.fluidSimulationInputDescriptorSets[currentFrame]->getHandle(), 0u, nullptr);
-    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeFluidVelocityDivergence.pipeline->getBindPoint(), pipelines.computeFluidVelocityDivergence.pipelineState->getPipelineLayout().getHandle(), 1u, 1u, &frameData.fluidSimulationOutputDescriptorSets[currentFrame]->getHandle(), 0u, nullptr);
+    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeFluidVelocityDivergence.pipeline->getBindPoint(), pipelines.computeFluidVelocityDivergence.pipelineState->getPipelineLayout().getHandle(), 0u, 1u, &fluidSimulationInputDescriptorSet->getHandle(), 0u, nullptr);
+    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeFluidVelocityDivergence.pipeline->getBindPoint(), pipelines.computeFluidVelocityDivergence.pipelineState->getPipelineLayout().getHandle(), 1u, 1u, &fluidSimulationOutputDescriptorSet->getHandle(), 0u, nullptr);
     vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeFluidVelocityDivergence.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0u, sizeof(FluidSimulationPushConstant), &fluidSimulationPushConstant);
     vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), to_u32(fluidSimulationGridSize / m_workGroupSize) + 1u, 1u, 1u);
 
-    copyFluidOutputTextureToInputTexture(frameData.fluidVelocityDivergenceInputTextures[currentFrame]->image.get());
+    copyFluidOutputTextureToInputTexture(fluidVelocityDivergenceInputTexture->image.get());
 
     // Fifth pass: Compute Jacobi Iteration
     vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeJacobi.pipeline->getBindPoint(), pipelines.computeJacobi.pipeline->getHandle());
-    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeJacobi.pipeline->getBindPoint(), pipelines.computeJacobi.pipelineState->getPipelineLayout().getHandle(), 0u, 1u, &frameData.fluidSimulationInputDescriptorSets[currentFrame]->getHandle(), 0u, nullptr);
-    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeJacobi.pipeline->getBindPoint(), pipelines.computeJacobi.pipelineState->getPipelineLayout().getHandle(), 1u, 1u, &frameData.fluidSimulationOutputDescriptorSets[currentFrame]->getHandle(), 0u, nullptr);
+    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeJacobi.pipeline->getBindPoint(), pipelines.computeJacobi.pipelineState->getPipelineLayout().getHandle(), 0u, 1u, &fluidSimulationInputDescriptorSet->getHandle(), 0u, nullptr);
+    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeJacobi.pipeline->getBindPoint(), pipelines.computeJacobi.pipelineState->getPipelineLayout().getHandle(), 1u, 1u, &fluidSimulationOutputDescriptorSet->getHandle(), 0u, nullptr);
     vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeJacobi.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0u, sizeof(FluidSimulationPushConstant), &fluidSimulationPushConstant);
 
     const uint32_t jacobiIterationCount = 40u;
     for (uint32_t i = 0u; i < jacobiIterationCount; ++i)
     {
         vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), to_u32(fluidSimulationGridSize / m_workGroupSize) + 1u, 1u, 1u);
-        copyFluidOutputTextureToInputTexture(frameData.fluidPressureInputTextures[currentFrame]->image.get());
+        copyFluidOutputTextureToInputTexture(fluidPressureInputTexture->image.get());
     }
 
     // Sixth pass: Compute gradient and subtract it from velocity
     vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeGradientSubtraction.pipeline->getBindPoint(), pipelines.computeGradientSubtraction.pipeline->getHandle());
-    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeGradientSubtraction.pipeline->getBindPoint(), pipelines.computeGradientSubtraction.pipelineState->getPipelineLayout().getHandle(), 0u, 1u, &frameData.fluidSimulationInputDescriptorSets[currentFrame]->getHandle(), 0u, nullptr);
-    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeGradientSubtraction.pipeline->getBindPoint(), pipelines.computeGradientSubtraction.pipelineState->getPipelineLayout().getHandle(), 1u, 1u, &frameData.fluidSimulationOutputDescriptorSets[currentFrame]->getHandle(), 0u, nullptr);
+    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeGradientSubtraction.pipeline->getBindPoint(), pipelines.computeGradientSubtraction.pipelineState->getPipelineLayout().getHandle(), 0u, 1u, &fluidSimulationInputDescriptorSet->getHandle(), 0u, nullptr);
+    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeGradientSubtraction.pipeline->getBindPoint(), pipelines.computeGradientSubtraction.pipelineState->getPipelineLayout().getHandle(), 1u, 1u, &fluidSimulationOutputDescriptorSet->getHandle(), 0u, nullptr);
     vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeGradientSubtraction.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(FluidSimulationPushConstant), &fluidSimulationPushConstant);
     vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), to_u32(fluidSimulationGridSize / m_workGroupSize) + 1u, 1u, 1u);
 
-    copyFluidOutputTextureToInputTexture(frameData.fluidVelocityInputTextures[currentFrame]->image.get());   
+    copyFluidOutputTextureToInputTexture(fluidVelocityInputTexture->image.get());   
 
     // Release
     if (m_graphicsQueue->getFamilyIndex() != m_computeQueue->getFamilyIndex())
@@ -1419,7 +1419,7 @@ void MainApp::computeFluidSimulation()
         fluidVelocityInputTextureImageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
         fluidVelocityInputTextureImageMemoryBarrier.srcQueueFamilyIndex = m_computeQueue->getFamilyIndex();
         fluidVelocityInputTextureImageMemoryBarrier.dstQueueFamilyIndex = m_graphicsQueue->getFamilyIndex();
-        fluidVelocityInputTextureImageMemoryBarrier.image = frameData.fluidVelocityInputTextures[currentFrame]->image->getHandle();
+        fluidVelocityInputTextureImageMemoryBarrier.image = fluidVelocityInputTexture->image->getHandle();
         fluidVelocityInputTextureImageMemoryBarrier.subresourceRange = subresourceRange;
 
         VkImageMemoryBarrier2 fluidVelocityDivergenceInputTextureImageMemoryBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
@@ -1431,7 +1431,7 @@ void MainApp::computeFluidSimulation()
         fluidVelocityDivergenceInputTextureImageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
         fluidVelocityDivergenceInputTextureImageMemoryBarrier.srcQueueFamilyIndex = m_graphicsQueue->getFamilyIndex();
         fluidVelocityDivergenceInputTextureImageMemoryBarrier.dstQueueFamilyIndex = m_computeQueue->getFamilyIndex();
-        fluidVelocityDivergenceInputTextureImageMemoryBarrier.image = frameData.fluidVelocityDivergenceInputTextures[currentFrame]->image->getHandle();
+        fluidVelocityDivergenceInputTextureImageMemoryBarrier.image = fluidVelocityDivergenceInputTexture->image->getHandle();
         fluidVelocityDivergenceInputTextureImageMemoryBarrier.subresourceRange = subresourceRange;
 
         VkImageMemoryBarrier2 fluidPressureInputTextureImageMemoryBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
@@ -1443,7 +1443,7 @@ void MainApp::computeFluidSimulation()
         fluidPressureInputTextureImageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
         fluidPressureInputTextureImageMemoryBarrier.srcQueueFamilyIndex = m_graphicsQueue->getFamilyIndex();
         fluidPressureInputTextureImageMemoryBarrier.dstQueueFamilyIndex = m_computeQueue->getFamilyIndex();
-        fluidPressureInputTextureImageMemoryBarrier.image = frameData.fluidPressureInputTextures[currentFrame]->image->getHandle();
+        fluidPressureInputTextureImageMemoryBarrier.image = fluidPressureInputTexture->image->getHandle();
         fluidPressureInputTextureImageMemoryBarrier.subresourceRange = subresourceRange;
 
         VkImageMemoryBarrier2 fluidDensityInputTextureImageMemoryBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
@@ -1455,7 +1455,7 @@ void MainApp::computeFluidSimulation()
         fluidDensityInputTextureImageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
         fluidDensityInputTextureImageMemoryBarrier.srcQueueFamilyIndex = m_graphicsQueue->getFamilyIndex();
         fluidDensityInputTextureImageMemoryBarrier.dstQueueFamilyIndex = m_computeQueue->getFamilyIndex();
-        fluidDensityInputTextureImageMemoryBarrier.image = frameData.fluidDensityInputTextures[currentFrame]->image->getHandle();
+        fluidDensityInputTextureImageMemoryBarrier.image = fluidDensityInputTexture->image->getHandle();
         fluidDensityInputTextureImageMemoryBarrier.subresourceRange = subresourceRange;
 
         VkImageMemoryBarrier2 fluidSimulationOutputTextureImageMemoryBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
@@ -1466,7 +1466,7 @@ void MainApp::computeFluidSimulation()
         fluidSimulationOutputTextureImageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
         fluidSimulationOutputTextureImageMemoryBarrier.srcQueueFamilyIndex = m_computeQueue->getFamilyIndex();
         fluidSimulationOutputTextureImageMemoryBarrier.dstQueueFamilyIndex = m_graphicsQueue->getFamilyIndex();
-        fluidSimulationOutputTextureImageMemoryBarrier.image = frameData.fluidSimulationOutputTextures[currentFrame]->image->getHandle();
+        fluidSimulationOutputTextureImageMemoryBarrier.image = fluidSimulationOutputTexture->image->getHandle();
         fluidSimulationOutputTextureImageMemoryBarrier.subresourceRange = subresourceRange;
 
         std::array<VkImageMemoryBarrier2, 5> imageMemoryBarriers
@@ -3470,39 +3470,36 @@ void MainApp::prepareParticleData()
 // Initialize the fluid simulation buffers
 void MainApp::initializeFluidSimulationResources()
 {
-    for (uint32_t i = 0; i < maxFramesInFlight; ++i)
-    {
-        frameData.fluidVelocityInputTextures[i] = std::make_unique<Texture>();
-        frameData.fluidVelocityInputTextures[i]->image = createTextureImage(swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
-        frameData.fluidVelocityInputTextures[i]->imageview = createTextureImageView(*(frameData.fluidVelocityInputTextures[i]->image));
-        setDebugUtilsObjectName(device->getHandle(), frameData.fluidVelocityInputTextures[i]->image->getHandle(), "fluidVelocityInputTexture image for frame #" + std::to_string(i));
-        setDebugUtilsObjectName(device->getHandle(), frameData.fluidVelocityInputTextures[i]->imageview->getHandle(), "fluidVelocityInputTexture imageView for frame #" + std::to_string(i));
+    fluidVelocityInputTexture = std::make_unique<Texture>();
+    fluidVelocityInputTexture->image = createTextureImage(swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+    fluidVelocityInputTexture->imageview = createTextureImageView(*(fluidVelocityInputTexture->image));
+    setDebugUtilsObjectName(device->getHandle(), fluidVelocityInputTexture->image->getHandle(), "fluidVelocityInputTexture image");
+    setDebugUtilsObjectName(device->getHandle(), fluidVelocityInputTexture->imageview->getHandle(), "fluidVelocityInputTexture imageView");
 
-        frameData.fluidVelocityDivergenceInputTextures[i] = std::make_unique<Texture>();
-        frameData.fluidVelocityDivergenceInputTextures[i]->image = createTextureImage(swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
-        frameData.fluidVelocityDivergenceInputTextures[i]->imageview = createTextureImageView(*(frameData.fluidVelocityDivergenceInputTextures[i]->image));
-        setDebugUtilsObjectName(device->getHandle(), frameData.fluidVelocityDivergenceInputTextures[i]->image->getHandle(), "fluidVelocityDivergenceInputTexture image for frame #" + std::to_string(i));
-        setDebugUtilsObjectName(device->getHandle(), frameData.fluidVelocityDivergenceInputTextures[i]->imageview->getHandle(), "fluidVelocityDivergenceInputTexture imageView for frame #" + std::to_string(i));
+    fluidVelocityDivergenceInputTexture = std::make_unique<Texture>();
+    fluidVelocityDivergenceInputTexture->image = createTextureImage(swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+    fluidVelocityDivergenceInputTexture->imageview = createTextureImageView(*(fluidVelocityDivergenceInputTexture->image));
+    setDebugUtilsObjectName(device->getHandle(), fluidVelocityDivergenceInputTexture->image->getHandle(), "fluidVelocityDivergenceInputTexture image");
+    setDebugUtilsObjectName(device->getHandle(), fluidVelocityDivergenceInputTexture->imageview->getHandle(), "fluidVelocityDivergenceInputTexture imageView");
 
-        frameData.fluidPressureInputTextures[i] = std::make_unique<Texture>();
-        frameData.fluidPressureInputTextures[i]->image = createTextureImage(swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
-        frameData.fluidPressureInputTextures[i]->imageview = createTextureImageView(*(frameData.fluidPressureInputTextures[i]->image));
-        setDebugUtilsObjectName(device->getHandle(), frameData.fluidPressureInputTextures[i]->image->getHandle(), "fluidPressureInputTexture image for frame #" + std::to_string(i));
-        setDebugUtilsObjectName(device->getHandle(), frameData.fluidPressureInputTextures[i]->imageview->getHandle(), "fluidPressureInputTexture imageView for frame #" + std::to_string(i));
+    fluidPressureInputTexture = std::make_unique<Texture>();
+    fluidPressureInputTexture->image = createTextureImage(swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+    fluidPressureInputTexture->imageview = createTextureImageView(*(fluidPressureInputTexture->image));
+    setDebugUtilsObjectName(device->getHandle(), fluidPressureInputTexture->image->getHandle(), "fluidPressureInputTexture image");
+    setDebugUtilsObjectName(device->getHandle(), fluidPressureInputTexture->imageview->getHandle(), "fluidPressureInputTexture imageView");
 
-        frameData.fluidDensityInputTextures[i] = std::make_unique<Texture>();
-        frameData.fluidDensityInputTextures[i]->image = createTextureImage(swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
-        frameData.fluidDensityInputTextures[i]->imageview = createTextureImageView(*(frameData.fluidDensityInputTextures[i]->image));
-        setDebugUtilsObjectName(device->getHandle(), frameData.fluidDensityInputTextures[i]->image->getHandle(), "fluidDensityInputTexture image for frame #" + std::to_string(i));
-        setDebugUtilsObjectName(device->getHandle(), frameData.fluidDensityInputTextures[i]->imageview->getHandle(), "fluidDensityInputTexture imageView for frame #" + std::to_string(i));
+    fluidDensityInputTexture = std::make_unique<Texture>();
+    fluidDensityInputTexture->image = createTextureImage(swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+    fluidDensityInputTexture->imageview = createTextureImageView(*(fluidDensityInputTexture->image));
+    setDebugUtilsObjectName(device->getHandle(), fluidDensityInputTexture->image->getHandle(), "fluidDensityInputTexture image");
+    setDebugUtilsObjectName(device->getHandle(), fluidDensityInputTexture->imageview->getHandle(), "fluidDensityInputTexture imageView");
 
-        frameData.fluidSimulationOutputTextures[i] = std::make_unique<Texture>();
-        // TODO: the VK_IMAGE_USAGE_TRANSFER_DST_BIT flag is required since in createTextureImage, there is code to 0 initialize we should do the initialization in a shader and remove this flag eventually
-        frameData.fluidSimulationOutputTextures[i]->image = createTextureImage(swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
-        frameData.fluidSimulationOutputTextures[i]->imageview = createTextureImageView(*(frameData.fluidSimulationOutputTextures[i]->image));
-        setDebugUtilsObjectName(device->getHandle(), frameData.fluidSimulationOutputTextures[i]->image->getHandle(), "fluidSimulationOutputTexture image for frame #" + std::to_string(i));
-        setDebugUtilsObjectName(device->getHandle(), frameData.fluidSimulationOutputTextures[i]->imageview->getHandle(), "fluidSimulationOutputTexture imageView for frame #" + std::to_string(i));
-    }
+    fluidSimulationOutputTexture = std::make_unique<Texture>();
+    // TODO: the VK_IMAGE_USAGE_TRANSFER_DST_BIT flag is required since in createTextureImage, there is code to 0 initialize we should do the initialization in a shader and remove this flag eventually
+    fluidSimulationOutputTexture->image = createTextureImage(swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
+    fluidSimulationOutputTexture->imageview = createTextureImageView(*(fluidSimulationOutputTexture->image));
+    setDebugUtilsObjectName(device->getHandle(), fluidSimulationOutputTexture->image->getHandle(), "fluidSimulationOutputTexture image");
+    setDebugUtilsObjectName(device->getHandle(), fluidSimulationOutputTexture->imageview->getHandle(), "fluidSimulationOutputTexture imageView");
 
     // Initialize fluidSimulationPushConstant data
     fluidSimulationPushConstant.gridSize = glm::vec2(swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height);
@@ -3706,74 +3703,8 @@ void MainApp::createDescriptorSets()
         writeParticleComputeStorageBufferDescriptorSet.pImageInfo = nullptr;
         writeParticleComputeStorageBufferDescriptorSet.pTexelBufferView = nullptr;
 
-        // Fluid Simulation Input Descriptor Set
-        VkDescriptorSetAllocateInfo fluidSimulationInputDescriptorSetAllocateInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
-        fluidSimulationInputDescriptorSetAllocateInfo.descriptorPool = descriptorPool->getHandle();
-        fluidSimulationInputDescriptorSetAllocateInfo.descriptorSetCount = 1;
-        fluidSimulationInputDescriptorSetAllocateInfo.pSetLayouts = &fluidSimulationInputDescriptorSetLayout->getHandle();
-        frameData.fluidSimulationInputDescriptorSets[i] = std::make_unique<DescriptorSet>(*device, fluidSimulationInputDescriptorSetAllocateInfo);
-        setDebugUtilsObjectName(device->getHandle(), frameData.fluidSimulationInputDescriptorSets[i]->getHandle(), "fluidSimulationInputDescriptorSets for frame #" + std::to_string(i));
-
-        // Binding 0 is the fluid velocity input texture
-        VkDescriptorImageInfo fluidVelocityInputTextureInfo{};
-        fluidVelocityInputTextureInfo.sampler = textureSampler->getHandle();
-        fluidVelocityInputTextureInfo.imageView = frameData.fluidVelocityInputTextures[i]->imageview->getHandle();
-        fluidVelocityInputTextureInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-        // Binding 1 is the fluid velocity divergence input texture
-        VkDescriptorImageInfo fluidVelocityDivergenceInputTextureInfo{};
-        fluidVelocityDivergenceInputTextureInfo.sampler = textureSampler->getHandle();
-        fluidVelocityDivergenceInputTextureInfo.imageView = frameData.fluidVelocityDivergenceInputTextures[i]->imageview->getHandle();
-        fluidVelocityDivergenceInputTextureInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-        // Binding 2 is the fluid pressure input texture
-        VkDescriptorImageInfo fluidPressureInputTextureInfo{};
-        fluidPressureInputTextureInfo.sampler = textureSampler->getHandle();
-        fluidPressureInputTextureInfo.imageView = frameData.fluidPressureInputTextures[i]->imageview->getHandle();
-        fluidPressureInputTextureInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-        // Binding 3 is the fluid density input texture
-        VkDescriptorImageInfo fluidDensityInputTextureInfo{};
-        fluidDensityInputTextureInfo.sampler = textureSampler->getHandle();
-        fluidDensityInputTextureInfo.imageView = frameData.fluidDensityInputTextures[i]->imageview->getHandle();
-        fluidDensityInputTextureInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-        std::array<VkDescriptorImageInfo, 4> fluidSimulationInputTextureInfos{ fluidVelocityInputTextureInfo, fluidVelocityDivergenceInputTextureInfo, fluidPressureInputTextureInfo, fluidDensityInputTextureInfo };
-
-        VkWriteDescriptorSet writeFluidSimulationInputDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        writeFluidSimulationInputDescriptorSet.dstSet = frameData.fluidSimulationInputDescriptorSets[i]->getHandle();
-        writeFluidSimulationInputDescriptorSet.dstBinding = 0;
-        writeFluidSimulationInputDescriptorSet.dstArrayElement = 0;
-        writeFluidSimulationInputDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        writeFluidSimulationInputDescriptorSet.descriptorCount = to_u32(fluidSimulationInputTextureInfos.size());
-        writeFluidSimulationInputDescriptorSet.pImageInfo = fluidSimulationInputTextureInfos.data();
-        writeFluidSimulationInputDescriptorSet.pBufferInfo = nullptr;
-        writeFluidSimulationInputDescriptorSet.pTexelBufferView = nullptr;
-
-
-        // Fluid Simulation Output Descriptor Set
-        VkDescriptorSetAllocateInfo fluidSimulationOutputDescriptorSetAllocateInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
-        fluidSimulationOutputDescriptorSetAllocateInfo.descriptorPool = descriptorPool->getHandle();
-        fluidSimulationOutputDescriptorSetAllocateInfo.descriptorSetCount = 1u;
-        fluidSimulationOutputDescriptorSetAllocateInfo.pSetLayouts = &fluidSimulationOutputDescriptorSetLayout->getHandle();
-        frameData.fluidSimulationOutputDescriptorSets[i] = std::make_unique<DescriptorSet>(*device, fluidSimulationOutputDescriptorSetAllocateInfo);
-        setDebugUtilsObjectName(device->getHandle(), frameData.fluidSimulationOutputDescriptorSets[i]->getHandle(), "fluidSimulationOutputDescriptorSets for frame #" + std::to_string(i));
-
-        // Binding 0 is the fluid velocity output texture
-        VkDescriptorImageInfo fluidSimulationOutputTextureInfo{};
-        fluidSimulationOutputTextureInfo.sampler = VK_NULL_HANDLE;
-        fluidSimulationOutputTextureInfo.imageView = frameData.fluidSimulationOutputTextures[i]->imageview->getHandle();
-        fluidSimulationOutputTextureInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-        std::array<VkDescriptorImageInfo, 1> fluidSimulationOutputTextureInfos{ fluidSimulationOutputTextureInfo };
-
-        VkWriteDescriptorSet writeFluidSimulationOutputDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        writeFluidSimulationOutputDescriptorSet.dstSet = frameData.fluidSimulationOutputDescriptorSets[i]->getHandle();
-        writeFluidSimulationOutputDescriptorSet.dstBinding = 0;
-        writeFluidSimulationOutputDescriptorSet.dstArrayElement = 0;
-        writeFluidSimulationOutputDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-        writeFluidSimulationOutputDescriptorSet.descriptorCount = to_u32(fluidSimulationOutputTextureInfos.size());
-        writeFluidSimulationOutputDescriptorSet.pImageInfo = fluidSimulationOutputTextureInfos.data();
-        writeFluidSimulationOutputDescriptorSet.pBufferInfo = nullptr;
-        writeFluidSimulationOutputDescriptorSet.pTexelBufferView = nullptr;
-
         // Write descriptor sets
-        std::array<VkWriteDescriptorSet, 10> writeDescriptorSets {
+        std::array<VkWriteDescriptorSet, 8> writeDescriptorSets {
             writeGlobalDescriptorSet,
             writeObjectDescriptorSet,
 
@@ -3784,10 +3715,7 @@ void MainApp::createDescriptorSets()
             writeTaaUniformBufferDescriptorSet,
             writeTaaStorageBufferDescriptorSet,
 
-            writeParticleComputeStorageBufferDescriptorSet,
-
-            writeFluidSimulationInputDescriptorSet,
-            writeFluidSimulationOutputDescriptorSet
+            writeParticleComputeStorageBufferDescriptorSet
         };
         vkUpdateDescriptorSets(device->getHandle(), to_u32(writeDescriptorSets.size()), writeDescriptorSets.data(), 0, nullptr);
     }
@@ -3821,7 +3749,79 @@ void MainApp::createDescriptorSets()
     writeTextureDescriptorSet.pBufferInfo = nullptr;
     writeTextureDescriptorSet.pTexelBufferView = nullptr;
 
-    std::array<VkWriteDescriptorSet, 1> writeToDescriptorSets{ writeTextureDescriptorSet };
+    // Fluid Simulation Input Descriptor Set
+    VkDescriptorSetAllocateInfo fluidSimulationInputDescriptorSetAllocateInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+    fluidSimulationInputDescriptorSetAllocateInfo.descriptorPool = descriptorPool->getHandle();
+    fluidSimulationInputDescriptorSetAllocateInfo.descriptorSetCount = 1;
+    fluidSimulationInputDescriptorSetAllocateInfo.pSetLayouts = &fluidSimulationInputDescriptorSetLayout->getHandle();
+    fluidSimulationInputDescriptorSet = std::make_unique<DescriptorSet>(*device, fluidSimulationInputDescriptorSetAllocateInfo);
+    setDebugUtilsObjectName(device->getHandle(), fluidSimulationInputDescriptorSet->getHandle(), "fluidSimulationInputDescriptorSet");
+
+    // Binding 0 is the fluid velocity input texture
+    VkDescriptorImageInfo fluidVelocityInputTextureInfo{};
+    fluidVelocityInputTextureInfo.sampler = textureSampler->getHandle();
+    fluidVelocityInputTextureInfo.imageView = fluidVelocityInputTexture->imageview->getHandle();
+    fluidVelocityInputTextureInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+    // Binding 1 is the fluid velocity divergence input texture
+    VkDescriptorImageInfo fluidVelocityDivergenceInputTextureInfo{};
+    fluidVelocityDivergenceInputTextureInfo.sampler = textureSampler->getHandle();
+    fluidVelocityDivergenceInputTextureInfo.imageView = fluidVelocityDivergenceInputTexture->imageview->getHandle();
+    fluidVelocityDivergenceInputTextureInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+    // Binding 2 is the fluid pressure input texture
+    VkDescriptorImageInfo fluidPressureInputTextureInfo{};
+    fluidPressureInputTextureInfo.sampler = textureSampler->getHandle();
+    fluidPressureInputTextureInfo.imageView = fluidPressureInputTexture->imageview->getHandle();
+    fluidPressureInputTextureInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+    // Binding 3 is the fluid density input texture
+    VkDescriptorImageInfo fluidDensityInputTextureInfo{};
+    fluidDensityInputTextureInfo.sampler = textureSampler->getHandle();
+    fluidDensityInputTextureInfo.imageView = fluidDensityInputTexture->imageview->getHandle();
+    fluidDensityInputTextureInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+    std::array<VkDescriptorImageInfo, 4> fluidSimulationInputTextureInfos{ fluidVelocityInputTextureInfo, fluidVelocityDivergenceInputTextureInfo, fluidPressureInputTextureInfo, fluidDensityInputTextureInfo };
+
+    VkWriteDescriptorSet writeFluidSimulationInputDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+    writeFluidSimulationInputDescriptorSet.dstSet = fluidSimulationInputDescriptorSet->getHandle();
+    writeFluidSimulationInputDescriptorSet.dstBinding = 0;
+    writeFluidSimulationInputDescriptorSet.dstArrayElement = 0;
+    writeFluidSimulationInputDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    writeFluidSimulationInputDescriptorSet.descriptorCount = to_u32(fluidSimulationInputTextureInfos.size());
+    writeFluidSimulationInputDescriptorSet.pImageInfo = fluidSimulationInputTextureInfos.data();
+    writeFluidSimulationInputDescriptorSet.pBufferInfo = nullptr;
+    writeFluidSimulationInputDescriptorSet.pTexelBufferView = nullptr;
+
+
+    // Fluid Simulation Output Descriptor Set
+    VkDescriptorSetAllocateInfo fluidSimulationOutputDescriptorSetAllocateInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+    fluidSimulationOutputDescriptorSetAllocateInfo.descriptorPool = descriptorPool->getHandle();
+    fluidSimulationOutputDescriptorSetAllocateInfo.descriptorSetCount = 1u;
+    fluidSimulationOutputDescriptorSetAllocateInfo.pSetLayouts = &fluidSimulationOutputDescriptorSetLayout->getHandle();
+    fluidSimulationOutputDescriptorSet = std::make_unique<DescriptorSet>(*device, fluidSimulationOutputDescriptorSetAllocateInfo);
+    setDebugUtilsObjectName(device->getHandle(), fluidSimulationOutputDescriptorSet->getHandle(), "fluidSimulationOutputDescriptorSet");
+
+    // Binding 0 is the fluid velocity output texture
+    VkDescriptorImageInfo fluidSimulationOutputTextureInfo{};
+    fluidSimulationOutputTextureInfo.sampler = VK_NULL_HANDLE;
+    fluidSimulationOutputTextureInfo.imageView = fluidSimulationOutputTexture->imageview->getHandle();
+    fluidSimulationOutputTextureInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+    std::array<VkDescriptorImageInfo, 1> fluidSimulationOutputTextureInfos{ fluidSimulationOutputTextureInfo };
+
+    VkWriteDescriptorSet writeFluidSimulationOutputDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+    writeFluidSimulationOutputDescriptorSet.dstSet = fluidSimulationOutputDescriptorSet->getHandle();
+    writeFluidSimulationOutputDescriptorSet.dstBinding = 0;
+    writeFluidSimulationOutputDescriptorSet.dstArrayElement = 0;
+    writeFluidSimulationOutputDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    writeFluidSimulationOutputDescriptorSet.descriptorCount = to_u32(fluidSimulationOutputTextureInfos.size());
+    writeFluidSimulationOutputDescriptorSet.pImageInfo = fluidSimulationOutputTextureInfos.data();
+    writeFluidSimulationOutputDescriptorSet.pBufferInfo = nullptr;
+    writeFluidSimulationOutputDescriptorSet.pTexelBufferView = nullptr;
+
+
+    std::array<VkWriteDescriptorSet, 3> writeToDescriptorSets
+    {
+        writeTextureDescriptorSet,
+        writeFluidSimulationInputDescriptorSet,
+        writeFluidSimulationOutputDescriptorSet
+    };
     vkUpdateDescriptorSets(device->getHandle(), to_u32(writeToDescriptorSets.size()), writeToDescriptorSets.data(), 0, nullptr);
 }
 

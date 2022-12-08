@@ -377,6 +377,8 @@ private:
 
     std::array<glm::vec2, taaDepth> haltonSequence;
 
+    // TODO: the setup is fundamentally flawed; not all buffers should have a copy per frame data. For example, the camera buffers and light buffers have duplicates but they are updated each frame anyways which means that there is no point in having duplicates.
+    // In other cases like particle system simulation, each time step can be calculated without the previous frame's value so you could argue for duplicate buffers to avoid dealing with synchronized buffer accesses
     struct FrameData
     {
         std::array<std::unique_ptr<Image>, maxFramesInFlight> outputImages;
@@ -406,8 +408,6 @@ private:
         std::array<std::unique_ptr<DescriptorSet>, maxFramesInFlight> postProcessingDescriptorSets;
         std::array<std::unique_ptr<DescriptorSet>, maxFramesInFlight> taaDescriptorSets;
         std::array<std::unique_ptr<DescriptorSet>, maxFramesInFlight> particleComputeDescriptorSets;
-        std::array<std::unique_ptr<DescriptorSet>, maxFramesInFlight> fluidSimulationInputDescriptorSets;
-        std::array<std::unique_ptr<DescriptorSet>, maxFramesInFlight> fluidSimulationOutputDescriptorSets;
         std::array<std::unique_ptr<DescriptorSet>, maxFramesInFlight> rtDescriptorSets;
 
         std::array<std::unique_ptr<Buffer>, maxFramesInFlight> cameraBuffers;
@@ -416,19 +416,24 @@ private:
         std::array<std::unique_ptr<Buffer>, maxFramesInFlight> objectBuffers;
         std::array<std::unique_ptr<Buffer>, maxFramesInFlight> previousFrameObjectBuffers;
         std::array<std::unique_ptr<Buffer>, maxFramesInFlight> particleBuffers;
-
-        std::array<std::unique_ptr<Texture>, maxFramesInFlight> fluidVelocityInputTextures;
-        std::array<std::unique_ptr<Texture>, maxFramesInFlight> fluidVelocityDivergenceInputTextures;
-        std::array<std::unique_ptr<Texture>, maxFramesInFlight> fluidPressureInputTextures;
-        std::array<std::unique_ptr<Texture>, maxFramesInFlight> fluidDensityInputTextures;
-        std::array<std::unique_ptr<Texture>, maxFramesInFlight> fluidSimulationOutputTextures; // Generic backbuffer for all of the fluid simulation stages
     } frameData;
+
+    // Fluid velocity textures
+    std::unique_ptr<Texture> fluidVelocityInputTexture;
+    std::unique_ptr<Texture> fluidVelocityDivergenceInputTexture;
+    std::unique_ptr<Texture> fluidPressureInputTexture;
+    std::unique_ptr<Texture> fluidDensityInputTexture;
+    std::unique_ptr<Texture> fluidSimulationOutputTexture; // Generic backbuffer for all of the fluid simulation stages
 
     std::vector<VkClearValue> offscreenFramebufferClearValues;
     std::vector<VkClearValue> postProcessFramebufferClearValues;
 
-    // Since the texture will be readonly, we don't require a descriptor set per frame
-    std::unique_ptr<DescriptorSet> textureDescriptorSet;
+    // Descriptor sets
+    std::unique_ptr<DescriptorSet> textureDescriptorSet; // This is currently only read by shaders
+    std::unique_ptr<DescriptorSet> fluidSimulationInputDescriptorSet;
+    std::unique_ptr<DescriptorSet> fluidSimulationOutputDescriptorSet;
+
+
     size_t currentFrame{ 0 };
 
     std::mutex bufferMutex;
