@@ -23,6 +23,8 @@
 #version 460
 #extension GL_EXT_debug_printf : enable
 
+#include "../random.glsl"
+
 layout(constant_id = 0) const uint workGroupSize = 64u;
 layout(local_size_x_id = 0) in; // Maps to the constant_id = 0 specialization constant
 
@@ -59,11 +61,14 @@ void main()
 	imageIndex.y = int(globalInvocationId / pushConstant.gridSize.x);
 	vec2 screenSpaceCoords = imageIndex + 0.5f;
 	vec2 uv = screenSpaceCoords / pushConstant.gridSize;
+	vec4 inputImage = texture(fluidDensityInputTextureImage, uv);
 
 	vec2 distanceFromSplat = pushConstant.splatPosition - screenSpaceCoords;
-	vec3 splatValue = vec3(1.0f, 1.0f, 1.0f) * gaussianSplat(distanceFromSplat, pushConstant.gridSize.x * pushConstant.splatRadius);
+	//vec3 splatValue = vec3(1.0f, 1.0f, 1.0f) * gaussianSplat(distanceFromSplat, pushConstant.gridSize.x * pushConstant.splatRadius);
+	uint seed1 = uint(inputImage.x);
+	vec3 splatValue = vec3(1.0, rnd(seed1), rnd(seed1)) * gaussianSplat(distanceFromSplat, pushConstant.gridSize.x * pushConstant.splatRadius);
 
-	imageStore(fluidSimulationOutputTextureImage, imageIndex, vec4(texture(fluidDensityInputTextureImage, uv).xyz + splatValue, 1.0f)); 
+	imageStore(fluidSimulationOutputTextureImage, imageIndex, vec4(inputImage.xyz + splatValue, 1.0f)); 
 	//debugPrintfEXT("splatvalue: %1.5v3f", splatValue);
 	//debugPrintfEXT("splatvalue x: %f", splatValue.x);
 	//debugPrintfEXT("gaussian: %f", gaussianSplat(distanceFromSplat, pushConstant.gridSize.x * pushConstant.splatRadius));

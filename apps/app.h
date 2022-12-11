@@ -114,9 +114,8 @@ constexpr std::array<glm::vec3, 6> attractors = {
     glm::vec3(0.0f, -8.0f, 0.0f),
 };
 
-// TODO: enabling multi-threaded loading tentatively works with rasterization but fails for the raytracing pipeline during the buildTlas second call; still a WIP
-// #define MULTI_THREAD
-//#define FLUID_SIMULATION
+// #define MULTI_THREAD // TODO: enabling multi-threaded loading tentatively works with rasterization but fails for the raytracing pipeline during the buildTlas second call; still a WIP
+//#define FLUID_SIMULATION // Enabling this flag will render the 2D fluid simulation rather than the particle system
 bool raytracingEnabled{ false }; // Flag to enable ray tracing vs rasterization
 bool temporalAntiAliasingEnabled{ false }; // Flag to enable temporal anti-aliasing
 
@@ -215,9 +214,9 @@ struct FluidSimulationPushConstant
     float gridScale{ 1.0f };
     float timestep{ 1.0f };
     glm::vec3 splatForce{ glm::vec3(0.0f) };
-    float splatRadius{ 1.0f };
+    float splatRadius{ 0.60f };
     glm::vec2 splatPosition{ glm::vec2(0.0f) };
-    float dissipation{ 1.0f };
+    float dissipation{ 0.97f };
     int blank{ 0 }; // padding
 } fluidSimulationPushConstant;
 

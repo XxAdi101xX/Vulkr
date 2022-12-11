@@ -861,7 +861,7 @@ void MainApp::handleInputEvents(const InputEvent &inputEvent)
             // User is holding down left click and moving
             if (activeMouseInput == MouseInput::Left)
             {
-                fluidSimulationPushConstant.splatForce = glm::vec3(mouseInputEvent.getPositionX() - lastMousePosition.x, mouseInputEvent.getPositionY() - lastMousePosition.y, 1.0f);
+                fluidSimulationPushConstant.splatForce = glm::vec3(mouseInputEvent.getPositionX() - lastMousePosition.x, mouseInputEvent.getPositionY() - lastMousePosition.y, 0.0f);
                 fluidSimulationPushConstant.splatPosition = glm::vec2(mouseInputEvent.getPositionX(), mouseInputEvent.getPositionY());
                 lastMousePosition.x = static_cast<float>(mouseInputEvent.getPositionX());
                 lastMousePosition.y = static_cast<float>(mouseInputEvent.getPositionY());
