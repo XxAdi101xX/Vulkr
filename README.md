@@ -30,5 +30,10 @@ The Vulkr renderer is able to accept wavefront object and material files (*.obj 
 
 https://user-images.githubusercontent.com/18451835/173991616-5825f922-1a45-4556-9cf3-51c6615e918b.mp4
 
+- A 2D fluid simulator that implements velocity & density advection, gaussian splat on mouse click + drag, and a projection steps that solve for the poisson pressure equation and subtracts the gradient of the pressure from the velocity field; implemented using the techniques mentioned in [Mark Harris' "Fluid Dynamics Simulation on the GPU" GPU Gems article](https://developer.nvidia.com/gpugems/gpugems/part-vi-beyond-triangles/chapter-38-fast-fluid-dynamics-simulation-gpu) (`#define FLUID_SIMULATION` should enable the simulation)
+
+https://user-images.githubusercontent.com/18451835/206916607-4497a86a-4377-497f-a8b3-40adfadd5b77.mp4
+
+
 ## Credits
 A special thanks to `Alexander Overvoorde's` [Vulkan Tutorial](https://vulkan-tutorial.com/) for providing a great introduction to Vulkan as a whole and providing the base knowledge required to get started on this project. Additionally, `Sascha Willems'` [Vulkan Demos](https://github.com/SaschaWillems/Vulkan), [Vulkan Samples](https://github.com/KhronosGroup/Vulkan-Samples) provided by the `Khronos Group` and the [Vulkan Ray Tracing Samples](https://github.com/nvpro-samples/vk_raytracing_tutorial_KHR) provided by `NVIDIA` have played an instrumental role into providing guidance into best practices, techniques and code samples for implementing various features using Vulkan. Finally, the discord and reddit communities on Vulkan and Graphics Programming have been very helpful with answering many of the questions that I've gotten along the way!
