@@ -82,16 +82,9 @@ MainApp::~MainApp()
 
     for (uint32_t i = 0; i < maxFramesInFlight; ++i)
     {
-        frameData.outputImageTextures[i]->image.reset();
-        frameData.outputImageTextures[i]->imageview.reset();
-        frameData.copyOutputImageTextures[i]->image.reset();
-        frameData.copyOutputImageTextures[i]->imageview.reset();
-        frameData.historyImageTextures[i]->image.reset();
-        frameData.historyImageTextures[i]->imageview.reset();
-        frameData.velocityImageTextures[i]->image.reset();
-        frameData.velocityImageTextures[i]->imageview.reset();
         frameData.commandPools[i].reset();
     }
+
     imguiPool.reset();
 
     ImGui_ImplVulkan_Shutdown();
@@ -174,7 +167,7 @@ void MainApp::cleanupSwapchain()
 
     for (uint32_t i = 0; i < maxFramesInFlight; ++i)
     {
-        // Descriptor sets
+        // Per-frame descriptor sets
         frameData.globalDescriptorSets[i].reset();
         frameData.objectDescriptorSets[i].reset();
         frameData.postProcessingDescriptorSets[i].reset();
@@ -189,7 +182,20 @@ void MainApp::cleanupSwapchain()
         frameData.particleBuffers[i].reset();
     }
 
+    // Descriptor Sets
+    fluidSimulationInputDescriptorSet.reset();
+    fluidSimulationOutputDescriptorSet.reset();
+
     // Images
+    outputImageTexture->image.reset();
+    outputImageTexture->imageview.reset();
+    copyOutputImageTexture->image.reset();
+    copyOutputImageTexture->imageview.reset();
+    historyImageTexture->image.reset();
+    historyImageTexture->imageview.reset();
+    velocityImageTexture->image.reset();
+    velocityImageTexture->imageview.reset();
+
     fluidVelocityInputTexture->image.reset();
     fluidVelocityInputTexture->imageview.reset();
     fluidVelocityDivergenceInputTexture->image.reset();
@@ -648,7 +654,7 @@ void MainApp::update()
     transitionHistoryImageLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
     transitionHistoryImageLayoutBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     transitionHistoryImageLayoutBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    transitionHistoryImageLayoutBarrier.image = frameData.historyImageTextures[currentFrame]->image->getHandle();
+    transitionHistoryImageLayoutBarrier.image = historyImageTexture->image->getHandle();
     transitionHistoryImageLayoutBarrier.subresourceRange = subresourceRange;
 
     dependencyInfo.pNext = nullptr;
@@ -670,8 +676,8 @@ void MainApp::update()
     outputImageCopyRegion.dstOffset = { 0, 0, 0 };
     outputImageCopyRegion.extent = { swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, 1u };
     // Copy output image to swapchain image and history image (note that they can execute in any order due to lack of barriers)
-    vkCmdCopyImage(frameData.commandBuffers[currentFrame][2]->getHandle(), frameData.outputImageTextures[currentFrame]->image->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swapchain->getImages()[swapchainImageIndex]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &outputImageCopyRegion);
-    vkCmdCopyImage(frameData.commandBuffers[currentFrame][2]->getHandle(), frameData.outputImageTextures[currentFrame]->image->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, frameData.historyImageTextures[currentFrame]->image->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &outputImageCopyRegion);
+    vkCmdCopyImage(frameData.commandBuffers[currentFrame][2]->getHandle(), outputImageTexture->image->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swapchain->getImages()[swapchainImageIndex]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &outputImageCopyRegion);
+    vkCmdCopyImage(frameData.commandBuffers[currentFrame][2]->getHandle(), outputImageTexture->image->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, historyImageTexture->image->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &outputImageCopyRegion);
 
     VkBufferCopy cameraBufferCopyRegion{};
     cameraBufferCopyRegion.srcOffset = 0ull;
@@ -695,7 +701,7 @@ void MainApp::update()
     transitionHistoryImageLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
     transitionHistoryImageLayoutBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     transitionHistoryImageLayoutBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    transitionHistoryImageLayoutBarrier.image = frameData.historyImageTextures[currentFrame]->image->getHandle();
+    transitionHistoryImageLayoutBarrier.image = historyImageTexture->image->getHandle();
     transitionHistoryImageLayoutBarrier.subresourceRange = subresourceRange;
 
 
@@ -709,7 +715,7 @@ void MainApp::update()
     transitionOutputImageLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
     transitionOutputImageLayoutBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     transitionOutputImageLayoutBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    transitionOutputImageLayoutBarrier.image = frameData.outputImageTextures[currentFrame]->image->getHandle();
+    transitionOutputImageLayoutBarrier.image = outputImageTexture->image->getHandle();
     transitionOutputImageLayoutBarrier.subresourceRange = subresourceRange;
 
     std::array<VkImageMemoryBarrier2, 2> transitionImageBarriers{ transitionHistoryImageLayoutBarrier, transitionOutputImageLayoutBarrier };
@@ -2792,11 +2798,11 @@ void MainApp::createFramebuffers()
 {
     for (uint32_t i = 0; i < maxFramesInFlight; ++i)
     {
-        std::vector<VkImageView> offscreenAttachments{ frameData.outputImageTextures[i]->imageview->getHandle(), frameData.copyOutputImageTextures[i]->imageview->getHandle(), frameData.velocityImageTextures[i]->imageview->getHandle(), depthImageView->getHandle() };
+        std::vector<VkImageView> offscreenAttachments{ outputImageTexture->imageview->getHandle(), copyOutputImageTexture->imageview->getHandle(), velocityImageTexture->imageview->getHandle(), depthImageView->getHandle() };
         frameData.offscreenFramebuffers[i] = std::make_unique<Framebuffer>(*device, *swapchain, *mainRenderPass.renderPass, offscreenAttachments);
         setDebugUtilsObjectName(device->getHandle(), frameData.offscreenFramebuffers[i]->getHandle(), "outputImageFramebuffer for frame #" + std::to_string(i));
 
-        std::vector<VkImageView> postProcessingAttachments{ frameData.outputImageTextures[i]->imageview->getHandle(), depthImageView->getHandle() };
+        std::vector<VkImageView> postProcessingAttachments{ outputImageTexture->imageview->getHandle(), depthImageView->getHandle() };
         frameData.postProcessFramebuffers[i] = std::make_unique<Framebuffer>(*device, *swapchain, *postRenderPass.renderPass, postProcessingAttachments);
         setDebugUtilsObjectName(device->getHandle(), frameData.postProcessFramebuffers[i]->getHandle(), "postProcessingFramebuffer for frame #" + std::to_string(i));
     }
@@ -2913,7 +2919,7 @@ void MainApp::createDepthResources()
     setDebugUtilsObjectName(device->getHandle(), depthImageView->getHandle(), "depthImageView");
 }
 
-std::unique_ptr<Image> MainApp::createTextureImage(uint32_t texWidth, uint32_t texHeight, VkImageUsageFlags imageUsageFlags)
+std::unique_ptr<Image> MainApp::createTextureImageWithInitialValue(uint32_t texWidth, uint32_t texHeight, VkImageUsageFlags imageUsageFlags)
 {
     // TODO: we should probably do this initialization on the GPU side with a shader; this is inefficient since we have to mark the texture as a transfer destination, just for a one time initalization
     // Create the staging buffer
@@ -3466,24 +3472,24 @@ void MainApp::prepareParticleData()
 void MainApp::initializeFluidSimulationResources()
 {
     fluidVelocityInputTexture = std::make_unique<Texture>();
-    fluidVelocityInputTexture->image = createTextureImage(swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+    fluidVelocityInputTexture->image = createTextureImageWithInitialValue(swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
     fluidVelocityInputTexture->imageview = std::make_unique<ImageView>(*fluidVelocityInputTexture->image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, fluidVelocityInputTexture->image->getFormat());
 
     fluidVelocityDivergenceInputTexture = std::make_unique<Texture>();
-    fluidVelocityDivergenceInputTexture->image = createTextureImage(swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+    fluidVelocityDivergenceInputTexture->image = createTextureImageWithInitialValue(swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
     fluidVelocityDivergenceInputTexture->imageview = std::make_unique<ImageView>(*fluidVelocityDivergenceInputTexture->image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, fluidVelocityDivergenceInputTexture->image->getFormat());
 
     fluidPressureInputTexture = std::make_unique<Texture>();
-    fluidPressureInputTexture->image = createTextureImage(swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+    fluidPressureInputTexture->image = createTextureImageWithInitialValue(swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
     fluidPressureInputTexture->imageview = std::make_unique<ImageView>(*fluidPressureInputTexture->image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, fluidPressureInputTexture->image->getFormat());
 
     fluidDensityInputTexture = std::make_unique<Texture>();
-    fluidDensityInputTexture->image = createTextureImage(swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+    fluidDensityInputTexture->image = createTextureImageWithInitialValue(swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
     fluidDensityInputTexture->imageview = std::make_unique<ImageView>(*fluidDensityInputTexture->image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, fluidDensityInputTexture->image->getFormat());
 
     fluidSimulationOutputTexture = std::make_unique<Texture>();
     // TODO: the VK_IMAGE_USAGE_TRANSFER_DST_BIT flag is required since in createTextureImage, there is code to 0 initialize we should do the initialization in a shader and remove this flag eventually
-    fluidSimulationOutputTexture->image = createTextureImage(swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
+    fluidSimulationOutputTexture->image = createTextureImageWithInitialValue(swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
     fluidSimulationOutputTexture->imageview = std::make_unique<ImageView>(*fluidSimulationOutputTexture->image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, fluidSimulationOutputTexture->image->getFormat());
 
     setDebugUtilsObjectName(device->getHandle(), fluidVelocityInputTexture->image->getHandle(), "fluidVelocityInputTexture image");
@@ -3610,15 +3616,15 @@ void MainApp::createDescriptorSets()
         // Bindings 2, 3 and 4 are the history image, velocity image and copy output image respectively
         VkDescriptorImageInfo historyImageInfo{};
         historyImageInfo.sampler = VK_NULL_HANDLE;
-        historyImageInfo.imageView = frameData.historyImageTextures[i]->imageview->getHandle();
+        historyImageInfo.imageView = historyImageTexture->imageview->getHandle();
         historyImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
         VkDescriptorImageInfo velocityImageInfo{};
         velocityImageInfo.sampler = VK_NULL_HANDLE;
-        velocityImageInfo.imageView = frameData.velocityImageTextures[i]->imageview->getHandle();
+        velocityImageInfo.imageView = velocityImageTexture->imageview->getHandle();
         velocityImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
         VkDescriptorImageInfo copyOutputImageInfo{};
         copyOutputImageInfo.sampler = VK_NULL_HANDLE;
-        copyOutputImageInfo.imageView = frameData.copyOutputImageTextures[i]->imageview->getHandle();
+        copyOutputImageInfo.imageView = copyOutputImageTexture->imageview->getHandle();
         copyOutputImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
         std::array<VkDescriptorImageInfo, 3> postProcessingStorageImageInfos{ historyImageInfo, velocityImageInfo, copyOutputImageInfo };
         
@@ -4130,92 +4136,91 @@ void MainApp::createImageResourcesForFrames()
     subresourceRange.baseArrayLayer = 0u;
     subresourceRange.layerCount = 1u;
 
+    // Create textures
+    outputImageTexture = std::make_unique<Texture>();
+    outputImageTexture->image = std::make_unique<Image>(*device, swapchain->getProperties().surfaceFormat.format, extent, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+    outputImageTexture->imageview = std::make_unique<ImageView>(*(outputImageTexture->image), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, outputImageTexture->image->getFormat());
+
+    copyOutputImageTexture = std::make_unique<Texture>();
+    copyOutputImageTexture->image = std::make_unique<Image>(*device, swapchain->getProperties().surfaceFormat.format, extent, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+    copyOutputImageTexture->imageview = std::make_unique<ImageView>(*(copyOutputImageTexture->image), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, copyOutputImageTexture->image->getFormat());
+
+    historyImageTexture = std::make_unique<Texture>();
+    historyImageTexture->image = std::make_unique<Image>(*device, swapchain->getProperties().surfaceFormat.format, extent, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+    historyImageTexture->imageview = std::make_unique<ImageView>(*(historyImageTexture->image), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, historyImageTexture->image->getFormat());
+
+    velocityImageTexture = std::make_unique<Texture>();
+    velocityImageTexture->image = std::make_unique<Image>(*device, swapchain->getProperties().surfaceFormat.format, extent, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+    velocityImageTexture->imageview = std::make_unique<ImageView>(*(velocityImageTexture->image), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, velocityImageTexture->image->getFormat());
+
+    // Set debug markers
+    setDebugUtilsObjectName(device->getHandle(), outputImageTexture->image->getHandle(), "outputImage");
+    setDebugUtilsObjectName(device->getHandle(), outputImageTexture->imageview->getHandle(), "outputImageView");
+    setDebugUtilsObjectName(device->getHandle(), copyOutputImageTexture->image->getHandle(), "copyOutputImage");
+    setDebugUtilsObjectName(device->getHandle(), copyOutputImageTexture->imageview->getHandle(), "copyOutputImageView");
+    setDebugUtilsObjectName(device->getHandle(), historyImageTexture->image->getHandle(), "historyImage");
+    setDebugUtilsObjectName(device->getHandle(), historyImageTexture->imageview->getHandle(), "historyImageView");
+    setDebugUtilsObjectName(device->getHandle(), velocityImageTexture->image->getHandle(), "velocityImage");
+    setDebugUtilsObjectName(device->getHandle(), velocityImageTexture->imageview->getHandle(), "velocityImageView");
+
+    // Create memory barriers for layout transition
+    VkImageMemoryBarrier2 transitionOutputImageLayoutBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+    transitionOutputImageLayoutBarrier.pNext = nullptr;
+    transitionOutputImageLayoutBarrier.srcStageMask = VK_PIPELINE_STAGE_2_NONE; // No synchronization required on initial setup
+    transitionOutputImageLayoutBarrier.srcAccessMask = VK_ACCESS_2_NONE;
+    transitionOutputImageLayoutBarrier.dstStageMask = VK_PIPELINE_STAGE_2_NONE;
+    transitionOutputImageLayoutBarrier.dstAccessMask = VK_ACCESS_2_NONE;
+    transitionOutputImageLayoutBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    transitionOutputImageLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    transitionOutputImageLayoutBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    transitionOutputImageLayoutBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    transitionOutputImageLayoutBarrier.image = outputImageTexture->image->getHandle();
+    transitionOutputImageLayoutBarrier.subresourceRange = subresourceRange;
+
+    VkImageMemoryBarrier2 transitionCopyOutputImageLayoutBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+    transitionCopyOutputImageLayoutBarrier.pNext = nullptr;
+    transitionCopyOutputImageLayoutBarrier.srcStageMask = VK_PIPELINE_STAGE_2_NONE; // No synchronization required on initial setup
+    transitionCopyOutputImageLayoutBarrier.srcAccessMask = VK_ACCESS_2_NONE;
+    transitionCopyOutputImageLayoutBarrier.dstStageMask = VK_PIPELINE_STAGE_2_NONE;
+    transitionCopyOutputImageLayoutBarrier.dstAccessMask = VK_ACCESS_2_NONE;
+    transitionCopyOutputImageLayoutBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    transitionCopyOutputImageLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    transitionCopyOutputImageLayoutBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    transitionCopyOutputImageLayoutBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    transitionCopyOutputImageLayoutBarrier.image = copyOutputImageTexture->image->getHandle();
+    transitionCopyOutputImageLayoutBarrier.subresourceRange = subresourceRange;
+
+    VkImageMemoryBarrier2 transitionHistoryImageLayoutBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+    transitionHistoryImageLayoutBarrier.pNext = nullptr;
+    transitionHistoryImageLayoutBarrier.srcStageMask = VK_PIPELINE_STAGE_2_NONE; // No synchronization required on initial setup
+    transitionHistoryImageLayoutBarrier.srcAccessMask = VK_ACCESS_2_NONE;
+    transitionHistoryImageLayoutBarrier.dstStageMask = VK_PIPELINE_STAGE_2_NONE;
+    transitionHistoryImageLayoutBarrier.dstAccessMask = VK_ACCESS_2_NONE;
+    transitionHistoryImageLayoutBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    transitionHistoryImageLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    transitionHistoryImageLayoutBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    transitionHistoryImageLayoutBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    transitionHistoryImageLayoutBarrier.image = historyImageTexture->image->getHandle();
+    transitionHistoryImageLayoutBarrier.subresourceRange = subresourceRange;
+
+    VkImageMemoryBarrier2 transitionVelocityImageLayoutBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+    transitionVelocityImageLayoutBarrier.pNext = nullptr;
+    transitionVelocityImageLayoutBarrier.srcStageMask = VK_PIPELINE_STAGE_2_NONE; // No synchronization required on initial setup
+    transitionVelocityImageLayoutBarrier.srcAccessMask = VK_ACCESS_2_NONE;
+    transitionVelocityImageLayoutBarrier.dstStageMask = VK_PIPELINE_STAGE_2_NONE;
+    transitionVelocityImageLayoutBarrier.dstAccessMask = VK_ACCESS_2_NONE;
+    transitionVelocityImageLayoutBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    transitionVelocityImageLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    transitionVelocityImageLayoutBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    transitionVelocityImageLayoutBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    transitionVelocityImageLayoutBarrier.image = velocityImageTexture->image->getHandle();
+    transitionVelocityImageLayoutBarrier.subresourceRange = subresourceRange;
+
     std::vector<VkImageMemoryBarrier2> imageTransitionMemoryBarriers;
-
-    for (uint32_t i = 0u; i < maxFramesInFlight; ++i)
-    {
-        frameData.outputImageTextures[i] = std::make_unique<Texture>();
-        frameData.outputImageTextures[i]->image = std::make_unique<Image>(*device, swapchain->getProperties().surfaceFormat.format, extent, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
-        frameData.outputImageTextures[i]->imageview = std::make_unique<ImageView>(*(frameData.outputImageTextures[i]->image), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, frameData.outputImageTextures[i]->image->getFormat());
-
-        frameData.copyOutputImageTextures[i] = std::make_unique<Texture>();
-        frameData.copyOutputImageTextures[i]->image = std::make_unique<Image>(*device, swapchain->getProperties().surfaceFormat.format, extent, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
-        frameData.copyOutputImageTextures[i]->imageview = std::make_unique<ImageView>(*(frameData.copyOutputImageTextures[i]->image), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, frameData.copyOutputImageTextures[i]->image->getFormat());
-
-        frameData.historyImageTextures[i] = std::make_unique<Texture>();
-        frameData.historyImageTextures[i]->image = std::make_unique<Image>(*device, swapchain->getProperties().surfaceFormat.format, extent, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
-        frameData.historyImageTextures[i]->imageview = std::make_unique<ImageView>(*(frameData.historyImageTextures[i]->image), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, frameData.historyImageTextures[i]->image->getFormat());
-
-        frameData.velocityImageTextures[i] = std::make_unique<Texture>();
-        frameData.velocityImageTextures[i]->image = std::make_unique<Image>(*device, swapchain->getProperties().surfaceFormat.format, extent, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
-        frameData.velocityImageTextures[i]->imageview = std::make_unique<ImageView>(*(frameData.velocityImageTextures[i]->image), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, frameData.velocityImageTextures[i]->image->getFormat());
-
-        setDebugUtilsObjectName(device->getHandle(), frameData.outputImageTextures[i]->image->getHandle(), "outputImage for frame #" + std::to_string(i));
-        setDebugUtilsObjectName(device->getHandle(), frameData.outputImageTextures[i]->imageview->getHandle(), "outputImageView for frame #" + std::to_string(i));
-        setDebugUtilsObjectName(device->getHandle(), frameData.copyOutputImageTextures[i]->image->getHandle(), "copyOutputImage for frame #" + std::to_string(i));
-        setDebugUtilsObjectName(device->getHandle(), frameData.copyOutputImageTextures[i]->imageview->getHandle(), "copyOutputImageView for frame #" + std::to_string(i));
-        setDebugUtilsObjectName(device->getHandle(), frameData.historyImageTextures[i]->image->getHandle(), "historyImage for frame #" + std::to_string(i));
-        setDebugUtilsObjectName(device->getHandle(), frameData.historyImageTextures[i]->imageview->getHandle(), "historyImageView for frame #" + std::to_string(i));
-        setDebugUtilsObjectName(device->getHandle(), frameData.velocityImageTextures[i]->image->getHandle(), "velocityImage for frame #" + std::to_string(i));
-        setDebugUtilsObjectName(device->getHandle(), frameData.velocityImageTextures[i]->imageview->getHandle(), "velocityImageView for frame #" + std::to_string(i));
-
-        VkImageMemoryBarrier2 transitionOutputImageLayoutBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
-        transitionOutputImageLayoutBarrier.pNext = nullptr;
-        transitionOutputImageLayoutBarrier.srcStageMask = VK_PIPELINE_STAGE_2_NONE; // No synchronization required on initial setup
-        transitionOutputImageLayoutBarrier.srcAccessMask = VK_ACCESS_2_NONE;
-        transitionOutputImageLayoutBarrier.dstStageMask = VK_PIPELINE_STAGE_2_NONE;
-        transitionOutputImageLayoutBarrier.dstAccessMask = VK_ACCESS_2_NONE;
-        transitionOutputImageLayoutBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        transitionOutputImageLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-        transitionOutputImageLayoutBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        transitionOutputImageLayoutBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        transitionOutputImageLayoutBarrier.image = frameData.outputImageTextures[i]->image->getHandle();
-        transitionOutputImageLayoutBarrier.subresourceRange = subresourceRange;
-
-        VkImageMemoryBarrier2 transitionCopyOutputImageLayoutBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
-        transitionCopyOutputImageLayoutBarrier.pNext = nullptr;
-        transitionCopyOutputImageLayoutBarrier.srcStageMask = VK_PIPELINE_STAGE_2_NONE; // No synchronization required on initial setup
-        transitionCopyOutputImageLayoutBarrier.srcAccessMask = VK_ACCESS_2_NONE;
-        transitionCopyOutputImageLayoutBarrier.dstStageMask = VK_PIPELINE_STAGE_2_NONE;
-        transitionCopyOutputImageLayoutBarrier.dstAccessMask = VK_ACCESS_2_NONE;
-        transitionCopyOutputImageLayoutBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        transitionCopyOutputImageLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-        transitionCopyOutputImageLayoutBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        transitionCopyOutputImageLayoutBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        transitionCopyOutputImageLayoutBarrier.image = frameData.copyOutputImageTextures[i]->image->getHandle();
-        transitionCopyOutputImageLayoutBarrier.subresourceRange = subresourceRange;
-
-        VkImageMemoryBarrier2 transitionHistoryImageLayoutBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
-        transitionHistoryImageLayoutBarrier.pNext = nullptr;
-        transitionHistoryImageLayoutBarrier.srcStageMask = VK_PIPELINE_STAGE_2_NONE; // No synchronization required on initial setup
-        transitionHistoryImageLayoutBarrier.srcAccessMask = VK_ACCESS_2_NONE;
-        transitionHistoryImageLayoutBarrier.dstStageMask = VK_PIPELINE_STAGE_2_NONE;
-        transitionHistoryImageLayoutBarrier.dstAccessMask = VK_ACCESS_2_NONE;
-        transitionHistoryImageLayoutBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        transitionHistoryImageLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-        transitionHistoryImageLayoutBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        transitionHistoryImageLayoutBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        transitionHistoryImageLayoutBarrier.image = frameData.historyImageTextures[i]->image->getHandle();
-        transitionHistoryImageLayoutBarrier.subresourceRange = subresourceRange;
-
-        VkImageMemoryBarrier2 transitionVelocityImageLayoutBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
-        transitionVelocityImageLayoutBarrier.pNext = nullptr;
-        transitionVelocityImageLayoutBarrier.srcStageMask = VK_PIPELINE_STAGE_2_NONE; // No synchronization required on initial setup
-        transitionVelocityImageLayoutBarrier.srcAccessMask = VK_ACCESS_2_NONE;
-        transitionVelocityImageLayoutBarrier.dstStageMask = VK_PIPELINE_STAGE_2_NONE;
-        transitionVelocityImageLayoutBarrier.dstAccessMask = VK_ACCESS_2_NONE;
-        transitionVelocityImageLayoutBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        transitionVelocityImageLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-        transitionVelocityImageLayoutBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        transitionVelocityImageLayoutBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        transitionVelocityImageLayoutBarrier.image = frameData.velocityImageTextures[i]->image->getHandle();
-        transitionVelocityImageLayoutBarrier.subresourceRange = subresourceRange;
-
-        imageTransitionMemoryBarriers.push_back(transitionOutputImageLayoutBarrier);
-        imageTransitionMemoryBarriers.push_back(transitionCopyOutputImageLayoutBarrier);
-        imageTransitionMemoryBarriers.push_back(transitionHistoryImageLayoutBarrier);
-        imageTransitionMemoryBarriers.push_back(transitionVelocityImageLayoutBarrier);
-    }
+    imageTransitionMemoryBarriers.push_back(transitionOutputImageLayoutBarrier);
+    imageTransitionMemoryBarriers.push_back(transitionCopyOutputImageLayoutBarrier);
+    imageTransitionMemoryBarriers.push_back(transitionHistoryImageLayoutBarrier);
+    imageTransitionMemoryBarriers.push_back(transitionVelocityImageLayoutBarrier);
 
     VkDependencyInfo dependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
     dependencyInfo.pNext = nullptr;
@@ -4820,7 +4825,7 @@ void MainApp::createRtDescriptorSets()
 
         VkDescriptorImageInfo outputImageInfo{};
         outputImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-        outputImageInfo.imageView = frameData.outputImageTextures[i]->imageview->getHandle();
+        outputImageInfo.imageView = outputImageTexture->imageview->getHandle();
         outputImageInfo.sampler = {};
 
         VkWriteDescriptorSet writeOutputImage{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
@@ -4843,7 +4848,7 @@ void MainApp::updateRtDescriptorSet()
     {
         VkDescriptorImageInfo outputImageInfo{};
         outputImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-        outputImageInfo.imageView = frameData.outputImageTextures[i]->imageview->getHandle();
+        outputImageInfo.imageView = outputImageTexture->imageview->getHandle();
         outputImageInfo.sampler = {};
         VkWriteDescriptorSet writeOutputImage{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
         writeOutputImage.dstSet = frameData.rtDescriptorSets[i]->getHandle();

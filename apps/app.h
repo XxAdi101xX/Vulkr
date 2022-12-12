@@ -380,11 +380,6 @@ private:
     // In other cases like particle system simulation, each time step can be calculated without the previous frame's value so you could argue for duplicate buffers to avoid dealing with synchronized buffer accesses
     struct FrameData
     {
-        std::array<std::unique_ptr<Texture>, maxFramesInFlight> outputImageTextures;
-        std::array<std::unique_ptr<Texture>, maxFramesInFlight> copyOutputImageTextures;
-        std::array<std::unique_ptr<Texture>, maxFramesInFlight> historyImageTextures;
-        std::array<std::unique_ptr<Texture>, maxFramesInFlight> velocityImageTextures;
-
         std::array<std::unique_ptr<Framebuffer>, maxFramesInFlight> offscreenFramebuffers;
         std::array<std::unique_ptr<Framebuffer>, maxFramesInFlight> postProcessFramebuffers;
 
@@ -412,6 +407,12 @@ private:
         std::array<std::unique_ptr<Buffer>, maxFramesInFlight> previousFrameObjectBuffers;
         std::array<std::unique_ptr<Buffer>, maxFramesInFlight> particleBuffers;
     } frameData;
+
+    // TAA related textures
+    std::unique_ptr<Texture> outputImageTexture;
+    std::unique_ptr<Texture> copyOutputImageTexture;
+    std::unique_ptr<Texture> historyImageTexture;
+    std::unique_ptr<Texture> velocityImageTexture;
 
     // Fluid velocity textures
     std::unique_ptr<Texture> fluidVelocityInputTexture;
@@ -501,7 +502,7 @@ private:
     void createCommandBuffers();
     void copyBufferToImage(const Buffer &srcBuffer, const Image &dstImage, uint32_t width, uint32_t height);
     void createDepthResources();
-    std::unique_ptr<Image> createTextureImage(uint32_t texWidth, uint32_t texHeight, VkImageUsageFlags imageUsageFlags); // Create an empty texture image
+    std::unique_ptr<Image> createTextureImageWithInitialValue(uint32_t texWidth, uint32_t texHeight, VkImageUsageFlags imageUsageFlags); // Create an empty texture image
     std::unique_ptr<Image> createTextureImage(const std::string &filename); // Reads a texture file and populate the texture image with the contents
     void createTextureSampler();
     void loadTextureImages(const std::vector<std::string> &textureFiles);
