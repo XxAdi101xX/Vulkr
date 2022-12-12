@@ -459,6 +459,8 @@ private:
     std::vector<ObjInstance> objInstances;
     std::vector<LightData> sceneLights;
 
+    bool haveLightsUpdated{ false };
+
     VkDeviceSize particleBufferSize{ 0 };
     std::vector<Particle> particleBuffer;
 
@@ -473,7 +475,7 @@ private:
     void computeParticles();
     void computeFluidSimulation();
     void copyFluidOutputTextureToInputTexture(Image *imageToCopyTo);
-    void updateBuffersPerFrame();
+    void dataUpdatePerFrame();
     void rasterize();
     void postProcess();
     void cleanupSwapchain();
@@ -530,7 +532,6 @@ private:
     void setupCamera();
     void initializeImGui();
     void resetFrameSinceViewChange();
-    void updateTaaState();
     void initializeBufferData();
 
     // TODO: These methods to allow command pool access for multiple threads are not in use at the moment and will need to be used when expanding multi threading capabilities

@@ -368,10 +368,9 @@ void MainApp::update()
     {
         computeParticlesPushConstant.deltaTime = static_cast<float>(drawingTimer->tick());
     }
-    animateInstances();
-    updateBuffersPerFrame();
     drawImGuiInterface();
-    updateTaaState(); // must be called after drawingImGui
+    animateInstances();
+    dataUpdatePerFrame();
 
 #ifndef RENDERDOC_DEBUG
     if (raytracingEnabled)
@@ -704,7 +703,6 @@ void MainApp::update()
     transitionHistoryImageLayoutBarrier.image = historyImageTexture->image->getHandle();
     transitionHistoryImageLayoutBarrier.subresourceRange = subresourceRange;
 
-
     VkImageMemoryBarrier2 transitionOutputImageLayoutBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
     transitionOutputImageLayoutBarrier.pNext = nullptr;
     transitionOutputImageLayoutBarrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT; // Wait on transfer to finish
@@ -976,6 +974,7 @@ void MainApp::drawImGuiInterface()
 
             if (changed)
             {
+                haveLightsUpdated = true;
                 resetFrameSinceViewChange();
                 changed = false;
             }
@@ -1533,23 +1532,52 @@ void MainApp::initializeBufferData()
     }
 }
 
-void MainApp::updateBuffersPerFrame()
+void MainApp::dataUpdatePerFrame()
 {
-    // TODO should we use staging buffers instead and replace all instances of VMA_MEMORY_USAGE_CPU_TO_GPU to VMA_MEMORY_USAGE_GPU_ONLY?
+    bool hasCameraUpdated = cameraController->getCamera()->isUpdated();
+    cameraController->getCamera()->resetUpdatedFlag();
 
-    // Update the camera buffer
-    CameraData cameraData{};
-    cameraData.view = cameraController->getCamera()->getView();
-    cameraData.proj = cameraController->getCamera()->getProjection();
+    // TODO: remove the true once you've removed the duplicate camera and light buffers respectively
+    if (hasCameraUpdated || true) // TODO remove true
+    {
+        // Update the camera buffer
+        CameraData cameraData{};
+        cameraData.view = cameraController->getCamera()->getView();
+        cameraData.proj = cameraController->getCamera()->getProjection();
 
-    void *mappedData = frameData.cameraBuffers[currentFrame]->map();
-    memcpy(mappedData, &cameraData, sizeof(cameraData));
-    frameData.cameraBuffers[currentFrame]->unmap();
+        void *mappedData = frameData.cameraBuffers[currentFrame]->map();
+        memcpy(mappedData, &cameraData, sizeof(cameraData));
+        frameData.cameraBuffers[currentFrame]->unmap();
+    }
 
-    // Update the light buffer
-    mappedData = frameData.lightBuffers[currentFrame]->map();
-    memcpy(mappedData, sceneLights.data(), sizeof(LightData) * sceneLights.size());
-    frameData.lightBuffers[currentFrame]->unmap();
+    if (haveLightsUpdated || true) // TODO remove true
+    {
+        // Update the light buffer
+        void *mappedData = frameData.lightBuffers[currentFrame]->map();
+        memcpy(mappedData, sceneLights.data(), sizeof(LightData) * sceneLights.size());
+        frameData.lightBuffers[currentFrame]->unmap();
+
+        haveLightsUpdated = false;
+    }
+
+    // TAA Check
+    if (!temporalAntiAliasingEnabled && !raytracingEnabled)
+    {
+        raytracingPushConstant.frameSinceViewChange = 0; // TODO remove
+        taaPushConstant.frameSinceViewChange = 0;
+        taaPushConstant.jitter = glm::vec2(0.0f);
+    }
+    else
+    {
+        // If the camera has updated, we don't want to use the previous frame for anti aliasing
+        if (hasCameraUpdated)
+        {
+            resetFrameSinceViewChange();
+        }
+        raytracingPushConstant.frameSinceViewChange += 1;// TODO remove
+        taaPushConstant.frameSinceViewChange += 1;
+
+    }
 }
 
 // TODO: as opposed to doing slot based binding of descriptor sets which leads to multiple vkCmdBindDescriptorSets calls per drawcall, you can use
@@ -4104,26 +4132,6 @@ void MainApp::resetFrameSinceViewChange()
 {
     raytracingPushConstant.frameSinceViewChange = -1; // TODO remove
     taaPushConstant.frameSinceViewChange = -1;
-}
-
-void MainApp::updateTaaState()
-{
-    if (!temporalAntiAliasingEnabled && !raytracingEnabled) // remove false
-    {
-        raytracingPushConstant.frameSinceViewChange = 0; // TODO remove
-        taaPushConstant.frameSinceViewChange = 0;
-        taaPushConstant.jitter = glm::vec2(0.0f);
-        return;
-    }
-
-    // If the camera has updated, we don't want to use the previous frame for anti aliasing
-    if (cameraController->getCamera()->isUpdated())
-    {
-        resetFrameSinceViewChange();
-        cameraController->getCamera()->resetUpdatedFlag();
-    }
-    raytracingPushConstant.frameSinceViewChange += 1;// TODO remove
-    taaPushConstant.frameSinceViewChange += 1;
 }
 
 void MainApp::createImageResourcesForFrames()
