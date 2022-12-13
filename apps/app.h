@@ -376,8 +376,6 @@ private:
 
     std::array<glm::vec2, taaDepth> haltonSequence;
 
-    // TODO: the setup is fundamentally flawed; not all buffers should have a copy per frame data. For example, the camera buffers and light buffers have duplicates but they are updated each frame anyways which means that there is no point in having duplicates.
-    // In other cases like particle system simulation, each time step can be calculated without the previous frame's value so you could argue for duplicate buffers to avoid dealing with synchronized buffer accesses
     struct FrameData
     {
         std::array<std::unique_ptr<Framebuffer>, maxFramesInFlight> offscreenFramebuffers;
@@ -400,13 +398,15 @@ private:
         std::array<std::unique_ptr<DescriptorSet>, maxFramesInFlight> particleComputeDescriptorSets;
         std::array<std::unique_ptr<DescriptorSet>, maxFramesInFlight> rtDescriptorSets;
 
-        std::array<std::unique_ptr<Buffer>, maxFramesInFlight> cameraBuffers;
-        std::array<std::unique_ptr<Buffer>, maxFramesInFlight> previousFrameCameraBuffers;
-        std::array<std::unique_ptr<Buffer>, maxFramesInFlight> lightBuffers;
-        std::array<std::unique_ptr<Buffer>, maxFramesInFlight> objectBuffers;
-        std::array<std::unique_ptr<Buffer>, maxFramesInFlight> previousFrameObjectBuffers;
-        std::array<std::unique_ptr<Buffer>, maxFramesInFlight> particleBuffers;
     } frameData;
+
+    // Buffers
+    std::unique_ptr<Buffer> lightBuffer;
+    std::unique_ptr<Buffer> cameraBuffer;
+    std::unique_ptr<Buffer> previousFrameCameraBuffer;
+    std::unique_ptr<Buffer> objectBuffer;
+    std::unique_ptr<Buffer> previousFrameObjectBuffer;
+    std::unique_ptr<Buffer> particleBuffer;
 
     // TAA related textures
     std::unique_ptr<Texture> outputImageTexture;
@@ -462,7 +462,7 @@ private:
     bool haveLightsUpdated{ false };
 
     VkDeviceSize particleBufferSize{ 0 };
-    std::vector<Particle> particleBuffer;
+    std::vector<Particle> allParticleData;
 
 #ifdef FLUID_SIMULATION
     MouseInput activeMouseInput{ MouseInput::None };

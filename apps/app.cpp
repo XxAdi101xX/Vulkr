@@ -172,15 +172,15 @@ void MainApp::cleanupSwapchain()
         frameData.objectDescriptorSets[i].reset();
         frameData.postProcessingDescriptorSets[i].reset();
         frameData.taaDescriptorSets[i].reset();
-
-        // Buffers
-        frameData.cameraBuffers[i].reset();
-        frameData.previousFrameCameraBuffers[i].reset();
-        frameData.lightBuffers[i].reset();
-        frameData.objectBuffers[i].reset();
-        frameData.previousFrameObjectBuffers[i].reset();
-        frameData.particleBuffers[i].reset();
     }
+
+    // Buffers
+    lightBuffer.reset();
+    cameraBuffer.reset();
+    previousFrameCameraBuffer.reset();
+    objectBuffer.reset();
+    previousFrameObjectBuffer.reset();
+    particleBuffer.reset();
 
     // Descriptor Sets
     fluidSimulationInputDescriptorSet.reset();
@@ -682,13 +682,13 @@ void MainApp::update()
     cameraBufferCopyRegion.srcOffset = 0ull;
     cameraBufferCopyRegion.dstOffset = 0ull;
     cameraBufferCopyRegion.size = sizeof(CameraData);
-    vkCmdCopyBuffer(frameData.commandBuffers[currentFrame][2]->getHandle(), frameData.cameraBuffers[currentFrame]->getHandle(), frameData.previousFrameCameraBuffers[currentFrame]->getHandle(), 1, &cameraBufferCopyRegion);
+    vkCmdCopyBuffer(frameData.commandBuffers[currentFrame][2]->getHandle(), cameraBuffer->getHandle(), previousFrameCameraBuffer->getHandle(), 1, &cameraBufferCopyRegion);
 
     VkBufferCopy objectBufferCopyRegion{};
     objectBufferCopyRegion.srcOffset = 0ull;
     objectBufferCopyRegion.dstOffset = 0ull;
     objectBufferCopyRegion.size = sizeof(ObjInstance) * maxInstanceCount;
-    vkCmdCopyBuffer(frameData.commandBuffers[currentFrame][2]->getHandle(), frameData.objectBuffers[currentFrame]->getHandle(), frameData.previousFrameObjectBuffers[currentFrame]->getHandle(), 1, &objectBufferCopyRegion);
+    vkCmdCopyBuffer(frameData.commandBuffers[currentFrame][2]->getHandle(), objectBuffer->getHandle(), previousFrameObjectBuffer->getHandle(), 1, &objectBufferCopyRegion);
 
     // Transition the history image and output image back to the general layout
     transitionHistoryImageLayoutBarrier.pNext = nullptr;
@@ -1014,14 +1014,14 @@ void MainApp::animateInstances()
     }
 
     // Update the transformation for the wuson instances
-    void *mappedData = frameData.objectBuffers[currentFrame]->map();
+    void *mappedData = objectBuffer->map();
     ObjInstance *objectSSBO = static_cast<ObjInstance *>(mappedData);
     for (int i = startingIndex; i < startingIndex + wusonInstanceCount; i++)
     {
         objectSSBO[i].transform = objInstances[i].transform;
         objectSSBO[i].transformIT = objInstances[i].transformIT;
     }
-    frameData.objectBuffers[currentFrame]->unmap();
+    objectBuffer->unmap();
 }
 
 void MainApp::animateWithCompute()
@@ -1052,7 +1052,7 @@ void MainApp::computeParticles()
         bufferMemoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
         bufferMemoryBarrier.srcQueueFamilyIndex = m_graphicsQueue->getFamilyIndex();
         bufferMemoryBarrier.dstQueueFamilyIndex = m_computeQueue->getFamilyIndex();
-        bufferMemoryBarrier.buffer = frameData.particleBuffers[currentFrame]->getHandle();
+        bufferMemoryBarrier.buffer = particleBuffer->getHandle();
         bufferMemoryBarrier.offset = 0ull;
         bufferMemoryBarrier.size = particleBufferSize;
 
@@ -1112,7 +1112,7 @@ void MainApp::computeParticles()
         bufferMemoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR | VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT; // TODO: is this correct
         bufferMemoryBarrier.srcQueueFamilyIndex = m_computeQueue->getFamilyIndex();
         bufferMemoryBarrier.dstQueueFamilyIndex = m_graphicsQueue->getFamilyIndex();
-        bufferMemoryBarrier.buffer = frameData.particleBuffers[currentFrame]->getHandle();
+        bufferMemoryBarrier.buffer = particleBuffer->getHandle();
         bufferMemoryBarrier.offset = 0ull;
         bufferMemoryBarrier.size = particleBufferSize;
 
@@ -1505,17 +1505,17 @@ void MainApp::initializeBufferData()
         cameraData.view = cameraController->getCamera()->getView();
         cameraData.proj = cameraController->getCamera()->getProjection();
 
-        void *mappedData = frameData.cameraBuffers[frame]->map();
+        void *mappedData = cameraBuffer->map();
         memcpy(mappedData, &cameraData, sizeof(cameraData));
-        frameData.cameraBuffers[frame]->unmap();
+        cameraBuffer->unmap();
 
         // Update the light buffer
-        mappedData = frameData.lightBuffers[frame]->map();
+        mappedData = lightBuffer->map();
         memcpy(mappedData, sceneLights.data(), sizeof(LightData) * sceneLights.size());
-        frameData.lightBuffers[frame]->unmap();
+        lightBuffer->unmap();
 
         // Update the object buffer
-        mappedData = frameData.objectBuffers[frame]->map();
+        mappedData = objectBuffer->map();
         ObjInstance *objectSSBO = static_cast<ObjInstance *>(mappedData);
         for (int instanceIndex = 0; instanceIndex < objInstances.size(); instanceIndex++)
         {
@@ -1528,7 +1528,7 @@ void MainApp::initializeBufferData()
             objectSSBO[instanceIndex].materials = objInstances[instanceIndex].materials;
             objectSSBO[instanceIndex].materialIndices = objInstances[instanceIndex].materialIndices;
         }
-        frameData.objectBuffers[frame]->unmap();
+        objectBuffer->unmap();
     }
 }
 
@@ -1537,25 +1537,24 @@ void MainApp::dataUpdatePerFrame()
     bool hasCameraUpdated = cameraController->getCamera()->isUpdated();
     cameraController->getCamera()->resetUpdatedFlag();
 
-    // TODO: remove the true once you've removed the duplicate camera and light buffers respectively
-    if (hasCameraUpdated || true) // TODO remove true
+    if (hasCameraUpdated)
     {
         // Update the camera buffer
         CameraData cameraData{};
         cameraData.view = cameraController->getCamera()->getView();
         cameraData.proj = cameraController->getCamera()->getProjection();
 
-        void *mappedData = frameData.cameraBuffers[currentFrame]->map();
+        void *mappedData = cameraBuffer->map();
         memcpy(mappedData, &cameraData, sizeof(cameraData));
-        frameData.cameraBuffers[currentFrame]->unmap();
+        cameraBuffer->unmap();
     }
 
-    if (haveLightsUpdated || true) // TODO remove true
+    if (haveLightsUpdated)
     {
         // Update the light buffer
-        void *mappedData = frameData.lightBuffers[currentFrame]->map();
+        void *mappedData = lightBuffer->map();
         memcpy(mappedData, sceneLights.data(), sizeof(LightData) * sceneLights.size());
-        frameData.lightBuffers[currentFrame]->unmap();
+        lightBuffer->unmap();
 
         haveLightsUpdated = false;
     }
@@ -3376,26 +3375,19 @@ void MainApp::createUniformBuffers()
     VmaAllocationCreateInfo memoryInfo{};
     memoryInfo.usage = VMA_MEMORY_USAGE_CPU_TO_GPU; // TODO: we should use staging buffers instead
 
-    for (uint32_t i = 0; i < maxFramesInFlight; ++i)
-    {
-        frameData.cameraBuffers[i] = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
-        setDebugUtilsObjectName(device->getHandle(), frameData.cameraBuffers[i]->getHandle(), "cameraBuffers for frame #" + std::to_string(i));
-    }
+    cameraBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
+    setDebugUtilsObjectName(device->getHandle(), cameraBuffer->getHandle(), "cameraBuffer");
 
     bufferInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-    for (uint32_t i = 0; i < maxFramesInFlight; ++i)
-    {
-        frameData.previousFrameCameraBuffers[i] = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
-        setDebugUtilsObjectName(device->getHandle(), frameData.previousFrameCameraBuffers[i]->getHandle(), "previousFrameCameraBuffers for frame #" + std::to_string(i));
-    }
+
+    previousFrameCameraBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
+    setDebugUtilsObjectName(device->getHandle(), previousFrameCameraBuffer->getHandle(), "previousFrameCameraBuffer");
 
     bufferInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
     bufferInfo.size = sizeof(LightData) * maxLightCount;
-    for (uint32_t i = 0; i < maxFramesInFlight; ++i)
-    {
-        frameData.lightBuffers[i] = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
-        setDebugUtilsObjectName(device->getHandle(), frameData.lightBuffers[i]->getHandle(), "lightBuffers for frame #" + std::to_string(i));
-    }
+
+    lightBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
+    setDebugUtilsObjectName(device->getHandle(), lightBuffer->getHandle(), "lightBuffer");
 }
 
 void MainApp::createSSBOs()
@@ -3410,18 +3402,13 @@ void MainApp::createSSBOs()
     VmaAllocationCreateInfo memoryInfo{};
     memoryInfo.usage = VMA_MEMORY_USAGE_CPU_TO_GPU; // TODO: we should use staging buffers instead
 
-    for (uint32_t i = 0; i < maxFramesInFlight; ++i)
-    {
-        frameData.objectBuffers[i] = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
-        setDebugUtilsObjectName(device->getHandle(), frameData.objectBuffers[i]->getHandle(), "objectBuffers for frame #" + std::to_string(i));
-    }
+    objectBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
+    setDebugUtilsObjectName(device->getHandle(), objectBuffer->getHandle(), "objectBuffer");
 
     bufferInfo.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-    for (uint32_t i = 0; i < maxFramesInFlight; ++i)
-    {
-        frameData.previousFrameObjectBuffers[i] = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
-        setDebugUtilsObjectName(device->getHandle(), frameData.previousFrameObjectBuffers[i]->getHandle(), "previousFrameObjectBuffers for frame #" + std::to_string(i));
-    }
+
+    previousFrameObjectBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
+    setDebugUtilsObjectName(device->getHandle(), previousFrameObjectBuffer->getHandle(), "previousFrameObjectBuffer");
 }
 
 // Setup and fill the compute shader storage buffers containing the particles
@@ -3430,7 +3417,7 @@ void MainApp::prepareParticleData()
     computeParticlesPushConstant.particleCount = to_u32(attractors.size()) * particlesPerAttractor;
 
     // Initial particle positions
-    particleBuffer.resize(computeParticlesPushConstant.particleCount);
+    allParticleData.resize(computeParticlesPushConstant.particleCount);
 
     std::default_random_engine      rndEngine((unsigned)time(nullptr));
     std::normal_distribution<float> rndDistribution(0.0f, 1.0f);
@@ -3439,7 +3426,7 @@ void MainApp::prepareParticleData()
     {
         for (uint32_t j = 0; j < particlesPerAttractor; j++)
         {
-            Particle &particle = particleBuffer[i * particlesPerAttractor + j];
+            Particle &particle = allParticleData[i * particlesPerAttractor + j];
 
             // First particle in group as heavy center of gravity
             if (j == 0)
@@ -3468,7 +3455,7 @@ void MainApp::prepareParticleData()
         }
     }
 
-    particleBufferSize = particleBuffer.size() * sizeof(Particle);
+    particleBufferSize = allParticleData.size() * sizeof(Particle);
 
     VkBufferCreateInfo bufferInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
     bufferInfo.size = particleBufferSize;
@@ -3484,16 +3471,13 @@ void MainApp::prepareParticleData()
     memoryInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 
     void *mappedData = stagingBuffer->map();
-    memcpy(mappedData, particleBuffer.data(), static_cast<size_t>(particleBufferSize));
+    memcpy(mappedData, allParticleData.data(), static_cast<size_t>(particleBufferSize));
     stagingBuffer->unmap();
 
     // SSBO won't be changed on the host after upload so copy to device local memory
-    for (uint32_t i = 0; i < maxFramesInFlight; ++i)
-    {
-        frameData.particleBuffers[i] = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
-        setDebugUtilsObjectName(device->getHandle(), frameData.particleBuffers[i]->getHandle(), "particleBuffers for frame #" + std::to_string(i));
-        copyBufferToBuffer(*stagingBuffer, *(frameData.particleBuffers[i]), particleBufferSize);
-    }
+    particleBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
+    setDebugUtilsObjectName(device->getHandle(), particleBuffer->getHandle(), "particleBuffer");
+    copyBufferToBuffer(*stagingBuffer, *(particleBuffer), particleBufferSize);
 }
 
 // Initialize the fluid simulation buffers
@@ -3566,12 +3550,12 @@ void MainApp::createDescriptorSets()
         setDebugUtilsObjectName(device->getHandle(), frameData.globalDescriptorSets[i]->getHandle(), "globalDescriptorSet for frame #" + std::to_string(i));
 
         VkDescriptorBufferInfo cameraBufferInfo{};
-        cameraBufferInfo.buffer = frameData.cameraBuffers[i]->getHandle();
+        cameraBufferInfo.buffer = cameraBuffer->getHandle();
         cameraBufferInfo.offset = 0;
         cameraBufferInfo.range = sizeof(CameraData);
         
         VkDescriptorBufferInfo lightBufferInfo{};
-        lightBufferInfo.buffer = frameData.lightBuffers[i]->getHandle();
+        lightBufferInfo.buffer = lightBuffer->getHandle();
         lightBufferInfo.offset = 0;
         lightBufferInfo.range = sizeof(LightData) * maxLightCount;
         std::array<VkDescriptorBufferInfo, 2> globalBufferInfos{ cameraBufferInfo, lightBufferInfo };
@@ -3595,7 +3579,7 @@ void MainApp::createDescriptorSets()
         setDebugUtilsObjectName(device->getHandle(), frameData.objectDescriptorSets[i]->getHandle(), "objectDescriptorSet for frame #" + std::to_string(i));
 
         VkDescriptorBufferInfo currentFrameObjectBufferInfo{};
-        currentFrameObjectBufferInfo.buffer = frameData.objectBuffers[i]->getHandle();
+        currentFrameObjectBufferInfo.buffer = objectBuffer->getHandle();
         currentFrameObjectBufferInfo.offset = 0;
         currentFrameObjectBufferInfo.range = sizeof(ObjInstance) * maxInstanceCount;
 
@@ -3676,7 +3660,7 @@ void MainApp::createDescriptorSets()
         
         // Binding 0 is the previous frame camera buffer
         VkDescriptorBufferInfo previousFrameCameraBufferInfo{};
-        previousFrameCameraBufferInfo.buffer = frameData.previousFrameCameraBuffers[i]->getHandle();
+        previousFrameCameraBufferInfo.buffer = previousFrameCameraBuffer->getHandle();
         previousFrameCameraBufferInfo.offset = 0;
         previousFrameCameraBufferInfo.range = sizeof(CameraData);
         std::array<VkDescriptorBufferInfo, 1> taaUniformBufferInfos{ previousFrameCameraBufferInfo };
@@ -3693,7 +3677,7 @@ void MainApp::createDescriptorSets()
 
         // Binding 1 is the previous frame object buffer
         VkDescriptorBufferInfo previousFrameObjectBufferInfo{};
-        previousFrameObjectBufferInfo.buffer = frameData.previousFrameObjectBuffers[i]->getHandle();
+        previousFrameObjectBufferInfo.buffer = previousFrameObjectBuffer->getHandle();
         previousFrameObjectBufferInfo.offset = 0;
         previousFrameObjectBufferInfo.range = sizeof(ObjInstance) * maxInstanceCount;
         std::array<VkDescriptorBufferInfo, 1> taaStorageImageInfos{ previousFrameObjectBufferInfo };
@@ -3718,7 +3702,7 @@ void MainApp::createDescriptorSets()
 
         // Binding 0 is the particle buffer
         VkDescriptorBufferInfo particleBufferInfo{};
-        particleBufferInfo.buffer = frameData.particleBuffers[i]->getHandle();
+        particleBufferInfo.buffer = particleBuffer->getHandle();
         particleBufferInfo.offset = 0;
         particleBufferInfo.range = sizeof(Particle) * computeParticlesPushConstant.particleCount;
         std::array<VkDescriptorBufferInfo, 1> particleComputeStorageBufferInfos{ particleBufferInfo };
@@ -4032,7 +4016,7 @@ void MainApp::createScene()
     computeParticlesPushConstant.startingIndex = static_cast<int>(objInstances.size());
     for (int i = 0; i < computeParticlesPushConstant.particleCount; ++i)
     {
-        createInstance("cube.obj", glm::translate(glm::scale(glm::mat4{ 1.0 }, glm::vec3(0.2f, 0.2f, 0.2f)), glm::vec3(particleBuffer[i].position.xyz)));
+        createInstance("cube.obj", glm::translate(glm::scale(glm::mat4{ 1.0 }, glm::vec3(0.2f, 0.2f, 0.2f)), glm::vec3(allParticleData[i].position.xyz)));
     }
 
     if (objInstances.size() > maxInstanceCount)
@@ -4601,13 +4585,13 @@ void MainApp::buildTlas(bool update)
     if (update)
     {
         // Update the acceleration structure instance transformations by obtaining the objectBuffer data since the objInstances data is stale
-        void *mappedData = frameData.objectBuffers[currentFrame]->map();
+        void *mappedData = objectBuffer->map();
         ObjInstance *objectSSBO = static_cast<ObjInstance *>(mappedData);
         for (int i = 0; i < objInstances.size(); ++i)
         {
             m_accelerationStructureInstances[i].transform = toTransformMatrixKHR(objectSSBO[i].transform);
         }
-        frameData.objectBuffers[currentFrame]->unmap();
+        objectBuffer->unmap();
     }
     else
     {
