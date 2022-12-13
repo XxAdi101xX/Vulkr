@@ -104,9 +104,9 @@ MainApp::~MainApp()
 void MainApp::cleanupSwapchain()
 {
     // Command buffers
-    for (uint32_t i = 0; i < maxFramesInFlight; ++i)
+    for (uint32_t i = 0u; i < maxFramesInFlight; ++i)
     {
-        for (uint32_t j = 0; j < commandBufferCountForFrame; ++j)
+        for (uint32_t j = 0u; j < commandBufferCountForFrame; ++j)
         {
             frameData.commandBuffers[i][j].reset();
         }
@@ -117,7 +117,7 @@ void MainApp::cleanupSwapchain()
     depthImageView.reset();
 
     // Framebuffers
-    for (uint32_t i = 0; i < maxFramesInFlight; ++i)
+    for (uint32_t i = 0u; i < maxFramesInFlight; ++i)
     {
         frameData.offscreenFramebuffers[i].reset();
         frameData.postProcessFramebuffers[i].reset();
@@ -841,7 +841,7 @@ void MainApp::recreateSwapchain()
     createDescriptorPool();
     createDescriptorSets();
 #ifndef RENDERDOC_DEBUG
-    updateRtDescriptorSet();
+    updateRaytracingDescriptorSet();
 #endif
     createScene();
 
@@ -2946,6 +2946,7 @@ void MainApp::createDepthResources()
     // If we don't propery synchronize between renderpasses that use the same depth buffer, we could have data hazards
     depthImage = std::make_unique<Image>(*device, depthFormat, extent, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VMA_MEMORY_USAGE_GPU_ONLY /* default values for remaining params */);
     depthImageView = std::make_unique<ImageView>(*depthImage, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_DEPTH_BIT, depthFormat);
+
     setDebugUtilsObjectName(device->getHandle(), depthImage->getHandle(), "depthImage");
     setDebugUtilsObjectName(device->getHandle(), depthImageView->getHandle(), "depthImageView");
 }
@@ -4830,7 +4831,7 @@ void MainApp::createRaytracingDescriptorSets()
 }
 
 // Writes the output image to the descriptor set, Required when changing resolution
-void MainApp::updateRtDescriptorSet()
+void MainApp::updateRaytracingDescriptorSet()
 {
     for (uint32_t i = 0; i < maxFramesInFlight; ++i)
     {

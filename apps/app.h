@@ -430,6 +430,7 @@ private:
 
     size_t currentFrame{ 0 };
 
+    // Currently unused; used when MULTI_THREAD is defined
     std::mutex bufferMutex;
     std::mutex commandPoolMutex;
     std::condition_variable commandPoolCv;
@@ -563,7 +564,7 @@ private:
     void createRaytracingDescriptorLayout();
     void createRaytracingDescriptorSets();
 
-    void updateRtDescriptorSet();
+    void updateRaytracingDescriptorSet();
     void createRaytracingPipeline();
     void createRaytracingShaderBindingTable(); // https://www.willusher.io/graphics/2019/11/20/the-sbt-three-ways is a great resource on how the SBT works and how we should be organizing our shaders into primary and occlusion hit groups
 

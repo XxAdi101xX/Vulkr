@@ -165,7 +165,12 @@ VKAPI_ATTR VkBool32 VKAPI_CALL Instance::debugUtilsMessengerCallback(
         messageIdName =  "";
     }
 
-    if (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT)
+    if (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT)
+    {
+        // Log messages that are triggered after the cleanup process begin to fail since it seems like the spdlog context cleanup process has already begun
+        std::cerr << pCallbackData->messageIdNumber << " - " << messageIdName << ": " << pCallbackData->pMessage << std::endl;
+    }
+    else if (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT)
     {
         LOGI("{} - {}: {}", pCallbackData->messageIdNumber, messageIdName, pCallbackData->pMessage);
     }
@@ -176,11 +181,6 @@ VKAPI_ATTR VkBool32 VKAPI_CALL Instance::debugUtilsMessengerCallback(
     else if (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
     {
         LOGE("{} - {}: {}", pCallbackData->messageIdNumber,messageIdName, pCallbackData->pMessage);
-    }
-    else if (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT)
-    {
-        // TODO: Log messages that are triggered after the cleanup process begin to fail since it seems like the spdlog context cleanup process has already begun
-        std::cerr << pCallbackData->messageIdNumber << " - " << messageIdName << ": " << pCallbackData->pMessage << std::endl;
     }
 
     return VK_FALSE;

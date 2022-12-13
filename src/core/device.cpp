@@ -199,14 +199,16 @@ Device::~Device()
 {
 	if (memoryAllocator != VK_NULL_HANDLE)
 	{
+#ifdef VULKR_DEBUG
 		VmaTotalStatistics stats;
 		vmaCalculateStatistics(memoryAllocator, &stats);
 
 		VkDeviceSize unusedBytes = stats.total.statistics.blockBytes - stats.total.statistics.allocationBytes;
 		if (unusedBytes > 0)
 		{
-			std::cerr << "Total device memory leaked: " << unusedBytes << " bytes\n";
+			LOGE("Total vma memory leaked: {} bytes", unusedBytes);
 		}
+#endif
 
 		vmaDestroyAllocator(memoryAllocator);
 	}

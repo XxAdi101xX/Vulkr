@@ -50,6 +50,7 @@ public:
 		const uint32_t *pQueueFamilyIndices = nullptr
 	);
 
+	// This constructor is used to store swapchain image info, which does not need to be created from a vmaCreateImage call
 	Image(
 		Device &device,
 		VkImage handle,

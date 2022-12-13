@@ -30,7 +30,7 @@
 
 #include "logger.h"
 
-#define VULKR_DEBUG /* Enable the validation layers */
+#define VULKR_DEBUG /* Enable the validation layers and all debugging messages */
 
 //#define RENDERDOC_DEBUG /* Disable extensions unsupported by RenderDoc (like raytracing) in order to use it to debug this application */
 
