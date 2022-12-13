@@ -390,16 +390,12 @@ private:
 
         std::array<std::unique_ptr<CommandPool>, maxFramesInFlight> commandPools;
         std::array<std::array<std::shared_ptr<CommandBuffer>, commandBufferCountForFrame>, maxFramesInFlight> commandBuffers;
-
-        std::array<std::unique_ptr<DescriptorSet>, maxFramesInFlight> globalDescriptorSets;
-        std::array<std::unique_ptr<DescriptorSet>, maxFramesInFlight> objectDescriptorSets;
-        std::array<std::unique_ptr<DescriptorSet>, maxFramesInFlight> postProcessingDescriptorSets;
-        std::array<std::unique_ptr<DescriptorSet>, maxFramesInFlight> taaDescriptorSets;
-        std::array<std::unique_ptr<DescriptorSet>, maxFramesInFlight> particleComputeDescriptorSets;
-        std::array<std::unique_ptr<DescriptorSet>, maxFramesInFlight> rtDescriptorSets;
-
     } frameData;
 
+    // Clear values
+    std::vector<VkClearValue> offscreenFramebufferClearValues;
+    std::vector<VkClearValue> postProcessFramebufferClearValues;
+    
     // Buffers
     std::unique_ptr<Buffer> lightBuffer;
     std::unique_ptr<Buffer> cameraBuffer;
@@ -421,14 +417,16 @@ private:
     std::unique_ptr<Texture> fluidDensityInputTexture;
     std::unique_ptr<Texture> fluidSimulationOutputTexture; // Generic backbuffer for all of the fluid simulation stages
 
-    std::vector<VkClearValue> offscreenFramebufferClearValues;
-    std::vector<VkClearValue> postProcessFramebufferClearValues;
-
     // Descriptor sets
+    std::unique_ptr<DescriptorSet> globalDescriptorSet;
+    std::unique_ptr<DescriptorSet> objectDescriptorSet;
+    std::unique_ptr<DescriptorSet> postProcessingDescriptorSet;
+    std::unique_ptr<DescriptorSet> taaDescriptorSet;
+    std::unique_ptr<DescriptorSet> particleComputeDescriptorSet;
     std::unique_ptr<DescriptorSet> textureDescriptorSet; // This is currently only read by shaders
     std::unique_ptr<DescriptorSet> fluidSimulationInputDescriptorSet;
     std::unique_ptr<DescriptorSet> fluidSimulationOutputDescriptorSet;
-
+    std::unique_ptr<DescriptorSet> raytracingDescriptorSet;
 
     size_t currentFrame{ 0 };
 
@@ -561,13 +559,13 @@ private:
     void buildBlas();
     void buildTlas(bool update);
 
-    void createRtDescriptorPool();
-    void createRtDescriptorLayout();
-    void createRtDescriptorSets();
+    void createRaytracingDescriptorPool();
+    void createRaytracingDescriptorLayout();
+    void createRaytracingDescriptorSets();
 
     void updateRtDescriptorSet();
-    void createRtPipeline();
-    void createRtShaderBindingTable(); // https://www.willusher.io/graphics/2019/11/20/the-sbt-three-ways is a great resource on how the SBT works and how we should be organizing our shaders into primary and occlusion hit groups
+    void createRaytracingPipeline();
+    void createRaytracingShaderBindingTable(); // https://www.willusher.io/graphics/2019/11/20/the-sbt-three-ways is a great resource on how the SBT works and how we should be organizing our shaders into primary and occlusion hit groups
 
     void raytrace();
 }; // class MainApp

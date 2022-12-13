@@ -103,6 +103,7 @@ MainApp::~MainApp()
 
 void MainApp::cleanupSwapchain()
 {
+    // Command buffers
     for (uint32_t i = 0; i < maxFramesInFlight; ++i)
     {
         for (uint32_t j = 0; j < commandBufferCountForFrame; ++j)
@@ -111,15 +112,18 @@ void MainApp::cleanupSwapchain()
         }
     }
 
+    // Depth image
     depthImage.reset();
     depthImageView.reset();
 
+    // Framebuffers
     for (uint32_t i = 0; i < maxFramesInFlight; ++i)
     {
         frameData.offscreenFramebuffers[i].reset();
         frameData.postProcessFramebuffers[i].reset();
     }
 
+    // Pipelines
     pipelines.offscreen.pipeline.reset();
     pipelines.offscreen.pipelineState.reset();
     pipelines.postProcess.pipeline.reset();
@@ -147,6 +151,7 @@ void MainApp::cleanupSwapchain()
     pipelines.rayTracing.pipeline.reset();
     pipelines.rayTracing.pipelineState.reset();
 
+    // Renderpasses
     mainRenderPass.renderPass.reset();
     mainRenderPass.subpasses.clear();
     mainRenderPass.inputAttachments.clear();
@@ -163,16 +168,8 @@ void MainApp::cleanupSwapchain()
     postRenderPass.depthStencilAttachments.clear();
     postRenderPass.preserveAttachments.clear();
 
+    // Swapchain
     swapchain.reset();
-
-    for (uint32_t i = 0; i < maxFramesInFlight; ++i)
-    {
-        // Per-frame descriptor sets
-        frameData.globalDescriptorSets[i].reset();
-        frameData.objectDescriptorSets[i].reset();
-        frameData.postProcessingDescriptorSets[i].reset();
-        frameData.taaDescriptorSets[i].reset();
-    }
 
     // Buffers
     lightBuffer.reset();
@@ -183,10 +180,17 @@ void MainApp::cleanupSwapchain()
     particleBuffer.reset();
 
     // Descriptor Sets
+    globalDescriptorSet.reset();
+    objectDescriptorSet.reset();
+    postProcessingDescriptorSet.reset();
+    taaDescriptorSet.reset();
+    particleComputeDescriptorSet.reset();
+    // textureDescriptorSet.reset(); // Don't need to reset textureDescriptorSet this one up on recreate since the texture data is the same across different swapchain configurations
+    raytracingDescriptorSet.reset();
     fluidSimulationInputDescriptorSet.reset();
     fluidSimulationOutputDescriptorSet.reset();
 
-    // Images
+    // Textures
     outputImageTexture->image.reset();
     outputImageTexture->imageview.reset();
     copyOutputImageTexture->image.reset();
@@ -317,11 +321,11 @@ void MainApp::prepare()
 #ifndef RENDERDOC_DEBUG
     buildBlas();
     buildTlas(false);
-    createRtDescriptorPool();
-    createRtDescriptorLayout();
-    createRtDescriptorSets();
-    createRtPipeline();
-    createRtShaderBindingTable();
+    createRaytracingDescriptorPool();
+    createRaytracingDescriptorLayout();
+    createRaytracingDescriptorSets();
+    createRaytracingPipeline();
+    createRaytracingShaderBindingTable();
 #endif
 
     createSemaphoreAndFencePools();
@@ -1034,7 +1038,7 @@ void MainApp::animateWithCompute()
 
     PipelineData &pipelineData = pipelines.computeModelAnimation;
     vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipeline->getHandle());
-    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipelineState->getPipelineLayout().getHandle(), 0, 1, &frameData.objectDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
+    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipelineState->getPipelineLayout().getHandle(), 0, 1, &objectDescriptorSet->getHandle(), 0, nullptr);
     vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstant), &computePushConstant);
     vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), objModels[wusonModelIndex].indicesCount / m_workGroupSize, 1u, 1u);
 }
@@ -1071,7 +1075,7 @@ void MainApp::computeParticles()
 
     // First pass: Calculate particle movement
     vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeParticleCalculate.pipeline->getBindPoint(), pipelines.computeParticleCalculate.pipeline->getHandle());
-    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeParticleCalculate.pipeline->getBindPoint(), pipelines.computeParticleCalculate.pipelineState->getPipelineLayout().getHandle(), 0u, 1u, &frameData.particleComputeDescriptorSets[currentFrame]->getHandle(), 0u, nullptr);
+    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeParticleCalculate.pipeline->getBindPoint(), pipelines.computeParticleCalculate.pipelineState->getPipelineLayout().getHandle(), 0u, 1u, &particleComputeDescriptorSet->getHandle(), 0u, nullptr);
     vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeParticleCalculate.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0u, sizeof(ComputeParticlesPushConstant), &computeParticlesPushConstant);
     vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), to_u32(computeParticlesPushConstant.particleCount / m_workGroupSize) + 1u, 1u, 1u);
 
@@ -1096,8 +1100,8 @@ void MainApp::computeParticles()
 
     // Second pass: Integrate particles
     vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeParticleIntegrate.pipeline->getBindPoint(), pipelines.computeParticleIntegrate.pipeline->getHandle());
-    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeParticleIntegrate.pipeline->getBindPoint(), pipelines.computeParticleIntegrate.pipelineState->getPipelineLayout().getHandle(), 0u, 1u, &frameData.particleComputeDescriptorSets[currentFrame]->getHandle(), 0u, nullptr);
-    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeParticleIntegrate.pipeline->getBindPoint(), pipelines.computeParticleIntegrate.pipelineState->getPipelineLayout().getHandle(), 1u, 1u, &frameData.objectDescriptorSets[currentFrame]->getHandle(), 0u, nullptr);
+    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeParticleIntegrate.pipeline->getBindPoint(), pipelines.computeParticleIntegrate.pipelineState->getPipelineLayout().getHandle(), 0u, 1u, &particleComputeDescriptorSet->getHandle(), 0u, nullptr);
+    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeParticleIntegrate.pipeline->getBindPoint(), pipelines.computeParticleIntegrate.pipelineState->getPipelineLayout().getHandle(), 1u, 1u, &objectDescriptorSet->getHandle(), 0u, nullptr);
     vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeParticleIntegrate.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0u, sizeof(ComputeParticlesPushConstant), &computeParticlesPushConstant);
     vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), to_u32(computeParticlesPushConstant.particleCount / m_workGroupSize) + 1u, 1u, 1u); // round up invocation
 
@@ -1591,16 +1595,16 @@ void MainApp::rasterize()
     vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipeline->getHandle());
 
     // Global data descriptor
-    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipelineState->getPipelineLayout().getHandle(), 0u, 1u, &frameData.globalDescriptorSets[currentFrame]->getHandle(), 0u, nullptr);
+    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipelineState->getPipelineLayout().getHandle(), 0u, 1u, &globalDescriptorSet->getHandle(), 0u, nullptr);
 
     // Object data descriptor
-    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipelineState->getPipelineLayout().getHandle(), 1u, 1u, &frameData.objectDescriptorSets[currentFrame]->getHandle(), 0u, nullptr);
+    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipelineState->getPipelineLayout().getHandle(), 1u, 1u, &objectDescriptorSet->getHandle(), 0u, nullptr);
 
     // Texture descriptor
     vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipelineState->getPipelineLayout().getHandle(), 2u, 1u, &textureDescriptorSet->getHandle(), 0u, nullptr);
 
     // Taa data descriptor
-    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipelineState->getPipelineLayout().getHandle(), 3u, 1u, &frameData.taaDescriptorSets[currentFrame]->getHandle(), 0u, nullptr);
+    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipelineState->getPipelineLayout().getHandle(), 3u, 1u, &taaDescriptorSet->getHandle(), 0u, nullptr);
 
     // Push constants
     vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_VERTEX_BIT, 0u, sizeof(TaaPushConstant), &taaPushConstant);
@@ -1638,7 +1642,7 @@ void MainApp::postProcess()
     vkCmdBindPipeline(frameData.commandBuffers[currentFrame][1]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipeline->getHandle());
 
     // Post processing descriptor
-    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][1]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipelineState->getPipelineLayout().getHandle(), 0, 1, &frameData.postProcessingDescriptorSets[currentFrame]->getHandle(), 0, nullptr);
+    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][1]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipelineState->getPipelineLayout().getHandle(), 0, 1, &postProcessingDescriptorSet->getHandle(), 0, nullptr);
     
     // Limit blending once enough frames have been occumulated (this optimization is commented out since it is only relavent for static scenes)
     //float blendFactor = 0.0f;
@@ -3539,200 +3543,181 @@ void MainApp::createDescriptorPool()
 
 void MainApp::createDescriptorSets()
 {
-    for (uint32_t i = 0u; i < maxFramesInFlight; ++i)
-    {
-        // Global Descriptor Set
-        VkDescriptorSetAllocateInfo globalDescriptorSetAllocateInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
-        globalDescriptorSetAllocateInfo.descriptorPool = descriptorPool->getHandle();
-        globalDescriptorSetAllocateInfo.descriptorSetCount = 1;
-        globalDescriptorSetAllocateInfo.pSetLayouts = &globalDescriptorSetLayout->getHandle();
-        frameData.globalDescriptorSets[i] = std::make_unique<DescriptorSet>(*device, globalDescriptorSetAllocateInfo);
-        setDebugUtilsObjectName(device->getHandle(), frameData.globalDescriptorSets[i]->getHandle(), "globalDescriptorSet for frame #" + std::to_string(i));
+    // Global Descriptor Set
+    VkDescriptorSetAllocateInfo globalDescriptorSetAllocateInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+    globalDescriptorSetAllocateInfo.descriptorPool = descriptorPool->getHandle();
+    globalDescriptorSetAllocateInfo.descriptorSetCount = 1;
+    globalDescriptorSetAllocateInfo.pSetLayouts = &globalDescriptorSetLayout->getHandle();
+    globalDescriptorSet = std::make_unique<DescriptorSet>(*device, globalDescriptorSetAllocateInfo);
+    setDebugUtilsObjectName(device->getHandle(), globalDescriptorSet->getHandle(), "globalDescriptorSet");
 
-        VkDescriptorBufferInfo cameraBufferInfo{};
-        cameraBufferInfo.buffer = cameraBuffer->getHandle();
-        cameraBufferInfo.offset = 0;
-        cameraBufferInfo.range = sizeof(CameraData);
+    VkDescriptorBufferInfo cameraBufferInfo{};
+    cameraBufferInfo.buffer = cameraBuffer->getHandle();
+    cameraBufferInfo.offset = 0;
+    cameraBufferInfo.range = sizeof(CameraData);
         
-        VkDescriptorBufferInfo lightBufferInfo{};
-        lightBufferInfo.buffer = lightBuffer->getHandle();
-        lightBufferInfo.offset = 0;
-        lightBufferInfo.range = sizeof(LightData) * maxLightCount;
-        std::array<VkDescriptorBufferInfo, 2> globalBufferInfos{ cameraBufferInfo, lightBufferInfo };
+    VkDescriptorBufferInfo lightBufferInfo{};
+    lightBufferInfo.buffer = lightBuffer->getHandle();
+    lightBufferInfo.offset = 0;
+    lightBufferInfo.range = sizeof(LightData) * maxLightCount;
+    std::array<VkDescriptorBufferInfo, 2> globalBufferInfos{ cameraBufferInfo, lightBufferInfo };
 
-        VkWriteDescriptorSet writeGlobalDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        writeGlobalDescriptorSet.dstSet = frameData.globalDescriptorSets[i]->getHandle();
-        writeGlobalDescriptorSet.dstBinding = 0;
-        writeGlobalDescriptorSet.dstArrayElement = 0;
-        writeGlobalDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        writeGlobalDescriptorSet.descriptorCount = to_u32(globalBufferInfos.size());
-        writeGlobalDescriptorSet.pBufferInfo = globalBufferInfos.data();
-        writeGlobalDescriptorSet.pImageInfo = nullptr;
-        writeGlobalDescriptorSet.pTexelBufferView = nullptr;
+    VkWriteDescriptorSet writeGlobalDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+    writeGlobalDescriptorSet.dstSet = globalDescriptorSet->getHandle();
+    writeGlobalDescriptorSet.dstBinding = 0;
+    writeGlobalDescriptorSet.dstArrayElement = 0;
+    writeGlobalDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    writeGlobalDescriptorSet.descriptorCount = to_u32(globalBufferInfos.size());
+    writeGlobalDescriptorSet.pBufferInfo = globalBufferInfos.data();
+    writeGlobalDescriptorSet.pImageInfo = nullptr;
+    writeGlobalDescriptorSet.pTexelBufferView = nullptr;
 
-        // Object Descriptor Set
-        VkDescriptorSetAllocateInfo objectDescriptorSetAllocateInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
-        objectDescriptorSetAllocateInfo.descriptorPool = descriptorPool->getHandle();
-        objectDescriptorSetAllocateInfo.descriptorSetCount = 1;
-        objectDescriptorSetAllocateInfo.pSetLayouts = &objectDescriptorSetLayout->getHandle();
-        frameData.objectDescriptorSets[i] = std::make_unique<DescriptorSet>(*device, objectDescriptorSetAllocateInfo);
-        setDebugUtilsObjectName(device->getHandle(), frameData.objectDescriptorSets[i]->getHandle(), "objectDescriptorSet for frame #" + std::to_string(i));
+    // Object Descriptor Set
+    VkDescriptorSetAllocateInfo objectDescriptorSetAllocateInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+    objectDescriptorSetAllocateInfo.descriptorPool = descriptorPool->getHandle();
+    objectDescriptorSetAllocateInfo.descriptorSetCount = 1;
+    objectDescriptorSetAllocateInfo.pSetLayouts = &objectDescriptorSetLayout->getHandle();
+    objectDescriptorSet = std::make_unique<DescriptorSet>(*device, objectDescriptorSetAllocateInfo);
+    setDebugUtilsObjectName(device->getHandle(), objectDescriptorSet->getHandle(), "objectDescriptorSet");
 
-        VkDescriptorBufferInfo currentFrameObjectBufferInfo{};
-        currentFrameObjectBufferInfo.buffer = objectBuffer->getHandle();
-        currentFrameObjectBufferInfo.offset = 0;
-        currentFrameObjectBufferInfo.range = sizeof(ObjInstance) * maxInstanceCount;
+    VkDescriptorBufferInfo currentFrameObjectBufferInfo{};
+    currentFrameObjectBufferInfo.buffer = objectBuffer->getHandle();
+    currentFrameObjectBufferInfo.offset = 0;
+    currentFrameObjectBufferInfo.range = sizeof(ObjInstance) * maxInstanceCount;
 
-        VkWriteDescriptorSet writeObjectDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        writeObjectDescriptorSet.dstSet = frameData.objectDescriptorSets[i]->getHandle();
-        writeObjectDescriptorSet.dstBinding = 0;
-        writeObjectDescriptorSet.dstArrayElement = 0;
-        writeObjectDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        writeObjectDescriptorSet.descriptorCount = 1;
-        writeObjectDescriptorSet.pBufferInfo = &currentFrameObjectBufferInfo;
-        writeObjectDescriptorSet.pImageInfo = nullptr;
-        writeObjectDescriptorSet.pTexelBufferView = nullptr;
+    VkWriteDescriptorSet writeObjectDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+    writeObjectDescriptorSet.dstSet = objectDescriptorSet->getHandle();
+    writeObjectDescriptorSet.dstBinding = 0;
+    writeObjectDescriptorSet.dstArrayElement = 0;
+    writeObjectDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    writeObjectDescriptorSet.descriptorCount = 1;
+    writeObjectDescriptorSet.pBufferInfo = &currentFrameObjectBufferInfo;
+    writeObjectDescriptorSet.pImageInfo = nullptr;
+    writeObjectDescriptorSet.pTexelBufferView = nullptr;
 
-        // Post Processing Descriptor Set
-        VkDescriptorSetAllocateInfo postProcessingDescriptorSetAllocateInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
-        postProcessingDescriptorSetAllocateInfo.descriptorPool = descriptorPool->getHandle();
-        postProcessingDescriptorSetAllocateInfo.descriptorSetCount = 1;
-        postProcessingDescriptorSetAllocateInfo.pSetLayouts = &postProcessingDescriptorSetLayout->getHandle();
-        frameData.postProcessingDescriptorSets[i] = std::make_unique<DescriptorSet>(*device, postProcessingDescriptorSetAllocateInfo);
-        setDebugUtilsObjectName(device->getHandle(), frameData.postProcessingDescriptorSets[i]->getHandle(), "postProcessingDescriptorSet for frame #" + std::to_string(i));
+    // Post Processing Descriptor Set
+    VkDescriptorSetAllocateInfo postProcessingDescriptorSetAllocateInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+    postProcessingDescriptorSetAllocateInfo.descriptorPool = descriptorPool->getHandle();
+    postProcessingDescriptorSetAllocateInfo.descriptorSetCount = 1;
+    postProcessingDescriptorSetAllocateInfo.pSetLayouts = &postProcessingDescriptorSetLayout->getHandle();
+    postProcessingDescriptorSet = std::make_unique<DescriptorSet>(*device, postProcessingDescriptorSetAllocateInfo);
+    setDebugUtilsObjectName(device->getHandle(), postProcessingDescriptorSet->getHandle(), "postProcessingDescriptorSet");
 
-        // Binding 0 is the camera buffer
-        std::array<VkDescriptorBufferInfo, 1> postProcessingUniformBufferInfos{ cameraBufferInfo };
-        VkWriteDescriptorSet writePostProcessingUniformBufferDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        writePostProcessingUniformBufferDescriptorSet.dstSet = frameData.postProcessingDescriptorSets[i]->getHandle();
-        writePostProcessingUniformBufferDescriptorSet.dstBinding = 0;
-        writePostProcessingUniformBufferDescriptorSet.dstArrayElement = 0;
-        writePostProcessingUniformBufferDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        writePostProcessingUniformBufferDescriptorSet.descriptorCount = to_u32(postProcessingUniformBufferInfos.size());
-        writePostProcessingUniformBufferDescriptorSet.pBufferInfo = postProcessingUniformBufferInfos.data();
-        writePostProcessingUniformBufferDescriptorSet.pImageInfo = nullptr;
-        writePostProcessingUniformBufferDescriptorSet.pTexelBufferView = nullptr;
+    // Binding 0 is the camera buffer
+    std::array<VkDescriptorBufferInfo, 1> postProcessingUniformBufferInfos{ cameraBufferInfo };
+    VkWriteDescriptorSet writePostProcessingUniformBufferDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+    writePostProcessingUniformBufferDescriptorSet.dstSet = postProcessingDescriptorSet->getHandle();
+    writePostProcessingUniformBufferDescriptorSet.dstBinding = 0;
+    writePostProcessingUniformBufferDescriptorSet.dstArrayElement = 0;
+    writePostProcessingUniformBufferDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    writePostProcessingUniformBufferDescriptorSet.descriptorCount = to_u32(postProcessingUniformBufferInfos.size());
+    writePostProcessingUniformBufferDescriptorSet.pBufferInfo = postProcessingUniformBufferInfos.data();
+    writePostProcessingUniformBufferDescriptorSet.pImageInfo = nullptr;
+    writePostProcessingUniformBufferDescriptorSet.pTexelBufferView = nullptr;
 
-        // Binding 1 is the currentFrameObjectBuffer
-        std::array<VkDescriptorBufferInfo, 1> postProcessingStorageBufferInfos{ currentFrameObjectBufferInfo };
-        VkWriteDescriptorSet writePostProcessingStorageBufferDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        writePostProcessingStorageBufferDescriptorSet.dstSet = frameData.postProcessingDescriptorSets[i]->getHandle();
-        writePostProcessingStorageBufferDescriptorSet.dstBinding = 1;
-        writePostProcessingStorageBufferDescriptorSet.dstArrayElement = 0;
-        writePostProcessingStorageBufferDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        writePostProcessingStorageBufferDescriptorSet.descriptorCount = to_u32(postProcessingStorageBufferInfos.size());
-        writePostProcessingStorageBufferDescriptorSet.pBufferInfo = postProcessingStorageBufferInfos.data();
-        writePostProcessingStorageBufferDescriptorSet.pImageInfo = nullptr;
-        writePostProcessingStorageBufferDescriptorSet.pTexelBufferView = nullptr;
+    // Binding 1 is the currentFrameObjectBuffer
+    std::array<VkDescriptorBufferInfo, 1> postProcessingStorageBufferInfos{ currentFrameObjectBufferInfo };
+    VkWriteDescriptorSet writePostProcessingStorageBufferDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+    writePostProcessingStorageBufferDescriptorSet.dstSet = postProcessingDescriptorSet->getHandle();
+    writePostProcessingStorageBufferDescriptorSet.dstBinding = 1;
+    writePostProcessingStorageBufferDescriptorSet.dstArrayElement = 0;
+    writePostProcessingStorageBufferDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    writePostProcessingStorageBufferDescriptorSet.descriptorCount = to_u32(postProcessingStorageBufferInfos.size());
+    writePostProcessingStorageBufferDescriptorSet.pBufferInfo = postProcessingStorageBufferInfos.data();
+    writePostProcessingStorageBufferDescriptorSet.pImageInfo = nullptr;
+    writePostProcessingStorageBufferDescriptorSet.pTexelBufferView = nullptr;
 
-        // Bindings 2, 3 and 4 are the history image, velocity image and copy output image respectively
-        VkDescriptorImageInfo historyImageInfo{};
-        historyImageInfo.sampler = VK_NULL_HANDLE;
-        historyImageInfo.imageView = historyImageTexture->imageview->getHandle();
-        historyImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-        VkDescriptorImageInfo velocityImageInfo{};
-        velocityImageInfo.sampler = VK_NULL_HANDLE;
-        velocityImageInfo.imageView = velocityImageTexture->imageview->getHandle();
-        velocityImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-        VkDescriptorImageInfo copyOutputImageInfo{};
-        copyOutputImageInfo.sampler = VK_NULL_HANDLE;
-        copyOutputImageInfo.imageView = copyOutputImageTexture->imageview->getHandle();
-        copyOutputImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-        std::array<VkDescriptorImageInfo, 3> postProcessingStorageImageInfos{ historyImageInfo, velocityImageInfo, copyOutputImageInfo };
+    // Bindings 2, 3 and 4 are the history image, velocity image and copy output image respectively
+    VkDescriptorImageInfo historyImageInfo{};
+    historyImageInfo.sampler = VK_NULL_HANDLE;
+    historyImageInfo.imageView = historyImageTexture->imageview->getHandle();
+    historyImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+    VkDescriptorImageInfo velocityImageInfo{};
+    velocityImageInfo.sampler = VK_NULL_HANDLE;
+    velocityImageInfo.imageView = velocityImageTexture->imageview->getHandle();
+    velocityImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+    VkDescriptorImageInfo copyOutputImageInfo{};
+    copyOutputImageInfo.sampler = VK_NULL_HANDLE;
+    copyOutputImageInfo.imageView = copyOutputImageTexture->imageview->getHandle();
+    copyOutputImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+    std::array<VkDescriptorImageInfo, 3> postProcessingStorageImageInfos{ historyImageInfo, velocityImageInfo, copyOutputImageInfo };
         
-        VkWriteDescriptorSet writePostProcessingStorageImageDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        writePostProcessingStorageImageDescriptorSet.dstSet = frameData.postProcessingDescriptorSets[i]->getHandle();
-        writePostProcessingStorageImageDescriptorSet.dstBinding = 2;
-        writePostProcessingStorageImageDescriptorSet.dstArrayElement = 0;
-        writePostProcessingStorageImageDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-        writePostProcessingStorageImageDescriptorSet.descriptorCount = to_u32(postProcessingStorageImageInfos.size());
-        writePostProcessingStorageImageDescriptorSet.pImageInfo = postProcessingStorageImageInfos.data();
-        writePostProcessingStorageImageDescriptorSet.pBufferInfo = nullptr;
-        writePostProcessingStorageImageDescriptorSet.pTexelBufferView = nullptr;
+    VkWriteDescriptorSet writePostProcessingStorageImageDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+    writePostProcessingStorageImageDescriptorSet.dstSet = postProcessingDescriptorSet->getHandle();
+    writePostProcessingStorageImageDescriptorSet.dstBinding = 2;
+    writePostProcessingStorageImageDescriptorSet.dstArrayElement = 0;
+    writePostProcessingStorageImageDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    writePostProcessingStorageImageDescriptorSet.descriptorCount = to_u32(postProcessingStorageImageInfos.size());
+    writePostProcessingStorageImageDescriptorSet.pImageInfo = postProcessingStorageImageInfos.data();
+    writePostProcessingStorageImageDescriptorSet.pBufferInfo = nullptr;
+    writePostProcessingStorageImageDescriptorSet.pTexelBufferView = nullptr;
 
-        // Taa Descriptor Set
-        VkDescriptorSetAllocateInfo taaDescriptorSetAllocateInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
-        taaDescriptorSetAllocateInfo.descriptorPool = descriptorPool->getHandle();
-        taaDescriptorSetAllocateInfo.descriptorSetCount = 1;
-        taaDescriptorSetAllocateInfo.pSetLayouts = &taaDescriptorSetLayout->getHandle();
-        frameData.taaDescriptorSets[i] = std::make_unique<DescriptorSet>(*device, taaDescriptorSetAllocateInfo);
-        setDebugUtilsObjectName(device->getHandle(), frameData.taaDescriptorSets[i]->getHandle(), "taaDescriptorSet for frame #" + std::to_string(i));
+    // Taa Descriptor Set
+    VkDescriptorSetAllocateInfo taaDescriptorSetAllocateInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+    taaDescriptorSetAllocateInfo.descriptorPool = descriptorPool->getHandle();
+    taaDescriptorSetAllocateInfo.descriptorSetCount = 1;
+    taaDescriptorSetAllocateInfo.pSetLayouts = &taaDescriptorSetLayout->getHandle();
+    taaDescriptorSet = std::make_unique<DescriptorSet>(*device, taaDescriptorSetAllocateInfo);
+    setDebugUtilsObjectName(device->getHandle(), taaDescriptorSet->getHandle(), "taaDescriptorSet");
         
-        // Binding 0 is the previous frame camera buffer
-        VkDescriptorBufferInfo previousFrameCameraBufferInfo{};
-        previousFrameCameraBufferInfo.buffer = previousFrameCameraBuffer->getHandle();
-        previousFrameCameraBufferInfo.offset = 0;
-        previousFrameCameraBufferInfo.range = sizeof(CameraData);
-        std::array<VkDescriptorBufferInfo, 1> taaUniformBufferInfos{ previousFrameCameraBufferInfo };
+    // Binding 0 is the previous frame camera buffer
+    VkDescriptorBufferInfo previousFrameCameraBufferInfo{};
+    previousFrameCameraBufferInfo.buffer = previousFrameCameraBuffer->getHandle();
+    previousFrameCameraBufferInfo.offset = 0;
+    previousFrameCameraBufferInfo.range = sizeof(CameraData);
+    std::array<VkDescriptorBufferInfo, 1> taaUniformBufferInfos{ previousFrameCameraBufferInfo };
 
-        VkWriteDescriptorSet writeTaaUniformBufferDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        writeTaaUniformBufferDescriptorSet.dstSet = frameData.taaDescriptorSets[i]->getHandle();
-        writeTaaUniformBufferDescriptorSet.dstBinding = 0;
-        writeTaaUniformBufferDescriptorSet.dstArrayElement = 0;
-        writeTaaUniformBufferDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        writeTaaUniformBufferDescriptorSet.descriptorCount = to_u32(taaUniformBufferInfos.size());
-        writeTaaUniformBufferDescriptorSet.pBufferInfo = taaUniformBufferInfos.data();
-        writeTaaUniformBufferDescriptorSet.pImageInfo = nullptr;
-        writeTaaUniformBufferDescriptorSet.pTexelBufferView = nullptr;
+    VkWriteDescriptorSet writeTaaUniformBufferDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+    writeTaaUniformBufferDescriptorSet.dstSet = taaDescriptorSet->getHandle();
+    writeTaaUniformBufferDescriptorSet.dstBinding = 0;
+    writeTaaUniformBufferDescriptorSet.dstArrayElement = 0;
+    writeTaaUniformBufferDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    writeTaaUniformBufferDescriptorSet.descriptorCount = to_u32(taaUniformBufferInfos.size());
+    writeTaaUniformBufferDescriptorSet.pBufferInfo = taaUniformBufferInfos.data();
+    writeTaaUniformBufferDescriptorSet.pImageInfo = nullptr;
+    writeTaaUniformBufferDescriptorSet.pTexelBufferView = nullptr;
 
-        // Binding 1 is the previous frame object buffer
-        VkDescriptorBufferInfo previousFrameObjectBufferInfo{};
-        previousFrameObjectBufferInfo.buffer = previousFrameObjectBuffer->getHandle();
-        previousFrameObjectBufferInfo.offset = 0;
-        previousFrameObjectBufferInfo.range = sizeof(ObjInstance) * maxInstanceCount;
-        std::array<VkDescriptorBufferInfo, 1> taaStorageImageInfos{ previousFrameObjectBufferInfo };
+    // Binding 1 is the previous frame object buffer
+    VkDescriptorBufferInfo previousFrameObjectBufferInfo{};
+    previousFrameObjectBufferInfo.buffer = previousFrameObjectBuffer->getHandle();
+    previousFrameObjectBufferInfo.offset = 0;
+    previousFrameObjectBufferInfo.range = sizeof(ObjInstance) * maxInstanceCount;
+    std::array<VkDescriptorBufferInfo, 1> taaStorageImageInfos{ previousFrameObjectBufferInfo };
 
-        VkWriteDescriptorSet writeTaaStorageBufferDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        writeTaaStorageBufferDescriptorSet.dstSet = frameData.taaDescriptorSets[i]->getHandle();
-        writeTaaStorageBufferDescriptorSet.dstBinding = 1;
-        writeTaaStorageBufferDescriptorSet.dstArrayElement = 0;
-        writeTaaStorageBufferDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        writeTaaStorageBufferDescriptorSet.descriptorCount = to_u32(taaStorageImageInfos.size());
-        writeTaaStorageBufferDescriptorSet.pBufferInfo = taaStorageImageInfos.data();
-        writeTaaStorageBufferDescriptorSet.pImageInfo = nullptr;
-        writeTaaStorageBufferDescriptorSet.pTexelBufferView = nullptr;
+    VkWriteDescriptorSet writeTaaStorageBufferDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+    writeTaaStorageBufferDescriptorSet.dstSet = taaDescriptorSet->getHandle();
+    writeTaaStorageBufferDescriptorSet.dstBinding = 1;
+    writeTaaStorageBufferDescriptorSet.dstArrayElement = 0;
+    writeTaaStorageBufferDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    writeTaaStorageBufferDescriptorSet.descriptorCount = to_u32(taaStorageImageInfos.size());
+    writeTaaStorageBufferDescriptorSet.pBufferInfo = taaStorageImageInfos.data();
+    writeTaaStorageBufferDescriptorSet.pImageInfo = nullptr;
+    writeTaaStorageBufferDescriptorSet.pTexelBufferView = nullptr;
 
-        // Particle Buffer Descriptor Set
-        VkDescriptorSetAllocateInfo particleComputeDescriptorSetAllocateInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
-        particleComputeDescriptorSetAllocateInfo.descriptorPool = descriptorPool->getHandle();
-        particleComputeDescriptorSetAllocateInfo.descriptorSetCount = 1;
-        particleComputeDescriptorSetAllocateInfo.pSetLayouts = &particleComputeDescriptorSetLayout->getHandle();
-        frameData.particleComputeDescriptorSets[i] = std::make_unique<DescriptorSet>(*device, particleComputeDescriptorSetAllocateInfo);
-        setDebugUtilsObjectName(device->getHandle(), frameData.particleComputeDescriptorSets[i]->getHandle(), "particleComputeDescriptorSet for frame #" + std::to_string(i));
+    // Particle Buffer Descriptor Set
+    VkDescriptorSetAllocateInfo particleComputeDescriptorSetAllocateInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+    particleComputeDescriptorSetAllocateInfo.descriptorPool = descriptorPool->getHandle();
+    particleComputeDescriptorSetAllocateInfo.descriptorSetCount = 1;
+    particleComputeDescriptorSetAllocateInfo.pSetLayouts = &particleComputeDescriptorSetLayout->getHandle();
+    particleComputeDescriptorSet = std::make_unique<DescriptorSet>(*device, particleComputeDescriptorSetAllocateInfo);
+    setDebugUtilsObjectName(device->getHandle(), particleComputeDescriptorSet->getHandle(), "particleComputeDescriptorSet");
 
-        // Binding 0 is the particle buffer
-        VkDescriptorBufferInfo particleBufferInfo{};
-        particleBufferInfo.buffer = particleBuffer->getHandle();
-        particleBufferInfo.offset = 0;
-        particleBufferInfo.range = sizeof(Particle) * computeParticlesPushConstant.particleCount;
-        std::array<VkDescriptorBufferInfo, 1> particleComputeStorageBufferInfos{ particleBufferInfo };
+    // Binding 0 is the particle buffer
+    VkDescriptorBufferInfo particleBufferInfo{};
+    particleBufferInfo.buffer = particleBuffer->getHandle();
+    particleBufferInfo.offset = 0;
+    particleBufferInfo.range = sizeof(Particle) * computeParticlesPushConstant.particleCount;
+    std::array<VkDescriptorBufferInfo, 1> particleComputeStorageBufferInfos{ particleBufferInfo };
 
-        VkWriteDescriptorSet writeParticleComputeStorageBufferDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        writeParticleComputeStorageBufferDescriptorSet.dstSet = frameData.particleComputeDescriptorSets[i]->getHandle();
-        writeParticleComputeStorageBufferDescriptorSet.dstBinding = 0;
-        writeParticleComputeStorageBufferDescriptorSet.dstArrayElement = 0;
-        writeParticleComputeStorageBufferDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        writeParticleComputeStorageBufferDescriptorSet.descriptorCount = to_u32(particleComputeStorageBufferInfos.size());
-        writeParticleComputeStorageBufferDescriptorSet.pBufferInfo = particleComputeStorageBufferInfos.data();
-        writeParticleComputeStorageBufferDescriptorSet.pImageInfo = nullptr;
-        writeParticleComputeStorageBufferDescriptorSet.pTexelBufferView = nullptr;
-
-        // Write descriptor sets
-        std::array<VkWriteDescriptorSet, 8> writeDescriptorSets {
-            writeGlobalDescriptorSet,
-            writeObjectDescriptorSet,
-
-            writePostProcessingUniformBufferDescriptorSet,
-            writePostProcessingStorageBufferDescriptorSet,
-            writePostProcessingStorageImageDescriptorSet,
-
-            writeTaaUniformBufferDescriptorSet,
-            writeTaaStorageBufferDescriptorSet,
-
-            writeParticleComputeStorageBufferDescriptorSet
-        };
-        vkUpdateDescriptorSets(device->getHandle(), to_u32(writeDescriptorSets.size()), writeDescriptorSets.data(), 0, nullptr);
-    }
+    VkWriteDescriptorSet writeParticleComputeStorageBufferDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+    writeParticleComputeStorageBufferDescriptorSet.dstSet = particleComputeDescriptorSet->getHandle();
+    writeParticleComputeStorageBufferDescriptorSet.dstBinding = 0;
+    writeParticleComputeStorageBufferDescriptorSet.dstArrayElement = 0;
+    writeParticleComputeStorageBufferDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    writeParticleComputeStorageBufferDescriptorSet.descriptorCount = to_u32(particleComputeStorageBufferInfos.size());
+    writeParticleComputeStorageBufferDescriptorSet.pBufferInfo = particleComputeStorageBufferInfos.data();
+    writeParticleComputeStorageBufferDescriptorSet.pImageInfo = nullptr;
+    writeParticleComputeStorageBufferDescriptorSet.pTexelBufferView = nullptr;
 
     // Texture Descriptor Set
     VkDescriptorSetAllocateInfo textureDescriptorSetAllocateInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
@@ -3830,13 +3815,24 @@ void MainApp::createDescriptorSets()
     writeFluidSimulationOutputDescriptorSet.pTexelBufferView = nullptr;
 
 
-    std::array<VkWriteDescriptorSet, 3> writeToDescriptorSets
+    std::array<VkWriteDescriptorSet, 11> writeDescriptorSets
     {
+        writeGlobalDescriptorSet,
+        writeObjectDescriptorSet,
+
+        writePostProcessingUniformBufferDescriptorSet,
+        writePostProcessingStorageBufferDescriptorSet,
+        writePostProcessingStorageImageDescriptorSet,
+
+        writeTaaUniformBufferDescriptorSet,
+        writeTaaStorageBufferDescriptorSet,
+
+        writeParticleComputeStorageBufferDescriptorSet,
         writeTextureDescriptorSet,
         writeFluidSimulationInputDescriptorSet,
         writeFluidSimulationOutputDescriptorSet
     };
-    vkUpdateDescriptorSets(device->getHandle(), to_u32(writeToDescriptorSets.size()), writeToDescriptorSets.data(), 0, nullptr);
+    vkUpdateDescriptorSets(device->getHandle(), to_u32(writeDescriptorSets.size()), writeDescriptorSets.data(), 0, nullptr);
 }
 
 void MainApp::createSemaphoreAndFencePools()
@@ -4756,7 +4752,7 @@ VkDeviceAddress MainApp::getBlasDeviceAddress(uint64_t blasId)
     return vkGetAccelerationStructureDeviceAddressKHR(device->getHandle(), &addressInfo);
 }
 
-void MainApp::createRtDescriptorPool()
+void MainApp::createRaytracingDescriptorPool()
 {
     std::vector<VkDescriptorPoolSize> poolSizes{};
     poolSizes.resize(2);
@@ -4768,7 +4764,7 @@ void MainApp::createRtDescriptorPool()
     m_rtDescPool = std::make_unique<DescriptorPool>(*device, poolSizes, 2u, 0);
 }
 
-void MainApp::createRtDescriptorLayout()
+void MainApp::createRaytracingDescriptorLayout()
 {
     VkDescriptorSetLayoutBinding tlasLayoutBinding{};
     tlasLayoutBinding.binding = 0u;
@@ -4791,7 +4787,7 @@ void MainApp::createRtDescriptorLayout()
     m_rtDescSetLayout = std::make_unique<DescriptorSetLayout>(*device, rtDescriptorSetLayoutBindings);
 }
 
-void MainApp::createRtDescriptorSets()
+void MainApp::createRaytracingDescriptorSets()
 {
     for (uint32_t i = 0; i < maxFramesInFlight; ++i)
     {
@@ -4800,15 +4796,15 @@ void MainApp::createRtDescriptorSets()
         allocateInfo.descriptorSetCount = 1u;
         allocateInfo.pSetLayouts = &m_rtDescSetLayout->getHandle();
 
-        frameData.rtDescriptorSets[i] = std::make_unique<DescriptorSet>(*device, allocateInfo);
-        setDebugUtilsObjectName(device->getHandle(), frameData.rtDescriptorSets[i]->getHandle(), "rtDescriptorSet for frame #" + std::to_string(i));
+        raytracingDescriptorSet = std::make_unique<DescriptorSet>(*device, allocateInfo);
+        setDebugUtilsObjectName(device->getHandle(), raytracingDescriptorSet->getHandle(), "rtDescriptorSet for frame #" + std::to_string(i));
 
         VkWriteDescriptorSetAccelerationStructureKHR descASInfo{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR };
         descASInfo.accelerationStructureCount = 1u;
         descASInfo.pAccelerationStructures = &m_tlas->accelerationStructure->accelerationStuctureKHR;
 
         VkWriteDescriptorSet writeAccelerationStructure{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        writeAccelerationStructure.dstSet = frameData.rtDescriptorSets[i]->getHandle();
+        writeAccelerationStructure.dstSet = raytracingDescriptorSet->getHandle();
         writeAccelerationStructure.dstBinding = 0u;
         writeAccelerationStructure.dstArrayElement = 0u;
         writeAccelerationStructure.descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
@@ -4821,7 +4817,7 @@ void MainApp::createRtDescriptorSets()
         outputImageInfo.sampler = {};
 
         VkWriteDescriptorSet writeOutputImage{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        writeOutputImage.dstSet = frameData.rtDescriptorSets[i]->getHandle();
+        writeOutputImage.dstSet = raytracingDescriptorSet->getHandle();
         writeOutputImage.dstBinding = 1u;
         writeOutputImage.dstArrayElement = 0u;
         writeOutputImage.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
@@ -4842,8 +4838,9 @@ void MainApp::updateRtDescriptorSet()
         outputImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
         outputImageInfo.imageView = outputImageTexture->imageview->getHandle();
         outputImageInfo.sampler = {};
+
         VkWriteDescriptorSet writeOutputImage{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        writeOutputImage.dstSet = frameData.rtDescriptorSets[i]->getHandle();
+        writeOutputImage.dstSet = raytracingDescriptorSet->getHandle();
         writeOutputImage.dstBinding = 1u;
         writeOutputImage.dstArrayElement = 0u;
         writeOutputImage.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
@@ -4857,7 +4854,7 @@ void MainApp::updateRtDescriptorSet()
 }
 
 // Pipeline for the ray tracer: all shaders, raygen, chit, miss
-void MainApp::createRtPipeline()
+void MainApp::createRaytracingPipeline()
 {
     std::shared_ptr<ShaderSource> rayGenShader = std::make_shared<ShaderSource>("ray_tracing/raytrace.rgen.spv");
     std::shared_ptr<ShaderSource> rayMissShader = std::make_shared<ShaderSource>("ray_tracing/raytrace.rmiss.spv");
@@ -4954,7 +4951,7 @@ void MainApp::createRtPipeline()
 }
 
 // Creating the Shader Binding Table (SBT)
-void MainApp::createRtShaderBindingTable()
+void MainApp::createRaytracingShaderBindingTable()
 {
     RayTracingPipelineState *rayTracingPipelineState = dynamic_cast<RayTracingPipelineState *>(pipelines.rayTracing.pipelineState.get());
     uint32_t groupCount = to_u32(rayTracingPipelineState->getRayTracingShaderGroups().size());  // 4 shaders: raygen, 2 miss, chit
@@ -5000,9 +4997,9 @@ void MainApp::raytrace()
     debugUtilBeginLabel(frameData.commandBuffers[currentFrame][0]->getHandle(), "Raytrace");
 
     std::array<VkDescriptorSet, 4> descSets {
-        frameData.rtDescriptorSets[currentFrame]->getHandle(), 
-        frameData.globalDescriptorSets[currentFrame]->getHandle(),
-        frameData.objectDescriptorSets[currentFrame]->getHandle(),
+        raytracingDescriptorSet->getHandle(),
+        globalDescriptorSet->getHandle(),
+        objectDescriptorSet->getHandle(),
         textureDescriptorSet->getHandle()
     };
     vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, pipelines.rayTracing.pipeline->getHandle());
