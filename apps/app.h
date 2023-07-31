@@ -167,6 +167,7 @@ struct LightData
     alignas(16) glm::vec3 lightPosition{ 10.0f, 4.3f, 7.1f };
     alignas(4) float lightIntensity{ 140.0f };
     alignas(4) int lightType{ 0 }; // 0: point, 1: directional (infinite)
+    // TODO: to support area lights, look into vector irradiance (Real time rendering page 379) where you can integrate over the various light vectors that an area light emits and convert it into a directional light source  without introducing any errors
 };
 
 // Push constants; note that any modifications to push constants must be matched in the shaders and offsets must be set appropriately including when multiple push constants are defined for different stages (see layout(offset = 16))

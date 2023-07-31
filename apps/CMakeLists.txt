@@ -22,12 +22,17 @@
 
 cmake_minimum_required(VERSION 3.20)
 
-add_executable(app app.cpp app.h)
-
+add_executable(app)
+target_sources(app PRIVATE app.cpp app.h )
+target_link_libraries(app PRIVATE src)
 target_compile_features(app PRIVATE cxx_std_20)
 set_target_properties(app PROPERTIES CXX_EXTENSIONS OFF)
 
-target_link_libraries(app PRIVATE src)
+add_executable(fluid_simulation)
+target_sources(fluid_simulation PRIVATE fluid_simulation.cpp fluid_simulation.h)
+target_link_libraries(fluid_simulation PRIVATE src)
+target_compile_features(fluid_simulation PRIVATE cxx_std_20)
+set_target_properties(fluid_simulation PROPERTIES CXX_EXTENSIONS OFF)
 
 if (MSVC)
     # warning level 4 and all warnings as errors
