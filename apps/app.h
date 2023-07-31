@@ -1,4 +1,4 @@
-/* Copyright (c) 2022 Adithya Venkatarao
+/* Copyright (c) 2023 Adithya Venkatarao
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
@@ -96,11 +96,7 @@ constexpr uint32_t maxInstanceCount{ 10000u };
 constexpr uint32_t maxLightCount{ 100u };
 
 #ifdef VULKR_DEBUG
-#ifdef FLUID_SIMULATION
-constexpr uint32_t particlesPerAttractor{ 4u };
-#else
 constexpr uint32_t particlesPerAttractor{ 64u };
-#endif
 #else
 constexpr uint32_t particlesPerAttractor{ 1024u };
 #endif
@@ -115,7 +111,6 @@ constexpr std::array<glm::vec3, 6> attractors = {
 };
 
 // #define MULTI_THREAD // TODO: enabling multi-threaded loading tentatively works with rasterization but fails for the raytracing pipeline during the buildTlas second call; still a WIP
-//#define FLUID_SIMULATION // Enabling this flag will render the 2D fluid simulation rather than the particle system
 bool raytracingEnabled{ false }; // Flag to enable ray tracing vs rasterization
 bool temporalAntiAliasingEnabled{ false }; // Flag to enable temporal anti-aliasing
 
@@ -208,18 +203,6 @@ struct ComputeParticlesPushConstant
     float deltaTime{ 0.0f };
     int blank{ 0 }; // alignment
 } computeParticlesPushConstant;
-
-struct FluidSimulationPushConstant
-{
-    glm::vec2 gridSize{ 1280.0f, 720.0f };
-    float gridScale{ 1.0f };
-    float timestep{ 1.0f };
-    glm::vec3 splatForce{ glm::vec3(0.0f) };
-    float splatRadius{ 0.60f };
-    glm::vec2 splatPosition{ glm::vec2(0.0f) };
-    float dissipation{ 0.97f };
-    int blank{ 0 }; // padding
-} fluidSimulationPushConstant;
 
 /* CPU only structs */
 struct ObjModel
@@ -359,8 +342,6 @@ private:
     std::unique_ptr<DescriptorSetLayout> postProcessingDescriptorSetLayout{ nullptr };
     std::unique_ptr<DescriptorSetLayout> taaDescriptorSetLayout{ nullptr };
     std::unique_ptr<DescriptorSetLayout> particleComputeDescriptorSetLayout{ nullptr };
-    std::unique_ptr<DescriptorSetLayout> fluidSimulationInputDescriptorSetLayout{ nullptr };
-    std::unique_ptr<DescriptorSetLayout> fluidSimulationOutputDescriptorSetLayout{ nullptr };
     std::unique_ptr<DescriptorPool> descriptorPool;
     std::unique_ptr<DescriptorPool> imguiPool;
 
@@ -411,13 +392,6 @@ private:
     std::unique_ptr<Texture> historyImageTexture;
     std::unique_ptr<Texture> velocityImageTexture;
 
-    // Fluid velocity textures
-    std::unique_ptr<Texture> fluidVelocityInputTexture;
-    std::unique_ptr<Texture> fluidVelocityDivergenceInputTexture;
-    std::unique_ptr<Texture> fluidPressureInputTexture;
-    std::unique_ptr<Texture> fluidDensityInputTexture;
-    std::unique_ptr<Texture> fluidSimulationOutputTexture; // Generic backbuffer for all of the fluid simulation stages
-
     // Descriptor sets
     std::unique_ptr<DescriptorSet> globalDescriptorSet;
     std::unique_ptr<DescriptorSet> objectDescriptorSet;
@@ -425,8 +399,6 @@ private:
     std::unique_ptr<DescriptorSet> taaDescriptorSet;
     std::unique_ptr<DescriptorSet> particleComputeDescriptorSet;
     std::unique_ptr<DescriptorSet> textureDescriptorSet; // This is currently only read by shaders
-    std::unique_ptr<DescriptorSet> fluidSimulationInputDescriptorSet;
-    std::unique_ptr<DescriptorSet> fluidSimulationOutputDescriptorSet;
     std::unique_ptr<DescriptorSet> raytracingDescriptorSet;
 
     size_t currentFrame{ 0 };
@@ -445,13 +417,6 @@ private:
         PipelineData computeModelAnimation;
         PipelineData computeParticleCalculate;
         PipelineData computeParticleIntegrate;
-        PipelineData computeVelocityAdvection;
-        PipelineData computeDensityAdvection;
-        PipelineData computeVelocityGaussianSplat;
-        PipelineData computeDensityGaussianSplat;
-        PipelineData computeFluidVelocityDivergence;
-        PipelineData computeJacobi;
-        PipelineData computeGradientSubtraction;
         PipelineData rayTracing;
     } pipelines;
     std::vector<ObjModel> objModels;
@@ -464,17 +429,11 @@ private:
     VkDeviceSize particleBufferSize{ 0 };
     std::vector<Particle> allParticleData;
 
-#ifdef FLUID_SIMULATION
-    MouseInput activeMouseInput{ MouseInput::None };
-    glm::vec2 lastMousePosition{ glm::vec2(0.0f) };
-#endif
     // Subroutines
     void drawImGuiInterface();
     void animateInstances();
     void animateWithCompute();
     void computeParticles();
-    void computeFluidSimulation();
-    void copyFluidOutputTextureToInputTexture(Image *imageToCopyTo);
     void dataUpdatePerFrame();
     void rasterize();
     void postProcess();
@@ -492,19 +451,11 @@ private:
     void createModelAnimationComputePipeline();
     void createParticleCalculateComputePipeline();
     void createParticleIntegrateComputePipeline();
-    void createVelocityAdvectionComputePipeline();
-    void createDensityAdvectionComputePipeline();
-    void createVelocityGaussianSplatComputePipeline();
-    void createDensityGaussianSplatComputePipeline();
-    void createFluidVelocityDivergenceComputePipeline();
-    void createJacobiComputePipeline();
-    void createGradientSubtractionComputePipeline();
     void createFramebuffers();
     void createCommandPools();
     void createCommandBuffers();
     void copyBufferToImage(const Buffer &srcBuffer, const Image &dstImage, uint32_t width, uint32_t height);
     void createDepthResources();
-    std::unique_ptr<Image> createTextureImageWithInitialValue(uint32_t texWidth, uint32_t texHeight, VkImageUsageFlags imageUsageFlags); // Create an empty texture image
     std::unique_ptr<Image> createTextureImage(const std::string &filename); // Reads a texture file and populate the texture image with the contents
     void createTextureSampler();
     void loadTextureImages(const std::vector<std::string> &textureFiles);
@@ -516,7 +467,6 @@ private:
     void createUniformBuffers();
     void createSSBOs();
     void prepareParticleData();
-    void initializeFluidSimulationResources();
     void createDescriptorPool();
     void createDescriptorSets();
     void createSceneLights();

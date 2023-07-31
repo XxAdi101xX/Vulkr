@@ -1,4 +1,4 @@
-/* Copyright (c) 2022 Adithya Venkatarao
+/* Copyright (c) 2023 Adithya Venkatarao
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
@@ -56,8 +56,6 @@ MainApp::~MainApp()
     postProcessingDescriptorSetLayout.reset();
     taaDescriptorSetLayout.reset();
     particleComputeDescriptorSetLayout.reset();
-    fluidSimulationInputDescriptorSetLayout.reset();
-    fluidSimulationOutputDescriptorSetLayout.reset();
 
     for (auto &it : objModels)
     {
@@ -134,20 +132,6 @@ void MainApp::cleanupSwapchain()
     pipelines.computeParticleCalculate.pipelineState.reset();
     pipelines.computeParticleIntegrate.pipeline.reset();
     pipelines.computeParticleIntegrate.pipelineState.reset();
-    pipelines.computeVelocityAdvection.pipeline.reset();
-    pipelines.computeVelocityAdvection.pipelineState.reset();
-    pipelines.computeDensityAdvection.pipeline.reset();
-    pipelines.computeDensityAdvection.pipelineState.reset();
-    pipelines.computeVelocityGaussianSplat.pipeline.reset();
-    pipelines.computeVelocityGaussianSplat.pipelineState.reset();
-    pipelines.computeDensityGaussianSplat.pipeline.reset();
-    pipelines.computeDensityGaussianSplat.pipelineState.reset();
-    pipelines.computeFluidVelocityDivergence.pipeline.reset();
-    pipelines.computeFluidVelocityDivergence.pipelineState.reset();
-    pipelines.computeJacobi.pipeline.reset();
-    pipelines.computeJacobi.pipelineState.reset();
-    pipelines.computeGradientSubtraction.pipeline.reset();
-    pipelines.computeGradientSubtraction.pipelineState.reset();
     pipelines.rayTracing.pipeline.reset();
     pipelines.rayTracing.pipelineState.reset();
 
@@ -187,8 +171,6 @@ void MainApp::cleanupSwapchain()
     particleComputeDescriptorSet.reset();
     // textureDescriptorSet.reset(); // Don't need to reset textureDescriptorSet this one up on recreate since the texture data is the same across different swapchain configurations
     raytracingDescriptorSet.reset();
-    fluidSimulationInputDescriptorSet.reset();
-    fluidSimulationOutputDescriptorSet.reset();
 
     // Textures
     outputImageTexture->image.reset();
@@ -199,17 +181,6 @@ void MainApp::cleanupSwapchain()
     historyImageTexture->imageview.reset();
     velocityImageTexture->image.reset();
     velocityImageTexture->imageview.reset();
-
-    fluidVelocityInputTexture->image.reset();
-    fluidVelocityInputTexture->imageview.reset();
-    fluidVelocityDivergenceInputTexture->image.reset();
-    fluidVelocityDivergenceInputTexture->imageview.reset();
-    fluidPressureInputTexture->image.reset();
-    fluidPressureInputTexture->imageview.reset();
-    fluidDensityInputTexture->image.reset();
-    fluidDensityInputTexture->imageview.reset();
-    fluidSimulationOutputTexture->image.reset();
-    fluidSimulationOutputTexture->imageview.reset();
 
     for (uint8_t i = 0; i < std::thread::hardware_concurrency(); ++i)
     {
@@ -302,16 +273,8 @@ void MainApp::prepare()
     createUniformBuffers();
     createSSBOs();
     prepareParticleData();
-    initializeFluidSimulationResources();
     createParticleCalculateComputePipeline();
     createParticleIntegrateComputePipeline();
-    createVelocityAdvectionComputePipeline();
-    createDensityAdvectionComputePipeline();
-    createVelocityGaussianSplatComputePipeline();
-    createDensityGaussianSplatComputePipeline();
-    createFluidVelocityDivergenceComputePipeline();
-    createJacobiComputePipeline();
-    createGradientSubtractionComputePipeline();
     createDescriptorPool();
     createDescriptorSets();
     setupCamera();
@@ -400,9 +363,6 @@ void MainApp::update()
 
     // Compute shader invocations
     computeParticles();
-#ifdef FLUID_SIMULATION
-    computeFluidSimulation();
-#endif
 
     // Compute vertices with compute shader; need to uncomment createModelAnimationComputePipeline if using this TODO: fix the validation errors that happen when this is enabled, might be due to incorrect sytnax with obj buffer in animate.comp or the fact that the objBuffer is readonly? Not totally sure.
     //animateWithCompute(); 
@@ -574,78 +534,6 @@ void MainApp::update()
 
     vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame][2]->getHandle(), &dependencyInfo);
 
-#ifdef FLUID_SIMULATION
-    // Transition density texture layout to prepare as a blit source
-    VkImageMemoryBarrier2 transitionDensityTextureBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
-    transitionDensityTextureBarrier.pNext = nullptr;
-    transitionDensityTextureBarrier.srcStageMask = VK_PIPELINE_STAGE_2_NONE; // We have a semaphore that synchronizes the post processing pass with all of the things happening on frameData.commandBuffers[currentFrame][2]->getHandle()
-    transitionDensityTextureBarrier.srcAccessMask = VK_ACCESS_2_NONE;
-    transitionDensityTextureBarrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-    transitionDensityTextureBarrier.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
-    transitionDensityTextureBarrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
-    transitionDensityTextureBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-    transitionDensityTextureBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    transitionDensityTextureBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    transitionDensityTextureBarrier.image = fluidDensityInputTexture->image->getHandle();
-    transitionDensityTextureBarrier.subresourceRange = subresourceRange;
-
-    dependencyInfo.pNext = nullptr;
-    dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-    dependencyInfo.memoryBarrierCount = 0u;
-    dependencyInfo.pMemoryBarriers = nullptr;
-    dependencyInfo.bufferMemoryBarrierCount = 0u;
-    dependencyInfo.pBufferMemoryBarriers = nullptr;
-    dependencyInfo.imageMemoryBarrierCount = 1u;
-    dependencyInfo.pImageMemoryBarriers = &transitionDensityTextureBarrier;
-    
-    vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame][2]->getHandle(), &dependencyInfo); // TODO combine the pipelineBarrier2 call for the swapchain with the one below
-
-    VkImageBlit2 imageBlit{ VK_STRUCTURE_TYPE_IMAGE_BLIT_2 };
-    imageBlit.pNext = nullptr;
-    imageBlit.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
-    imageBlit.srcOffsets[0] = { 0, 0, 0 };
-    imageBlit.srcOffsets[1] = { static_cast<int32_t>(swapchain->getProperties().imageExtent.width), static_cast<int32_t>(swapchain->getProperties().imageExtent.height), 1 };
-    imageBlit.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
-    imageBlit.dstOffsets[0] = { 0, 0, 0 };
-    imageBlit.dstOffsets[1] = { static_cast<int32_t>(swapchain->getProperties().imageExtent.width), static_cast<int32_t>(swapchain->getProperties().imageExtent.height), 1 };
-
-    VkBlitImageInfo2 blitImageInfo{ VK_STRUCTURE_TYPE_BLIT_IMAGE_INFO_2 };
-    blitImageInfo.pNext = nullptr;
-    blitImageInfo.srcImage = fluidDensityInputTexture->image->getHandle();
-    blitImageInfo.srcImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-    blitImageInfo.dstImage = swapchain->getImages()[swapchainImageIndex]->getHandle();
-    blitImageInfo.dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    blitImageInfo.regionCount = 1u;
-    blitImageInfo.pRegions = &imageBlit;
-    blitImageInfo.filter = VK_FILTER_NEAREST;
-
-    // We are using vkCmdBlitImage2 instead of vkCmdCopyImage to deal with the format conversions from VK_FORMAT_R32G32B32A32_SFLOAT to VK_FORMAT_B8G8R8A8_UNORM
-    vkCmdBlitImage2(frameData.commandBuffers[currentFrame][2]->getHandle(), &blitImageInfo);
-
-    // Transition density texture back to general from being a blit source
-    transitionDensityTextureBarrier.pNext = nullptr;
-    transitionDensityTextureBarrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT; // Wait on transfer to finish
-    transitionDensityTextureBarrier.srcAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
-    transitionDensityTextureBarrier.dstStageMask = VK_PIPELINE_STAGE_2_NONE; // No further synchronization required on densityTextureBuffer
-    transitionDensityTextureBarrier.dstAccessMask = VK_ACCESS_2_NONE;
-    transitionDensityTextureBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-    transitionDensityTextureBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-    transitionDensityTextureBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    transitionDensityTextureBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    transitionDensityTextureBarrier.image = fluidDensityInputTexture->image->getHandle();
-    transitionDensityTextureBarrier.subresourceRange = subresourceRange;
-
-    dependencyInfo.pNext = nullptr;
-    dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-    dependencyInfo.memoryBarrierCount = 0u;
-    dependencyInfo.pMemoryBarriers = nullptr;
-    dependencyInfo.bufferMemoryBarrierCount = 0u;
-    dependencyInfo.pBufferMemoryBarriers = nullptr;
-    dependencyInfo.imageMemoryBarrierCount = 1u;
-    dependencyInfo.pImageMemoryBarriers = &transitionDensityTextureBarrier;
-
-    vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame][2]->getHandle(), &dependencyInfo);
-#else
     // Prepare the historyImage as a transfer destination
     VkImageMemoryBarrier2 transitionHistoryImageLayoutBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
     transitionHistoryImageLayoutBarrier.pNext = nullptr;
@@ -731,7 +619,6 @@ void MainApp::update()
     dependencyInfo.pImageMemoryBarriers = transitionImageBarriers.data();
 
     vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame][2]->getHandle(), &dependencyInfo);
-#endif
 
     // Transition the current swapchain image back for presentation
     transitionSwapchainLayoutBarrier.pNext = nullptr;
@@ -854,45 +741,6 @@ void MainApp::handleInputEvents(const InputEvent &inputEvent)
     if (io.WantCaptureMouse) return;
 
     cameraController->handleInputEvents(inputEvent);
-#ifdef FLUID_SIMULATION
-    if (inputEvent.getEventSource() == EventSource::Mouse)
-    {
-        const MouseInputEvent &mouseInputEvent = dynamic_cast<const MouseInputEvent &>(inputEvent);
-
-        if (mouseInputEvent.getAction() == MouseAction::Unknown)
-        {
-            LOGEANDABORT("Unknown mouse action encountered");
-        }
-
-        if (mouseInputEvent.getInput() == MouseInput::None)
-        {
-            // User is holding down left click and moving
-            if (activeMouseInput == MouseInput::Left)
-            {
-                fluidSimulationPushConstant.splatForce = glm::vec3(mouseInputEvent.getPositionX() - lastMousePosition.x, mouseInputEvent.getPositionY() - lastMousePosition.y, 0.0f);
-                fluidSimulationPushConstant.splatPosition = glm::vec2(mouseInputEvent.getPositionX(), mouseInputEvent.getPositionY());
-                lastMousePosition.x = static_cast<float>(mouseInputEvent.getPositionX());
-                lastMousePosition.y = static_cast<float>(mouseInputEvent.getPositionY());
-            }
-        }
-        else if (mouseInputEvent.getInput() == MouseInput::Left)
-        {
-            if (mouseInputEvent.getAction() == MouseAction::Click)
-            {
-                activeMouseInput = mouseInputEvent.getInput();
-                lastMousePosition = glm::vec2(mouseInputEvent.getPositionX(), mouseInputEvent.getPositionY());
-            }
-            else if (mouseInputEvent.getAction() == MouseAction::Release)
-            {
-                activeMouseInput = MouseInput::None;
-            }
-            else
-            {
-                LOGEANDABORT("Mouse input action is neither click or release");
-            }
-        }
-    }
-#endif
 }
 
 /* Private methods start here */
@@ -1129,372 +977,6 @@ void MainApp::computeParticles()
         dependencyInfo.pBufferMemoryBarriers = &bufferMemoryBarrier;
         dependencyInfo.imageMemoryBarrierCount = 0u;
         dependencyInfo.pImageMemoryBarriers = nullptr;
-
-        vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame][0]->getHandle(), &dependencyInfo);
-    }
-}
-
-void MainApp::copyFluidOutputTextureToInputTexture(Image *imageToCopyTo)
-{
-    // Layout transitions for the fluidSimulationOutputTexture as a transfer src and the imageToCopyTo as the transfer dst
-    VkImageSubresourceRange subresourceRange = {};
-    subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    subresourceRange.baseMipLevel = 0u;
-    subresourceRange.levelCount = 1u;
-    subresourceRange.baseArrayLayer = 0u;
-    subresourceRange.layerCount = 1u;
-
-    VkImageMemoryBarrier2 transitionImageToCopyLayoutBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
-    transitionImageToCopyLayoutBarrier.pNext = nullptr;
-    transitionImageToCopyLayoutBarrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT; // The imageToCopyTo is read in a compute shader
-    transitionImageToCopyLayoutBarrier.srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-    transitionImageToCopyLayoutBarrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT; // Image will be written to
-    transitionImageToCopyLayoutBarrier.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-    transitionImageToCopyLayoutBarrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
-    transitionImageToCopyLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    transitionImageToCopyLayoutBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    transitionImageToCopyLayoutBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    transitionImageToCopyLayoutBarrier.image = imageToCopyTo->getHandle();
-    transitionImageToCopyLayoutBarrier.subresourceRange = subresourceRange;
-
-    VkImageMemoryBarrier2 transitionFluidSimulationOutputLayoutBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
-    transitionFluidSimulationOutputLayoutBarrier.pNext = nullptr;
-    transitionFluidSimulationOutputLayoutBarrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT; // The fluidSimluationOutputTexture is written to in a compute shader
-    transitionFluidSimulationOutputLayoutBarrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-    transitionFluidSimulationOutputLayoutBarrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT; // Image will be read as transfer source
-    transitionFluidSimulationOutputLayoutBarrier.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
-    transitionFluidSimulationOutputLayoutBarrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
-    transitionFluidSimulationOutputLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-    transitionFluidSimulationOutputLayoutBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    transitionFluidSimulationOutputLayoutBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    transitionFluidSimulationOutputLayoutBarrier.image = fluidSimulationOutputTexture->image->getHandle();
-    transitionFluidSimulationOutputLayoutBarrier.subresourceRange = subresourceRange;
-    
-    std::array<VkImageMemoryBarrier2, 2> imageTransitionForTransferMemoryBarriers{ transitionImageToCopyLayoutBarrier, transitionFluidSimulationOutputLayoutBarrier };
-    VkDependencyInfo dependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
-    dependencyInfo.pNext = nullptr;
-    dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-    dependencyInfo.memoryBarrierCount = 0u;
-    dependencyInfo.pMemoryBarriers = nullptr;
-    dependencyInfo.bufferMemoryBarrierCount = 0u;
-    dependencyInfo.pBufferMemoryBarriers = nullptr;
-    dependencyInfo.imageMemoryBarrierCount = to_u32(imageTransitionForTransferMemoryBarriers.size());
-    dependencyInfo.pImageMemoryBarriers = imageTransitionForTransferMemoryBarriers.data();
-
-    vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame][0]->getHandle(), &dependencyInfo);
-
-    // Copy fluidVelocityOutputTextures to imageToCopyTo
-    VkImageCopy fluidVelocityTextureCopyRegion{};
-    fluidVelocityTextureCopyRegion.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u };
-    fluidVelocityTextureCopyRegion.srcOffset = { 0, 0, 0 };
-    fluidVelocityTextureCopyRegion.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u };
-    fluidVelocityTextureCopyRegion.dstOffset = { 0, 0, 0 };
-    fluidVelocityTextureCopyRegion.extent = { swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, 1u };
-
-    vkCmdCopyImage(frameData.commandBuffers[currentFrame][0]->getHandle(), fluidSimulationOutputTexture->image->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, imageToCopyTo->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &fluidVelocityTextureCopyRegion);
-
-    // Layout transitions for the fluidVelocityOutputTextures and the imageToCopyTo as general
-    transitionImageToCopyLayoutBarrier.pNext = nullptr;
-    transitionImageToCopyLayoutBarrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT; // Wait for write transfer to finish
-    transitionImageToCopyLayoutBarrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-    transitionImageToCopyLayoutBarrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT; // The texture will be used as as a read target in a compute shader
-    transitionImageToCopyLayoutBarrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-    transitionImageToCopyLayoutBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    transitionImageToCopyLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-    transitionImageToCopyLayoutBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    transitionImageToCopyLayoutBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    transitionImageToCopyLayoutBarrier.image = imageToCopyTo->getHandle();
-    transitionImageToCopyLayoutBarrier.subresourceRange = subresourceRange;
-
-    transitionFluidSimulationOutputLayoutBarrier.pNext = nullptr;
-    transitionFluidSimulationOutputLayoutBarrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT; // Wait for transfer to finish as the src
-    transitionFluidSimulationOutputLayoutBarrier.srcAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
-    transitionFluidSimulationOutputLayoutBarrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT; // Image will be written to in a compute shader
-    transitionFluidSimulationOutputLayoutBarrier.dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-    transitionFluidSimulationOutputLayoutBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-    transitionFluidSimulationOutputLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-    transitionFluidSimulationOutputLayoutBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    transitionFluidSimulationOutputLayoutBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    transitionFluidSimulationOutputLayoutBarrier.image = fluidSimulationOutputTexture->image->getHandle();
-    transitionFluidSimulationOutputLayoutBarrier.subresourceRange = subresourceRange;
-
-    std::array<VkImageMemoryBarrier2, 2> imageTransitionForComputeUsageMemoryBarriers{ transitionImageToCopyLayoutBarrier, transitionFluidSimulationOutputLayoutBarrier };
-    dependencyInfo.pNext = nullptr;
-    dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-    dependencyInfo.memoryBarrierCount = 0u;
-    dependencyInfo.pMemoryBarriers = nullptr;
-    dependencyInfo.bufferMemoryBarrierCount = 0u;
-    dependencyInfo.pBufferMemoryBarriers = nullptr;
-    dependencyInfo.imageMemoryBarrierCount = to_u32(imageTransitionForComputeUsageMemoryBarriers.size());
-    dependencyInfo.pImageMemoryBarriers = imageTransitionForComputeUsageMemoryBarriers.data();
-
-    vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame][0]->getHandle(), &dependencyInfo);
-}
-
-void MainApp::computeFluidSimulation()
-{
-    // Acquire
-    if (m_graphicsQueue->getFamilyIndex() != m_computeQueue->getFamilyIndex())
-    {
-        LOGEANDABORT("Gotta verify this logic since we have assumed that computeQueue == graphicsQueue so far");
-        // TODO this code has not been tested or verified; gotta check if the src and dst stage/access values are correct
-        VkImageSubresourceRange subresourceRange = {};
-        subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        subresourceRange.baseMipLevel = 0u;
-        subresourceRange.levelCount = 1u;
-        subresourceRange.baseArrayLayer = 0u;
-        subresourceRange.layerCount = 1u;
-
-        VkImageMemoryBarrier2 fluidVelocityInputTextureImageMemoryBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
-        fluidVelocityInputTextureImageMemoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_VERTEX_INPUT_BIT;
-        fluidVelocityInputTextureImageMemoryBarrier.srcAccessMask = VK_ACCESS_2_NONE;
-        fluidVelocityInputTextureImageMemoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        fluidVelocityInputTextureImageMemoryBarrier.dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-        fluidVelocityInputTextureImageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
-        fluidVelocityInputTextureImageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-        fluidVelocityInputTextureImageMemoryBarrier.srcQueueFamilyIndex = m_graphicsQueue->getFamilyIndex();
-        fluidVelocityInputTextureImageMemoryBarrier.dstQueueFamilyIndex = m_computeQueue->getFamilyIndex();
-        fluidVelocityInputTextureImageMemoryBarrier.image = fluidVelocityInputTexture->image->getHandle();
-        fluidVelocityInputTextureImageMemoryBarrier.subresourceRange = subresourceRange;
-
-        VkImageMemoryBarrier2 fluidVelocityDivergenceInputTextureImageMemoryBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
-        fluidVelocityDivergenceInputTextureImageMemoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_VERTEX_INPUT_BIT;
-        fluidVelocityDivergenceInputTextureImageMemoryBarrier.srcAccessMask = VK_ACCESS_2_NONE;
-        fluidVelocityDivergenceInputTextureImageMemoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        fluidVelocityDivergenceInputTextureImageMemoryBarrier.dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-        fluidVelocityDivergenceInputTextureImageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
-        fluidVelocityDivergenceInputTextureImageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-        fluidVelocityDivergenceInputTextureImageMemoryBarrier.srcQueueFamilyIndex = m_graphicsQueue->getFamilyIndex();
-        fluidVelocityDivergenceInputTextureImageMemoryBarrier.dstQueueFamilyIndex = m_computeQueue->getFamilyIndex();
-        fluidVelocityDivergenceInputTextureImageMemoryBarrier.image = fluidVelocityDivergenceInputTexture->image->getHandle();
-        fluidVelocityDivergenceInputTextureImageMemoryBarrier.subresourceRange = subresourceRange;
-
-        VkImageMemoryBarrier2 fluidPressureInputTextureImageMemoryBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
-        fluidPressureInputTextureImageMemoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_VERTEX_INPUT_BIT;
-        fluidPressureInputTextureImageMemoryBarrier.srcAccessMask = VK_ACCESS_2_NONE;
-        fluidPressureInputTextureImageMemoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        fluidPressureInputTextureImageMemoryBarrier.dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-        fluidPressureInputTextureImageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
-        fluidPressureInputTextureImageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-        fluidPressureInputTextureImageMemoryBarrier.srcQueueFamilyIndex = m_graphicsQueue->getFamilyIndex();
-        fluidPressureInputTextureImageMemoryBarrier.dstQueueFamilyIndex = m_computeQueue->getFamilyIndex();
-        fluidPressureInputTextureImageMemoryBarrier.image = fluidPressureInputTexture->image->getHandle();
-        fluidPressureInputTextureImageMemoryBarrier.subresourceRange = subresourceRange;
-
-        VkImageMemoryBarrier2 fluidDensityInputTextureImageMemoryBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
-        fluidDensityInputTextureImageMemoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_VERTEX_INPUT_BIT;
-        fluidDensityInputTextureImageMemoryBarrier.srcAccessMask = VK_ACCESS_2_NONE;
-        fluidDensityInputTextureImageMemoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        fluidDensityInputTextureImageMemoryBarrier.dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-        fluidDensityInputTextureImageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
-        fluidDensityInputTextureImageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-        fluidDensityInputTextureImageMemoryBarrier.srcQueueFamilyIndex = m_graphicsQueue->getFamilyIndex();
-        fluidDensityInputTextureImageMemoryBarrier.dstQueueFamilyIndex = m_computeQueue->getFamilyIndex();
-        fluidDensityInputTextureImageMemoryBarrier.image = fluidDensityInputTexture->image->getHandle();
-        fluidDensityInputTextureImageMemoryBarrier.subresourceRange = subresourceRange;
-
-        VkImageMemoryBarrier2 fluidSimulationOutputTextureImageMemoryBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
-        fluidSimulationOutputTextureImageMemoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_VERTEX_INPUT_BIT;
-        fluidSimulationOutputTextureImageMemoryBarrier.srcAccessMask = VK_ACCESS_2_NONE;
-        fluidSimulationOutputTextureImageMemoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        fluidSimulationOutputTextureImageMemoryBarrier.dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-        fluidSimulationOutputTextureImageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
-        fluidSimulationOutputTextureImageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-        fluidSimulationOutputTextureImageMemoryBarrier.srcQueueFamilyIndex = m_graphicsQueue->getFamilyIndex();
-        fluidSimulationOutputTextureImageMemoryBarrier.dstQueueFamilyIndex = m_computeQueue->getFamilyIndex();
-        fluidSimulationOutputTextureImageMemoryBarrier.image = fluidSimulationOutputTexture->image->getHandle();
-        fluidSimulationOutputTextureImageMemoryBarrier.subresourceRange = subresourceRange;
-
-        std::array<VkImageMemoryBarrier2, 5> imageMemoryBarriers
-        {
-            fluidVelocityInputTextureImageMemoryBarrier,
-            fluidVelocityDivergenceInputTextureImageMemoryBarrier,
-            fluidPressureInputTextureImageMemoryBarrier,
-            fluidDensityInputTextureImageMemoryBarrier,
-            fluidSimulationOutputTextureImageMemoryBarrier
-        };
-        VkDependencyInfo dependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
-        dependencyInfo.pNext = nullptr;
-        dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-        dependencyInfo.memoryBarrierCount = 0u;
-        dependencyInfo.pMemoryBarriers = nullptr;
-        dependencyInfo.bufferMemoryBarrierCount = 0u;
-        dependencyInfo.pBufferMemoryBarriers = nullptr;
-        dependencyInfo.imageMemoryBarrierCount = to_u32(imageMemoryBarriers.size());
-        dependencyInfo.pImageMemoryBarriers = imageMemoryBarriers.data();
-
-        vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame][0]->getHandle(), &dependencyInfo);
-    }
-
-    // Update the time step
-    fluidSimulationPushConstant.timestep += (1.0f / 60.0f); // TODO: tie this to fps?
-
-    uint32_t fluidSimulationGridSize = to_u32(fluidSimulationPushConstant.gridSize.x * fluidSimulationPushConstant.gridSize.y);
-
-    // TODO: for both the advection and gaussian splat shaders, we can refactor to just have one of each shader with differetn descriptor sets instead
-    // First pass: Compute velocity advection
-    vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeVelocityAdvection.pipeline->getBindPoint(), pipelines.computeVelocityAdvection.pipeline->getHandle());
-    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeVelocityAdvection.pipeline->getBindPoint(), pipelines.computeVelocityAdvection.pipelineState->getPipelineLayout().getHandle(), 0u, 1u, &fluidSimulationInputDescriptorSet->getHandle(), 0u, nullptr);
-    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeVelocityAdvection.pipeline->getBindPoint(), pipelines.computeVelocityAdvection.pipelineState->getPipelineLayout().getHandle(), 1u, 1u, &fluidSimulationOutputDescriptorSet->getHandle(), 0u, nullptr);
-    vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeVelocityAdvection.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(FluidSimulationPushConstant), &fluidSimulationPushConstant);
-    vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), to_u32(fluidSimulationGridSize / m_workGroupSize) + 1u, 1u, 1u);
-
-    // Ensures that compute shader has finished its writing before the transfer operation is done and ensures that it completes before any future compute operations
-    copyFluidOutputTextureToInputTexture(fluidVelocityInputTexture->image.get());
-
-    // Second pass: Compute density advection
-    vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeDensityAdvection.pipeline->getBindPoint(), pipelines.computeDensityAdvection.pipeline->getHandle());
-    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeDensityAdvection.pipeline->getBindPoint(), pipelines.computeDensityAdvection.pipelineState->getPipelineLayout().getHandle(), 0u, 1u, &fluidSimulationInputDescriptorSet->getHandle(), 0u, nullptr);
-    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeDensityAdvection.pipeline->getBindPoint(), pipelines.computeDensityAdvection.pipelineState->getPipelineLayout().getHandle(), 1u, 1u, &fluidSimulationOutputDescriptorSet->getHandle(), 0u, nullptr);
-    vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeDensityAdvection.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(FluidSimulationPushConstant), &fluidSimulationPushConstant);
-    vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), to_u32(fluidSimulationGridSize / m_workGroupSize) + 1u, 1u, 1u);
-
-    copyFluidOutputTextureToInputTexture(fluidDensityInputTexture->image.get());
-
-    // Third pass: Compute velocity and density gaussian splat from key input; if splatForce is 0, we don't have to run this pass
-    if (fluidSimulationPushConstant.splatForce != glm::vec3(0.0f))
-    {
-        vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeVelocityGaussianSplat.pipeline->getBindPoint(), pipelines.computeVelocityGaussianSplat.pipeline->getHandle());
-        vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeVelocityGaussianSplat.pipeline->getBindPoint(), pipelines.computeVelocityGaussianSplat.pipelineState->getPipelineLayout().getHandle(), 0u, 1u, &fluidSimulationInputDescriptorSet->getHandle(), 0u, nullptr);
-        vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeVelocityGaussianSplat.pipeline->getBindPoint(), pipelines.computeVelocityGaussianSplat.pipelineState->getPipelineLayout().getHandle(), 1u, 1u, &fluidSimulationOutputDescriptorSet->getHandle(), 0u, nullptr);
-        vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeVelocityGaussianSplat.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(FluidSimulationPushConstant), &fluidSimulationPushConstant);
-        vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), to_u32(fluidSimulationGridSize / m_workGroupSize) + 1u, 1u, 1u);
-
-        copyFluidOutputTextureToInputTexture(fluidVelocityInputTexture->image.get());
-
-        vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeDensityGaussianSplat.pipeline->getBindPoint(), pipelines.computeDensityGaussianSplat.pipeline->getHandle());
-        vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeDensityGaussianSplat.pipeline->getBindPoint(), pipelines.computeDensityGaussianSplat.pipelineState->getPipelineLayout().getHandle(), 0u, 1u, &fluidSimulationInputDescriptorSet->getHandle(), 0u, nullptr);
-        vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeDensityGaussianSplat.pipeline->getBindPoint(), pipelines.computeDensityGaussianSplat.pipelineState->getPipelineLayout().getHandle(), 1u, 1u, &fluidSimulationOutputDescriptorSet->getHandle(), 0u, nullptr);
-        vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeDensityGaussianSplat.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(FluidSimulationPushConstant), &fluidSimulationPushConstant);
-        vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), to_u32(fluidSimulationGridSize / m_workGroupSize) + 1u, 1u, 1u);
-
-        copyFluidOutputTextureToInputTexture(fluidDensityInputTexture->image.get());
-
-
-        fluidSimulationPushConstant.splatForce = glm::vec3(0.0f); // Reset to zero; will be overriden by the inputController if it detects any mouse drags
-    }
-    
-    // Projection steps: find divergence of velocity, solve the poisson pressure equation and then subtract the gradient of p from the intermediate velocity field
-    // Fourth pass: Compute divergence of velocity
-    vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeFluidVelocityDivergence.pipeline->getBindPoint(), pipelines.computeFluidVelocityDivergence.pipeline->getHandle());
-    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeFluidVelocityDivergence.pipeline->getBindPoint(), pipelines.computeFluidVelocityDivergence.pipelineState->getPipelineLayout().getHandle(), 0u, 1u, &fluidSimulationInputDescriptorSet->getHandle(), 0u, nullptr);
-    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeFluidVelocityDivergence.pipeline->getBindPoint(), pipelines.computeFluidVelocityDivergence.pipelineState->getPipelineLayout().getHandle(), 1u, 1u, &fluidSimulationOutputDescriptorSet->getHandle(), 0u, nullptr);
-    vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeFluidVelocityDivergence.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0u, sizeof(FluidSimulationPushConstant), &fluidSimulationPushConstant);
-    vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), to_u32(fluidSimulationGridSize / m_workGroupSize) + 1u, 1u, 1u);
-
-    copyFluidOutputTextureToInputTexture(fluidVelocityDivergenceInputTexture->image.get());
-
-    // Fifth pass: Compute Jacobi Iteration
-    vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeJacobi.pipeline->getBindPoint(), pipelines.computeJacobi.pipeline->getHandle());
-    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeJacobi.pipeline->getBindPoint(), pipelines.computeJacobi.pipelineState->getPipelineLayout().getHandle(), 0u, 1u, &fluidSimulationInputDescriptorSet->getHandle(), 0u, nullptr);
-    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeJacobi.pipeline->getBindPoint(), pipelines.computeJacobi.pipelineState->getPipelineLayout().getHandle(), 1u, 1u, &fluidSimulationOutputDescriptorSet->getHandle(), 0u, nullptr);
-    vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeJacobi.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0u, sizeof(FluidSimulationPushConstant), &fluidSimulationPushConstant);
-
-    const uint32_t jacobiIterationCount = 40u;
-    for (uint32_t i = 0u; i < jacobiIterationCount; ++i)
-    {
-        vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), to_u32(fluidSimulationGridSize / m_workGroupSize) + 1u, 1u, 1u);
-        copyFluidOutputTextureToInputTexture(fluidPressureInputTexture->image.get());
-    }
-
-    // Sixth pass: Compute gradient and subtract it from velocity
-    vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeGradientSubtraction.pipeline->getBindPoint(), pipelines.computeGradientSubtraction.pipeline->getHandle());
-    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeGradientSubtraction.pipeline->getBindPoint(), pipelines.computeGradientSubtraction.pipelineState->getPipelineLayout().getHandle(), 0u, 1u, &fluidSimulationInputDescriptorSet->getHandle(), 0u, nullptr);
-    vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeGradientSubtraction.pipeline->getBindPoint(), pipelines.computeGradientSubtraction.pipelineState->getPipelineLayout().getHandle(), 1u, 1u, &fluidSimulationOutputDescriptorSet->getHandle(), 0u, nullptr);
-    vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeGradientSubtraction.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(FluidSimulationPushConstant), &fluidSimulationPushConstant);
-    vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), to_u32(fluidSimulationGridSize / m_workGroupSize) + 1u, 1u, 1u);
-
-    copyFluidOutputTextureToInputTexture(fluidVelocityInputTexture->image.get());   
-
-    // Release
-    if (m_graphicsQueue->getFamilyIndex() != m_computeQueue->getFamilyIndex())
-    {
-        LOGEANDABORT("Gotta verify this logic since we have assumed that computeQueue == graphicsQueue so far");
-
-        // TODO this code has not been tested or verified; gotta check if the src and dst stage/access values are correct
-        VkImageSubresourceRange subresourceRange = {};
-        subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        subresourceRange.baseMipLevel = 0u;
-        subresourceRange.levelCount = 1u;
-        subresourceRange.baseArrayLayer = 0u;
-        subresourceRange.layerCount = 1u;
-
-        VkImageMemoryBarrier2 fluidVelocityInputTextureImageMemoryBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
-        fluidVelocityInputTextureImageMemoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        fluidVelocityInputTextureImageMemoryBarrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-        fluidVelocityInputTextureImageMemoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR | VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT;
-        fluidVelocityInputTextureImageMemoryBarrier.dstAccessMask = VK_ACCESS_2_NONE;
-        fluidVelocityInputTextureImageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
-        fluidVelocityInputTextureImageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-        fluidVelocityInputTextureImageMemoryBarrier.srcQueueFamilyIndex = m_computeQueue->getFamilyIndex();
-        fluidVelocityInputTextureImageMemoryBarrier.dstQueueFamilyIndex = m_graphicsQueue->getFamilyIndex();
-        fluidVelocityInputTextureImageMemoryBarrier.image = fluidVelocityInputTexture->image->getHandle();
-        fluidVelocityInputTextureImageMemoryBarrier.subresourceRange = subresourceRange;
-
-        VkImageMemoryBarrier2 fluidVelocityDivergenceInputTextureImageMemoryBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
-        fluidVelocityDivergenceInputTextureImageMemoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        fluidVelocityDivergenceInputTextureImageMemoryBarrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-        fluidVelocityDivergenceInputTextureImageMemoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR | VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT;
-        fluidVelocityDivergenceInputTextureImageMemoryBarrier.dstAccessMask = VK_ACCESS_2_NONE;
-        fluidVelocityDivergenceInputTextureImageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
-        fluidVelocityDivergenceInputTextureImageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-        fluidVelocityDivergenceInputTextureImageMemoryBarrier.srcQueueFamilyIndex = m_graphicsQueue->getFamilyIndex();
-        fluidVelocityDivergenceInputTextureImageMemoryBarrier.dstQueueFamilyIndex = m_computeQueue->getFamilyIndex();
-        fluidVelocityDivergenceInputTextureImageMemoryBarrier.image = fluidVelocityDivergenceInputTexture->image->getHandle();
-        fluidVelocityDivergenceInputTextureImageMemoryBarrier.subresourceRange = subresourceRange;
-
-        VkImageMemoryBarrier2 fluidPressureInputTextureImageMemoryBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
-        fluidPressureInputTextureImageMemoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        fluidPressureInputTextureImageMemoryBarrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-        fluidPressureInputTextureImageMemoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR | VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT;
-        fluidPressureInputTextureImageMemoryBarrier.dstAccessMask = VK_ACCESS_2_NONE;
-        fluidPressureInputTextureImageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
-        fluidPressureInputTextureImageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-        fluidPressureInputTextureImageMemoryBarrier.srcQueueFamilyIndex = m_graphicsQueue->getFamilyIndex();
-        fluidPressureInputTextureImageMemoryBarrier.dstQueueFamilyIndex = m_computeQueue->getFamilyIndex();
-        fluidPressureInputTextureImageMemoryBarrier.image = fluidPressureInputTexture->image->getHandle();
-        fluidPressureInputTextureImageMemoryBarrier.subresourceRange = subresourceRange;
-
-        VkImageMemoryBarrier2 fluidDensityInputTextureImageMemoryBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
-        fluidDensityInputTextureImageMemoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        fluidDensityInputTextureImageMemoryBarrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-        fluidDensityInputTextureImageMemoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR | VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT;
-        fluidDensityInputTextureImageMemoryBarrier.dstAccessMask = VK_ACCESS_2_NONE;
-        fluidDensityInputTextureImageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
-        fluidDensityInputTextureImageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-        fluidDensityInputTextureImageMemoryBarrier.srcQueueFamilyIndex = m_graphicsQueue->getFamilyIndex();
-        fluidDensityInputTextureImageMemoryBarrier.dstQueueFamilyIndex = m_computeQueue->getFamilyIndex();
-        fluidDensityInputTextureImageMemoryBarrier.image = fluidDensityInputTexture->image->getHandle();
-        fluidDensityInputTextureImageMemoryBarrier.subresourceRange = subresourceRange;
-
-        VkImageMemoryBarrier2 fluidSimulationOutputTextureImageMemoryBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
-        fluidSimulationOutputTextureImageMemoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        fluidSimulationOutputTextureImageMemoryBarrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-        fluidSimulationOutputTextureImageMemoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR | VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT;
-        fluidSimulationOutputTextureImageMemoryBarrier.dstAccessMask = VK_ACCESS_2_NONE;
-        fluidSimulationOutputTextureImageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-        fluidSimulationOutputTextureImageMemoryBarrier.srcQueueFamilyIndex = m_computeQueue->getFamilyIndex();
-        fluidSimulationOutputTextureImageMemoryBarrier.dstQueueFamilyIndex = m_graphicsQueue->getFamilyIndex();
-        fluidSimulationOutputTextureImageMemoryBarrier.image = fluidSimulationOutputTexture->image->getHandle();
-        fluidSimulationOutputTextureImageMemoryBarrier.subresourceRange = subresourceRange;
-
-        std::array<VkImageMemoryBarrier2, 5> imageMemoryBarriers
-        {
-            fluidVelocityInputTextureImageMemoryBarrier,
-            fluidVelocityDivergenceInputTextureImageMemoryBarrier,
-            fluidPressureInputTextureImageMemoryBarrier,
-            fluidDensityInputTextureImageMemoryBarrier,
-            fluidSimulationOutputTextureImageMemoryBarrier
-        };
-        VkDependencyInfo dependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
-        dependencyInfo.pNext = nullptr;
-        dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-        dependencyInfo.memoryBarrierCount = 0u;
-        dependencyInfo.pMemoryBarriers = nullptr;
-        dependencyInfo.bufferMemoryBarrierCount = 0u;
-        dependencyInfo.pBufferMemoryBarriers = nullptr;
-        dependencyInfo.imageMemoryBarrierCount = to_u32(imageMemoryBarriers.size());
-        dependencyInfo.pImageMemoryBarriers = imageMemoryBarriers.data();
 
         vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame][0]->getHandle(), &dependencyInfo);
     }
@@ -2091,46 +1573,6 @@ void MainApp::createDescriptorSetLayouts()
 
     std::vector<VkDescriptorSetLayoutBinding> particleComputeDescriptorSetLayoutBindings{ particleBufferLayoutBinding };
     particleComputeDescriptorSetLayout = std::make_unique<DescriptorSetLayout>(*device, particleComputeDescriptorSetLayoutBindings);
-
-    // Fluid simulation input descriptor set layout
-    VkDescriptorSetLayoutBinding fluidVelocityInputLayoutBinding{};
-    fluidVelocityInputLayoutBinding.binding = 0u;
-    fluidVelocityInputLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    fluidVelocityInputLayoutBinding.descriptorCount = 1u;
-    fluidVelocityInputLayoutBinding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    fluidVelocityInputLayoutBinding.pImmutableSamplers = nullptr;
-    VkDescriptorSetLayoutBinding fluidVelocityDivergenceInputLayoutBinding{};
-    fluidVelocityDivergenceInputLayoutBinding.binding = 1u;
-    fluidVelocityDivergenceInputLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    fluidVelocityDivergenceInputLayoutBinding.descriptorCount = 1u;
-    fluidVelocityDivergenceInputLayoutBinding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    fluidVelocityDivergenceInputLayoutBinding.pImmutableSamplers = nullptr;
-    VkDescriptorSetLayoutBinding fluidPressureInputLayoutBinding{};
-    fluidPressureInputLayoutBinding.binding = 2u;
-    fluidPressureInputLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    fluidPressureInputLayoutBinding.descriptorCount = 1u;
-    fluidPressureInputLayoutBinding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    fluidPressureInputLayoutBinding.pImmutableSamplers = nullptr;
-    VkDescriptorSetLayoutBinding fluidDensityInputLayoutBinding{};
-    fluidDensityInputLayoutBinding.binding = 3u;
-    fluidDensityInputLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    fluidDensityInputLayoutBinding.descriptorCount = 1u;
-    fluidDensityInputLayoutBinding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    fluidDensityInputLayoutBinding.pImmutableSamplers = nullptr;
-
-    std::vector<VkDescriptorSetLayoutBinding> fluidSimulationInputDescriptorSetLayoutBindings{ fluidVelocityInputLayoutBinding, fluidVelocityDivergenceInputLayoutBinding, fluidPressureInputLayoutBinding, fluidDensityInputLayoutBinding };
-    fluidSimulationInputDescriptorSetLayout = std::make_unique<DescriptorSetLayout>(*device, fluidSimulationInputDescriptorSetLayoutBindings);
-
-    // Fluid simulation output descriptor set layout
-    VkDescriptorSetLayoutBinding fluidSimulationOutputLayoutBinding{};
-    fluidSimulationOutputLayoutBinding.binding = 0u;
-    fluidSimulationOutputLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    fluidSimulationOutputLayoutBinding.descriptorCount = 1u;
-    fluidSimulationOutputLayoutBinding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    fluidSimulationOutputLayoutBinding.pImmutableSamplers = nullptr;
-
-    std::vector<VkDescriptorSetLayoutBinding> fluidSimulationOutputDescriptorSetLayoutBindings{ fluidSimulationOutputLayoutBinding };
-    fluidSimulationOutputDescriptorSetLayout = std::make_unique<DescriptorSetLayout>(*device, fluidSimulationOutputDescriptorSetLayoutBindings);
 }
 
 void MainApp::createMainRasterizationPipeline()
@@ -2545,286 +1987,6 @@ void MainApp::createParticleIntegrateComputePipeline()
     pipelines.computeParticleIntegrate.pipeline = std::move(computePipeline);
 }
 
-void MainApp::createVelocityAdvectionComputePipeline()
-{
-    std::shared_ptr<ShaderSource> computeShader = std::make_shared<ShaderSource>("fluid_simulation/velocityAdvection.comp.spv");
-
-    struct SpecializationData {
-        uint32_t workGroupSize;
-    } specializationData;
-    const std::array<VkSpecializationMapEntry, 1> entries{
-        {
-            { 0u, offsetof(SpecializationData, workGroupSize), sizeof(uint32_t) }
-        }
-    };
-    specializationData.workGroupSize = m_workGroupSize;
-
-    VkSpecializationInfo specializationInfo =
-    {
-        to_u32(entries.size()),
-        entries.data(),
-        to_u32(sizeof(SpecializationData)),
-        &specializationData
-    };
-
-    std::vector<ShaderModule> shaderModules;
-    shaderModules.emplace_back(*device, VK_SHADER_STAGE_COMPUTE_BIT, specializationInfo, computeShader);
-
-    std::vector<VkDescriptorSetLayout> descriptorSetLayoutHandles{ fluidSimulationInputDescriptorSetLayout->getHandle(), fluidSimulationOutputDescriptorSetLayout->getHandle() };
-
-    std::vector<VkPushConstantRange> pushConstantRangeHandles;
-    VkPushConstantRange computePushConstantRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(FluidSimulationPushConstant) };
-    pushConstantRangeHandles.push_back(computePushConstantRange);
-
-    std::unique_ptr<ComputePipelineState> computePipelineState = std::make_unique<ComputePipelineState>(
-        std::make_unique<PipelineLayout>(*device, shaderModules, descriptorSetLayoutHandles, pushConstantRangeHandles)
-    );
-    std::unique_ptr<ComputePipeline> computePipeline = std::make_unique<ComputePipeline>(*device, *computePipelineState, nullptr);
-
-    pipelines.computeVelocityAdvection.pipelineState = std::move(computePipelineState);
-    pipelines.computeVelocityAdvection.pipeline = std::move(computePipeline);
-}
-
-void MainApp::createDensityAdvectionComputePipeline()
-{
-    std::shared_ptr<ShaderSource> computeShader = std::make_shared<ShaderSource>("fluid_simulation/densityAdvection.comp.spv");
-
-    struct SpecializationData {
-        uint32_t workGroupSize;
-    } specializationData;
-    const std::array<VkSpecializationMapEntry, 1> entries{
-        {
-            { 0u, offsetof(SpecializationData, workGroupSize), sizeof(uint32_t) }
-        }
-    };
-    specializationData.workGroupSize = m_workGroupSize;
-
-    VkSpecializationInfo specializationInfo =
-    {
-        to_u32(entries.size()),
-        entries.data(),
-        to_u32(sizeof(SpecializationData)),
-        &specializationData
-    };
-
-    std::vector<ShaderModule> shaderModules;
-    shaderModules.emplace_back(*device, VK_SHADER_STAGE_COMPUTE_BIT, specializationInfo, computeShader);
-
-    std::vector<VkDescriptorSetLayout> descriptorSetLayoutHandles{ fluidSimulationInputDescriptorSetLayout->getHandle(), fluidSimulationOutputDescriptorSetLayout->getHandle() };
-
-    std::vector<VkPushConstantRange> pushConstantRangeHandles;
-    VkPushConstantRange computePushConstantRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(FluidSimulationPushConstant) };
-    pushConstantRangeHandles.push_back(computePushConstantRange);
-
-    std::unique_ptr<ComputePipelineState> computePipelineState = std::make_unique<ComputePipelineState>(
-        std::make_unique<PipelineLayout>(*device, shaderModules, descriptorSetLayoutHandles, pushConstantRangeHandles)
-        );
-    std::unique_ptr<ComputePipeline> computePipeline = std::make_unique<ComputePipeline>(*device, *computePipelineState, nullptr);
-
-    pipelines.computeDensityAdvection.pipelineState = std::move(computePipelineState);
-    pipelines.computeDensityAdvection.pipeline = std::move(computePipeline);
-}
-
-void MainApp::createVelocityGaussianSplatComputePipeline()
-{
-    std::shared_ptr<ShaderSource> computeShader = std::make_shared<ShaderSource>("fluid_simulation/velocityGaussianSplat.comp.spv");
-
-    struct SpecializationData {
-        uint32_t workGroupSize;
-    } specializationData;
-    const std::array<VkSpecializationMapEntry, 1> entries{
-        {
-            { 0u, offsetof(SpecializationData, workGroupSize), sizeof(uint32_t) }
-        }
-    };
-    specializationData.workGroupSize = m_workGroupSize;
-
-    VkSpecializationInfo specializationInfo =
-    {
-        to_u32(entries.size()),
-        entries.data(),
-        to_u32(sizeof(SpecializationData)),
-        &specializationData
-    };
-
-    std::vector<ShaderModule> shaderModules;
-    shaderModules.emplace_back(*device, VK_SHADER_STAGE_COMPUTE_BIT, specializationInfo, computeShader);
-
-    std::vector<VkDescriptorSetLayout> descriptorSetLayoutHandles{ fluidSimulationInputDescriptorSetLayout->getHandle(), fluidSimulationOutputDescriptorSetLayout->getHandle() };
-
-    std::vector<VkPushConstantRange> pushConstantRangeHandles;
-    VkPushConstantRange computePushConstantRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(FluidSimulationPushConstant) };
-    pushConstantRangeHandles.push_back(computePushConstantRange);
-
-    std::unique_ptr<ComputePipelineState> computePipelineState = std::make_unique<ComputePipelineState>(
-        std::make_unique<PipelineLayout>(*device, shaderModules, descriptorSetLayoutHandles, pushConstantRangeHandles)
-        );
-    std::unique_ptr<ComputePipeline> computePipeline = std::make_unique<ComputePipeline>(*device, *computePipelineState, nullptr);
-
-    pipelines.computeVelocityGaussianSplat.pipelineState = std::move(computePipelineState);
-    pipelines.computeVelocityGaussianSplat.pipeline = std::move(computePipeline);
-}
-
-void MainApp::createDensityGaussianSplatComputePipeline()
-{
-    std::shared_ptr<ShaderSource> computeShader = std::make_shared<ShaderSource>("fluid_simulation/densityGaussianSplat.comp.spv");
-
-    struct SpecializationData {
-        uint32_t workGroupSize;
-    } specializationData;
-    const std::array<VkSpecializationMapEntry, 1> entries{
-        {
-            { 0u, offsetof(SpecializationData, workGroupSize), sizeof(uint32_t) }
-        }
-    };
-    specializationData.workGroupSize = m_workGroupSize;
-
-    VkSpecializationInfo specializationInfo =
-    {
-        to_u32(entries.size()),
-        entries.data(),
-        to_u32(sizeof(SpecializationData)),
-        &specializationData
-    };
-
-    std::vector<ShaderModule> shaderModules;
-    shaderModules.emplace_back(*device, VK_SHADER_STAGE_COMPUTE_BIT, specializationInfo, computeShader);
-
-    std::vector<VkDescriptorSetLayout> descriptorSetLayoutHandles{ fluidSimulationInputDescriptorSetLayout->getHandle(), fluidSimulationOutputDescriptorSetLayout->getHandle() };
-
-    std::vector<VkPushConstantRange> pushConstantRangeHandles;
-    VkPushConstantRange computePushConstantRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(FluidSimulationPushConstant) };
-    pushConstantRangeHandles.push_back(computePushConstantRange);
-
-    std::unique_ptr<ComputePipelineState> computePipelineState = std::make_unique<ComputePipelineState>(
-        std::make_unique<PipelineLayout>(*device, shaderModules, descriptorSetLayoutHandles, pushConstantRangeHandles)
-        );
-    std::unique_ptr<ComputePipeline> computePipeline = std::make_unique<ComputePipeline>(*device, *computePipelineState, nullptr);
-
-    pipelines.computeDensityGaussianSplat.pipelineState = std::move(computePipelineState);
-    pipelines.computeDensityGaussianSplat.pipeline = std::move(computePipeline);
-}
-
-void MainApp::createFluidVelocityDivergenceComputePipeline()
-{
-    std::shared_ptr<ShaderSource> computeShader = std::make_shared<ShaderSource>("fluid_simulation/divergence.comp.spv");
-
-    struct SpecializationData {
-        uint32_t workGroupSize;
-    } specializationData;
-    const std::array<VkSpecializationMapEntry, 1> entries{
-        {
-            { 0u, offsetof(SpecializationData, workGroupSize), sizeof(uint32_t) }
-        }
-    };
-    specializationData.workGroupSize = m_workGroupSize;
-
-    VkSpecializationInfo specializationInfo =
-    {
-        to_u32(entries.size()),
-        entries.data(),
-        to_u32(sizeof(SpecializationData)),
-        &specializationData
-    };
-
-    std::vector<ShaderModule> shaderModules;
-    shaderModules.emplace_back(*device, VK_SHADER_STAGE_COMPUTE_BIT, specializationInfo, computeShader);
-
-    std::vector<VkDescriptorSetLayout> descriptorSetLayoutHandles{ fluidSimulationInputDescriptorSetLayout->getHandle(), fluidSimulationOutputDescriptorSetLayout->getHandle() };
-
-    std::vector<VkPushConstantRange> pushConstantRangeHandles;
-    VkPushConstantRange computePushConstantRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(FluidSimulationPushConstant) };
-    pushConstantRangeHandles.push_back(computePushConstantRange);
-
-    std::unique_ptr<ComputePipelineState> computePipelineState = std::make_unique<ComputePipelineState>(
-        std::make_unique<PipelineLayout>(*device, shaderModules, descriptorSetLayoutHandles, pushConstantRangeHandles)
-        );
-    std::unique_ptr<ComputePipeline> computePipeline = std::make_unique<ComputePipeline>(*device, *computePipelineState, nullptr);
-
-    pipelines.computeFluidVelocityDivergence.pipelineState = std::move(computePipelineState);
-    pipelines.computeFluidVelocityDivergence.pipeline = std::move(computePipeline);
-}
-
-void MainApp::createJacobiComputePipeline()
-{
-    std::shared_ptr<ShaderSource> computeShader = std::make_shared<ShaderSource>("fluid_simulation/jacobi.comp.spv");
-
-    struct SpecializationData {
-        uint32_t workGroupSize;
-    } specializationData;
-    const std::array<VkSpecializationMapEntry, 1> entries{
-        {
-            { 0u, offsetof(SpecializationData, workGroupSize), sizeof(uint32_t) }
-        }
-    };
-    specializationData.workGroupSize = m_workGroupSize;
-
-    VkSpecializationInfo specializationInfo =
-    {
-        to_u32(entries.size()),
-        entries.data(),
-        to_u32(sizeof(SpecializationData)),
-        &specializationData
-    };
-
-    std::vector<ShaderModule> shaderModules;
-    shaderModules.emplace_back(*device, VK_SHADER_STAGE_COMPUTE_BIT, specializationInfo, computeShader);
-
-    std::vector<VkDescriptorSetLayout> descriptorSetLayoutHandles{ fluidSimulationInputDescriptorSetLayout->getHandle(), fluidSimulationOutputDescriptorSetLayout->getHandle() };
-
-    std::vector<VkPushConstantRange> pushConstantRangeHandles;
-    VkPushConstantRange computePushConstantRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(FluidSimulationPushConstant) };
-    pushConstantRangeHandles.push_back(computePushConstantRange);
-
-    std::unique_ptr<ComputePipelineState> computePipelineState = std::make_unique<ComputePipelineState>(
-        std::make_unique<PipelineLayout>(*device, shaderModules, descriptorSetLayoutHandles, pushConstantRangeHandles)
-        );
-    std::unique_ptr<ComputePipeline> computePipeline = std::make_unique<ComputePipeline>(*device, *computePipelineState, nullptr);
-
-    pipelines.computeJacobi.pipelineState = std::move(computePipelineState);
-    pipelines.computeJacobi.pipeline = std::move(computePipeline);
-}
-
-void MainApp::createGradientSubtractionComputePipeline()
-{
-    std::shared_ptr<ShaderSource> computeShader = std::make_shared<ShaderSource>("fluid_simulation/gradient.comp.spv");
-
-    struct SpecializationData {
-        uint32_t workGroupSize;
-    } specializationData;
-    const std::array<VkSpecializationMapEntry, 1> entries{
-        {
-            { 0u, offsetof(SpecializationData, workGroupSize), sizeof(uint32_t) }
-        }
-    };
-    specializationData.workGroupSize = m_workGroupSize;
-
-    VkSpecializationInfo specializationInfo =
-    {
-        to_u32(entries.size()),
-        entries.data(),
-        to_u32(sizeof(SpecializationData)),
-        &specializationData
-    };
-
-    std::vector<ShaderModule> shaderModules;
-    shaderModules.emplace_back(*device, VK_SHADER_STAGE_COMPUTE_BIT, specializationInfo, computeShader);
-
-    std::vector<VkDescriptorSetLayout> descriptorSetLayoutHandles{ fluidSimulationInputDescriptorSetLayout->getHandle(), fluidSimulationOutputDescriptorSetLayout->getHandle() };
-
-    std::vector<VkPushConstantRange> pushConstantRangeHandles;
-    VkPushConstantRange computePushConstantRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(FluidSimulationPushConstant) };
-    pushConstantRangeHandles.push_back(computePushConstantRange);
-
-    std::unique_ptr<ComputePipelineState> computePipelineState = std::make_unique<ComputePipelineState>(
-        std::make_unique<PipelineLayout>(*device, shaderModules, descriptorSetLayoutHandles, pushConstantRangeHandles)
-        );
-    std::unique_ptr<ComputePipeline> computePipeline = std::make_unique<ComputePipeline>(*device, *computePipelineState, nullptr);
-
-    pipelines.computeGradientSubtraction.pipelineState = std::move(computePipelineState);
-    pipelines.computeGradientSubtraction.pipeline = std::move(computePipeline);
-}
-
 void MainApp::createFramebuffers()
 {
     for (uint32_t i = 0; i < maxFramesInFlight; ++i)
@@ -2949,124 +2111,6 @@ void MainApp::createDepthResources()
 
     setDebugUtilsObjectName(device->getHandle(), depthImage->getHandle(), "depthImage");
     setDebugUtilsObjectName(device->getHandle(), depthImageView->getHandle(), "depthImageView");
-}
-
-std::unique_ptr<Image> MainApp::createTextureImageWithInitialValue(uint32_t texWidth, uint32_t texHeight, VkImageUsageFlags imageUsageFlags)
-{
-    // TODO: we should probably do this initialization on the GPU side with a shader; this is inefficient since we have to mark the texture as a transfer destination, just for a one time initalization
-    // Create the staging buffer
-    VkFormat format = VK_FORMAT_R32G32B32A32_SFLOAT;
-    VkDeviceSize imageSize{ static_cast<VkDeviceSize>(texWidth * texHeight * 16u /* bytes */)}; /* Since our format is VK_FORMAT_R32G32B32A32_SFLOAT, we allocate 4 byte (32 bits) per channel of which there are 4 */
-    VkBufferCreateInfo bufferInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
-    bufferInfo.size = imageSize;
-    bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-    VmaAllocationCreateInfo memoryInfo{};
-    memoryInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
-
-    std::unique_ptr<Buffer> stagingBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
-
-    // Initialize the texture with the initial values
-    const float initalValue = 0.0f;
-    void *mappedData = stagingBuffer->map();
-    std::vector<float> initialTextureData(imageSize, initalValue);
-    memcpy(mappedData, initialTextureData.data(), static_cast<size_t>(imageSize));
-    stagingBuffer->unmap();
-
-    // Create the texture image
-    VkExtent3D extent{ texWidth, texHeight, 1u };
-    std::unique_ptr<Image> textureImage = std::make_unique<Image>(*device, format, extent, imageUsageFlags, VMA_MEMORY_USAGE_GPU_ONLY /* default values for remaining params */);
-
-    // TODO: we can pass in VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL as the initial layout when we create these images to avoid this layout transition
-    // Transition the texture image to be prepared as a destination target
-    VkImageSubresourceRange subresourceRange = {};
-    subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    subresourceRange.baseMipLevel = 0u;
-    subresourceRange.levelCount = 1u;
-    subresourceRange.baseArrayLayer = 0u;
-    subresourceRange.layerCount = 1u;
-
-    VkImageMemoryBarrier2 transitionTextureImageLayoutBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
-    transitionTextureImageLayoutBarrier.pNext = nullptr;
-    transitionTextureImageLayoutBarrier.srcStageMask = VK_PIPELINE_STAGE_2_NONE; // No dependencies
-    transitionTextureImageLayoutBarrier.srcAccessMask = VK_ACCESS_2_NONE;
-    transitionTextureImageLayoutBarrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT; // Image will be written to as transfer source
-    transitionTextureImageLayoutBarrier.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-    transitionTextureImageLayoutBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    transitionTextureImageLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    transitionTextureImageLayoutBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    transitionTextureImageLayoutBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    transitionTextureImageLayoutBarrier.image = textureImage->getHandle();
-    transitionTextureImageLayoutBarrier.subresourceRange = subresourceRange;
-
-    VkDependencyInfo dependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
-    dependencyInfo.pNext = nullptr;
-    dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-    dependencyInfo.memoryBarrierCount = 0u;
-    dependencyInfo.pMemoryBarriers = nullptr;
-    dependencyInfo.bufferMemoryBarrierCount = 0u;
-    dependencyInfo.pBufferMemoryBarriers = nullptr;
-    dependencyInfo.imageMemoryBarrierCount = 1u;
-    dependencyInfo.pImageMemoryBarriers = &transitionTextureImageLayoutBarrier;
-
-    std::unique_ptr<CommandBuffer> commandBuffer = std::make_unique<CommandBuffer>(*frameData.commandPools[currentFrame], VK_COMMAND_BUFFER_LEVEL_PRIMARY);
-    commandBuffer->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
-    vkCmdPipelineBarrier2KHR(commandBuffer->getHandle(), &dependencyInfo);
-    commandBuffer->end();
-
-    VkCommandBufferSubmitInfo commandBufferSubmitInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO };
-    commandBufferSubmitInfo.pNext = nullptr;
-    commandBufferSubmitInfo.commandBuffer = commandBuffer->getHandle();
-    commandBufferSubmitInfo.deviceMask = 0u;
-
-    VkSubmitInfo2 submitInfo = { VK_STRUCTURE_TYPE_SUBMIT_INFO_2 };
-    submitInfo.pNext = nullptr;
-    submitInfo.waitSemaphoreInfoCount = 0u;
-    submitInfo.pWaitSemaphoreInfos = nullptr;
-    submitInfo.commandBufferInfoCount = 1u;
-    submitInfo.pCommandBufferInfos = &commandBufferSubmitInfo;
-    submitInfo.signalSemaphoreInfoCount = 0u;
-    submitInfo.pSignalSemaphoreInfos = nullptr;
-
-    // TODO: we can refactor this to only required one queuesubmit and no queuewaitidles
-    VK_CHECK(vkQueueSubmit2KHR(m_graphicsQueue->getHandle(), 1u, &submitInfo, VK_NULL_HANDLE));
-    vkQueueWaitIdle(m_graphicsQueue->getHandle());
-
-    copyBufferToImage(*stagingBuffer, *textureImage, texWidth, texHeight);
-
-    // Transition the texture image to be prepared to be read and written to by shaders
-    transitionTextureImageLayoutBarrier.pNext = nullptr;
-    transitionTextureImageLayoutBarrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT; // Wait for transfer to finish as the destination
-    transitionTextureImageLayoutBarrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-    transitionTextureImageLayoutBarrier.dstStageMask = VK_PIPELINE_STAGE_2_NONE;
-    transitionTextureImageLayoutBarrier.dstAccessMask = VK_ACCESS_2_NONE;
-    transitionTextureImageLayoutBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    transitionTextureImageLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-    transitionTextureImageLayoutBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    transitionTextureImageLayoutBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    transitionTextureImageLayoutBarrier.image = textureImage->getHandle();
-    transitionTextureImageLayoutBarrier.subresourceRange = subresourceRange;
-
-    dependencyInfo.pNext = nullptr;
-    dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-    dependencyInfo.memoryBarrierCount = 0u;
-    dependencyInfo.pMemoryBarriers = nullptr;
-    dependencyInfo.bufferMemoryBarrierCount = 0u;
-    dependencyInfo.pBufferMemoryBarriers = nullptr;
-    dependencyInfo.imageMemoryBarrierCount = 1u;
-    dependencyInfo.pImageMemoryBarriers = &transitionTextureImageLayoutBarrier;
-
-    commandBuffer->reset();
-    commandBuffer->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
-    vkCmdPipelineBarrier2KHR(commandBuffer->getHandle(), &dependencyInfo);
-    commandBuffer->end();
-
-    // TODO: we can refactor this to only required one queuesubmit and no queuewaitidles
-    VK_CHECK(vkQueueSubmit2KHR(m_graphicsQueue->getHandle(), 1u, &submitInfo, VK_NULL_HANDLE));
-    vkQueueWaitIdle(m_graphicsQueue->getHandle());
-
-    return textureImage;
 }
 
 std::unique_ptr<Image> MainApp::createTextureImage(const std::string &filename)
@@ -3485,45 +2529,6 @@ void MainApp::prepareParticleData()
     copyBufferToBuffer(*stagingBuffer, *(particleBuffer), particleBufferSize);
 }
 
-// Initialize the fluid simulation buffers
-void MainApp::initializeFluidSimulationResources()
-{
-    fluidVelocityInputTexture = std::make_unique<Texture>();
-    fluidVelocityInputTexture->image = createTextureImageWithInitialValue(swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
-    fluidVelocityInputTexture->imageview = std::make_unique<ImageView>(*fluidVelocityInputTexture->image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, fluidVelocityInputTexture->image->getFormat());
-
-    fluidVelocityDivergenceInputTexture = std::make_unique<Texture>();
-    fluidVelocityDivergenceInputTexture->image = createTextureImageWithInitialValue(swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
-    fluidVelocityDivergenceInputTexture->imageview = std::make_unique<ImageView>(*fluidVelocityDivergenceInputTexture->image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, fluidVelocityDivergenceInputTexture->image->getFormat());
-
-    fluidPressureInputTexture = std::make_unique<Texture>();
-    fluidPressureInputTexture->image = createTextureImageWithInitialValue(swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
-    fluidPressureInputTexture->imageview = std::make_unique<ImageView>(*fluidPressureInputTexture->image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, fluidPressureInputTexture->image->getFormat());
-
-    fluidDensityInputTexture = std::make_unique<Texture>();
-    fluidDensityInputTexture->image = createTextureImageWithInitialValue(swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
-    fluidDensityInputTexture->imageview = std::make_unique<ImageView>(*fluidDensityInputTexture->image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, fluidDensityInputTexture->image->getFormat());
-
-    fluidSimulationOutputTexture = std::make_unique<Texture>();
-    // TODO: the VK_IMAGE_USAGE_TRANSFER_DST_BIT flag is required since in createTextureImage, there is code to 0 initialize we should do the initialization in a shader and remove this flag eventually
-    fluidSimulationOutputTexture->image = createTextureImageWithInitialValue(swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
-    fluidSimulationOutputTexture->imageview = std::make_unique<ImageView>(*fluidSimulationOutputTexture->image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, fluidSimulationOutputTexture->image->getFormat());
-
-    setDebugUtilsObjectName(device->getHandle(), fluidVelocityInputTexture->image->getHandle(), "fluidVelocityInputTexture image");
-    setDebugUtilsObjectName(device->getHandle(), fluidVelocityInputTexture->imageview->getHandle(), "fluidVelocityInputTexture imageView");
-    setDebugUtilsObjectName(device->getHandle(), fluidVelocityDivergenceInputTexture->image->getHandle(), "fluidVelocityDivergenceInputTexture image");
-    setDebugUtilsObjectName(device->getHandle(), fluidVelocityDivergenceInputTexture->imageview->getHandle(), "fluidVelocityDivergenceInputTexture imageView");
-    setDebugUtilsObjectName(device->getHandle(), fluidPressureInputTexture->image->getHandle(), "fluidPressureInputTexture image");
-    setDebugUtilsObjectName(device->getHandle(), fluidPressureInputTexture->imageview->getHandle(), "fluidPressureInputTexture imageView");
-    setDebugUtilsObjectName(device->getHandle(), fluidDensityInputTexture->image->getHandle(), "fluidDensityInputTexture image");
-    setDebugUtilsObjectName(device->getHandle(), fluidDensityInputTexture->imageview->getHandle(), "fluidDensityInputTexture imageView");
-    setDebugUtilsObjectName(device->getHandle(), fluidSimulationOutputTexture->image->getHandle(), "fluidSimulationOutputTexture image");
-    setDebugUtilsObjectName(device->getHandle(), fluidSimulationOutputTexture->imageview->getHandle(), "fluidSimulationOutputTexture imageView");
-
-    // Initialize fluidSimulationPushConstant data
-    fluidSimulationPushConstant.gridSize = glm::vec2(swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height);
-}
-
 void MainApp::createDescriptorPool()
 {
     std::vector<VkDescriptorPoolSize> poolSizes{};
@@ -3749,74 +2754,8 @@ void MainApp::createDescriptorSets()
     writeTextureDescriptorSet.pBufferInfo = nullptr;
     writeTextureDescriptorSet.pTexelBufferView = nullptr;
 
-    // Fluid Simulation Input Descriptor Set
-    VkDescriptorSetAllocateInfo fluidSimulationInputDescriptorSetAllocateInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
-    fluidSimulationInputDescriptorSetAllocateInfo.descriptorPool = descriptorPool->getHandle();
-    fluidSimulationInputDescriptorSetAllocateInfo.descriptorSetCount = 1;
-    fluidSimulationInputDescriptorSetAllocateInfo.pSetLayouts = &fluidSimulationInputDescriptorSetLayout->getHandle();
-    fluidSimulationInputDescriptorSet = std::make_unique<DescriptorSet>(*device, fluidSimulationInputDescriptorSetAllocateInfo);
-    setDebugUtilsObjectName(device->getHandle(), fluidSimulationInputDescriptorSet->getHandle(), "fluidSimulationInputDescriptorSet");
 
-    // Binding 0 is the fluid velocity input texture
-    VkDescriptorImageInfo fluidVelocityInputTextureInfo{};
-    fluidVelocityInputTextureInfo.sampler = textureSampler->getHandle();
-    fluidVelocityInputTextureInfo.imageView = fluidVelocityInputTexture->imageview->getHandle();
-    fluidVelocityInputTextureInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-    // Binding 1 is the fluid velocity divergence input texture
-    VkDescriptorImageInfo fluidVelocityDivergenceInputTextureInfo{};
-    fluidVelocityDivergenceInputTextureInfo.sampler = textureSampler->getHandle();
-    fluidVelocityDivergenceInputTextureInfo.imageView = fluidVelocityDivergenceInputTexture->imageview->getHandle();
-    fluidVelocityDivergenceInputTextureInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-    // Binding 2 is the fluid pressure input texture
-    VkDescriptorImageInfo fluidPressureInputTextureInfo{};
-    fluidPressureInputTextureInfo.sampler = textureSampler->getHandle();
-    fluidPressureInputTextureInfo.imageView = fluidPressureInputTexture->imageview->getHandle();
-    fluidPressureInputTextureInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-    // Binding 3 is the fluid density input texture
-    VkDescriptorImageInfo fluidDensityInputTextureInfo{};
-    fluidDensityInputTextureInfo.sampler = textureSampler->getHandle();
-    fluidDensityInputTextureInfo.imageView = fluidDensityInputTexture->imageview->getHandle();
-    fluidDensityInputTextureInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-    std::array<VkDescriptorImageInfo, 4> fluidSimulationInputTextureInfos{ fluidVelocityInputTextureInfo, fluidVelocityDivergenceInputTextureInfo, fluidPressureInputTextureInfo, fluidDensityInputTextureInfo };
-
-    VkWriteDescriptorSet writeFluidSimulationInputDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-    writeFluidSimulationInputDescriptorSet.dstSet = fluidSimulationInputDescriptorSet->getHandle();
-    writeFluidSimulationInputDescriptorSet.dstBinding = 0;
-    writeFluidSimulationInputDescriptorSet.dstArrayElement = 0;
-    writeFluidSimulationInputDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    writeFluidSimulationInputDescriptorSet.descriptorCount = to_u32(fluidSimulationInputTextureInfos.size());
-    writeFluidSimulationInputDescriptorSet.pImageInfo = fluidSimulationInputTextureInfos.data();
-    writeFluidSimulationInputDescriptorSet.pBufferInfo = nullptr;
-    writeFluidSimulationInputDescriptorSet.pTexelBufferView = nullptr;
-
-
-    // Fluid Simulation Output Descriptor Set
-    VkDescriptorSetAllocateInfo fluidSimulationOutputDescriptorSetAllocateInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
-    fluidSimulationOutputDescriptorSetAllocateInfo.descriptorPool = descriptorPool->getHandle();
-    fluidSimulationOutputDescriptorSetAllocateInfo.descriptorSetCount = 1u;
-    fluidSimulationOutputDescriptorSetAllocateInfo.pSetLayouts = &fluidSimulationOutputDescriptorSetLayout->getHandle();
-    fluidSimulationOutputDescriptorSet = std::make_unique<DescriptorSet>(*device, fluidSimulationOutputDescriptorSetAllocateInfo);
-    setDebugUtilsObjectName(device->getHandle(), fluidSimulationOutputDescriptorSet->getHandle(), "fluidSimulationOutputDescriptorSet");
-
-    // Binding 0 is the fluid velocity output texture
-    VkDescriptorImageInfo fluidSimulationOutputTextureInfo{};
-    fluidSimulationOutputTextureInfo.sampler = VK_NULL_HANDLE;
-    fluidSimulationOutputTextureInfo.imageView = fluidSimulationOutputTexture->imageview->getHandle();
-    fluidSimulationOutputTextureInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-    std::array<VkDescriptorImageInfo, 1> fluidSimulationOutputTextureInfos{ fluidSimulationOutputTextureInfo };
-
-    VkWriteDescriptorSet writeFluidSimulationOutputDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-    writeFluidSimulationOutputDescriptorSet.dstSet = fluidSimulationOutputDescriptorSet->getHandle();
-    writeFluidSimulationOutputDescriptorSet.dstBinding = 0;
-    writeFluidSimulationOutputDescriptorSet.dstArrayElement = 0;
-    writeFluidSimulationOutputDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    writeFluidSimulationOutputDescriptorSet.descriptorCount = to_u32(fluidSimulationOutputTextureInfos.size());
-    writeFluidSimulationOutputDescriptorSet.pImageInfo = fluidSimulationOutputTextureInfos.data();
-    writeFluidSimulationOutputDescriptorSet.pBufferInfo = nullptr;
-    writeFluidSimulationOutputDescriptorSet.pTexelBufferView = nullptr;
-
-
-    std::array<VkWriteDescriptorSet, 11> writeDescriptorSets
+    std::array<VkWriteDescriptorSet, 9> writeDescriptorSets
     {
         writeGlobalDescriptorSet,
         writeObjectDescriptorSet,
@@ -3829,9 +2768,7 @@ void MainApp::createDescriptorSets()
         writeTaaStorageBufferDescriptorSet,
 
         writeParticleComputeStorageBufferDescriptorSet,
-        writeTextureDescriptorSet,
-        writeFluidSimulationInputDescriptorSet,
-        writeFluidSimulationOutputDescriptorSet
+        writeTextureDescriptorSet
     };
     vkUpdateDescriptorSets(device->getHandle(), to_u32(writeDescriptorSets.size()), writeDescriptorSets.data(), 0, nullptr);
 }
@@ -4429,9 +3366,7 @@ void MainApp::buildBlas()
         // All build are using the same scratch buffer
         buildInfos[idx].scratchData.deviceAddress = scratchAddress;
 
-        // Convert user vector of offsets to vector of pointer-to-offset (required by vk).
-        // Recall that this defines which (sub)section of the vertex/index arrays
-        // will be built into the BLAS.
+        // Convert user vector of offsets to vector of pointer-to-offset. This defines which (sub)section of the vertex/index arrays will be built into the BLAS.
         std::vector<const VkAccelerationStructureBuildRangeInfoKHR *> pBuildOffset(blas.input.asBuildRangeInfo.size());
         for (size_t infoIdx = 0; infoIdx < blas.input.asBuildRangeInfo.size(); infoIdx++)
             pBuildOffset[infoIdx] = &blas.input.asBuildRangeInfo[infoIdx];
@@ -4507,7 +3442,7 @@ void MainApp::buildBlas()
 
 
         // Compacting
-        uint32_t                    statTotalOriSize{ 0 }, statTotalCompactSize{ 0 };
+        uint32_t statTotalOriSize{ 0u }, statTotalCompactSize{ 0u };
         for (uint32_t idx = 0; idx < blasCount; idx++)
         {
             // LOGD("Reducing %i, from %d to %d \n", i, originalSizes[i], compactSizes[i]);
@@ -4955,15 +3890,14 @@ void MainApp::createRaytracingPipeline()
 void MainApp::createRaytracingShaderBindingTable()
 {
     RayTracingPipelineState *rayTracingPipelineState = dynamic_cast<RayTracingPipelineState *>(pipelines.rayTracing.pipelineState.get());
-    uint32_t groupCount = to_u32(rayTracingPipelineState->getRayTracingShaderGroups().size());  // 4 shaders: raygen, 2 miss, chit
-    uint32_t groupHandleSize = device->getPhysicalDevice().getRayTracingPipelineProperties().shaderGroupHandleSize;            // Size of a program identifier
+    uint32_t groupCount = to_u32(rayTracingPipelineState->getRayTracingShaderGroups().size());  // 4 shaders: raygen, 2 miss, 1 chit
+    uint32_t groupHandleSize = device->getPhysicalDevice().getRayTracingPipelineProperties().shaderGroupHandleSize; // Size of a program identifier
     // Compute the actual size needed per SBT entry (round-up to alignment needed).
     uint32_t groupSizeAligned = align_up(groupHandleSize, device->getPhysicalDevice().getRayTracingPipelineProperties().shaderGroupBaseAlignment);
     // Bytes needed for the SBT.
     VkDeviceSize sbtSize = groupCount * groupSizeAligned;
 
-    // Fetch all the shader handles used in the pipeline. This is opaque data so we store it in a vector of bytes.
-    // The order of handles follow the stage entry.
+    // Fetch all the shader handles used in the pipeline. This is opaque data so we store it in a vector of bytes. The order of handles follow the stage entry.
     std::vector<uint8_t> shaderHandleStorage(sbtSize);
     VK_CHECK(vkGetRayTracingShaderGroupHandlesKHR(device->getHandle(), pipelines.rayTracing.pipeline->getHandle(), 0, groupCount, to_u32(sbtSize), shaderHandleStorage.data()));
 
