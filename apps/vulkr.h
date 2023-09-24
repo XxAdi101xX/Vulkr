@@ -223,12 +223,6 @@ struct PipelineData
     std::unique_ptr<PipelineState> pipelineState;
 };
 
-struct Texture
-{
-    std::unique_ptr<Image> image;
-    std::unique_ptr<ImageView> imageview;
-};
-
 struct AccelerationStructure
 {
     AccelerationStructure(Device &device) : device(device)
@@ -345,7 +339,6 @@ private:
     std::unique_ptr<DescriptorPool> descriptorPool;
     std::unique_ptr<DescriptorPool> imguiPool;
 
-    std::unique_ptr<Image> depthImage{ nullptr };
     std::unique_ptr<ImageView> depthImageView{ nullptr };
     std::unique_ptr<Sampler> textureSampler{ nullptr };
 
@@ -387,10 +380,10 @@ private:
     std::unique_ptr<Buffer> particleBuffer;
 
     // TAA related textures
-    std::unique_ptr<Texture> outputImageTexture;
-    std::unique_ptr<Texture> copyOutputImageTexture;
-    std::unique_ptr<Texture> historyImageTexture;
-    std::unique_ptr<Texture> velocityImageTexture;
+    std::unique_ptr<ImageView> outputImageView;
+    std::unique_ptr<ImageView> copyOutputImageView;
+    std::unique_ptr<ImageView> historyImageView;
+    std::unique_ptr<ImageView> velocityImageView;
 
     // Descriptor sets
     std::unique_ptr<DescriptorSet> globalDescriptorSet;
@@ -420,7 +413,7 @@ private:
         PipelineData rayTracing;
     } pipelines;
     std::vector<ObjModel> objModels;
-    std::vector<Texture> textures;
+    std::vector<std::unique_ptr<ImageView>> textureImageViews;
     std::vector<ObjInstance> objInstances;
     std::vector<LightData> sceneLights;
 

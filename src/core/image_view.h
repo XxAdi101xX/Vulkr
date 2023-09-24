@@ -33,7 +33,7 @@ class Image;
 class ImageView
 {
 public:
-	ImageView(const Image &image, VkImageViewType viewType, VkImageCreateFlags aspectMask, VkFormat format = VK_FORMAT_UNDEFINED);
+	ImageView(std::unique_ptr<Image> &&imageToMove, VkImageViewType viewType, VkImageCreateFlags aspectMask, VkFormat format = VK_FORMAT_UNDEFINED);
 	~ImageView();
 
 	ImageView(ImageView &&other) = delete;
@@ -41,7 +41,7 @@ public:
 	ImageView &operator=(const ImageView &) = delete;
 	ImageView &operator=(ImageView &&) = delete;
 
-	const Image &getImage() const;
+	const Image *getImage() const;
 
 	const VkImageView &getHandle() const;
 
@@ -54,7 +54,7 @@ private:
 
 	Device &device;
 
-	const Image &image;
+	std::unique_ptr<Image> image;
 
 	VkImageSubresourceRange subresourceRange{};
 };

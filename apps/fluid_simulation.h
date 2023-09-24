@@ -91,12 +91,6 @@ namespace vulkr
         std::unique_ptr<PipelineState> pipelineState;
     };
 
-    struct Texture
-    {
-        std::unique_ptr<Image> image;
-        std::unique_ptr<ImageView> imageview;
-    };
-
 
     /* FluidSimulation class */
     class FluidSimulation : public Application
@@ -160,11 +154,11 @@ namespace vulkr
         } frameData;
 
         // Fluid velocity textures
-        std::unique_ptr<Texture> fluidVelocityInputTexture;
-        std::unique_ptr<Texture> fluidVelocityDivergenceInputTexture;
-        std::unique_ptr<Texture> fluidPressureInputTexture;
-        std::unique_ptr<Texture> fluidDensityInputTexture;
-        std::unique_ptr<Texture> fluidSimulationOutputTexture; // Generic backbuffer for all of the fluid simulation stages
+        std::unique_ptr<ImageView> fluidVelocityInputImageView;
+        std::unique_ptr<ImageView> fluidVelocityDivergenceInputImageView;
+        std::unique_ptr<ImageView> fluidPressureInputImageView;
+        std::unique_ptr<ImageView> fluidDensityInputImageView;
+        std::unique_ptr<ImageView> fluidSimulationOutputImageView; // Generic backbuffer for all of the fluid simulation stages
 
         // Descriptor sets
         std::unique_ptr<DescriptorSet> fluidSimulationInputDescriptorSet;
@@ -189,7 +183,7 @@ namespace vulkr
 
         // Subroutines
         void computeFluidSimulation();
-        void copyFluidOutputTextureToInputTexture(Image *imageToCopyTo);
+        void copyFluidOutputTextureToInputTexture(const Image *imageToCopyTo);
         void cleanupSwapchain();
         void createInstance();
         void createSurface();

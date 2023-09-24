@@ -67,10 +67,9 @@ VulkrApp::~VulkrApp()
     objModels.clear();
     objInstances.clear();
 
-    for (auto &it : textures)
+    for (auto &it : textureImageViews)
     {
-        it.image.reset();
-        it.imageview.reset();
+        it.reset();
     }
 
     m_blas.clear();
@@ -111,7 +110,6 @@ void VulkrApp::cleanupSwapchain()
     }
 
     // Depth image
-    depthImage.reset();
     depthImageView.reset();
 
     // Framebuffers
@@ -173,14 +171,10 @@ void VulkrApp::cleanupSwapchain()
     raytracingDescriptorSet.reset();
 
     // Textures
-    outputImageTexture->image.reset();
-    outputImageTexture->imageview.reset();
-    copyOutputImageTexture->image.reset();
-    copyOutputImageTexture->imageview.reset();
-    historyImageTexture->image.reset();
-    historyImageTexture->imageview.reset();
-    velocityImageTexture->image.reset();
-    velocityImageTexture->imageview.reset();
+    outputImageView.reset();
+    copyOutputImageView.reset();
+    historyImageView.reset();
+    velocityImageView.reset();
 
     for (uint8_t i = 0; i < std::thread::hardware_concurrency(); ++i)
     {
@@ -545,7 +539,7 @@ void VulkrApp::update()
     transitionHistoryImageLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
     transitionHistoryImageLayoutBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     transitionHistoryImageLayoutBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    transitionHistoryImageLayoutBarrier.image = historyImageTexture->image->getHandle();
+    transitionHistoryImageLayoutBarrier.image = historyImageView->getImage()->getHandle();
     transitionHistoryImageLayoutBarrier.subresourceRange = subresourceRange;
 
     dependencyInfo.pNext = nullptr;
@@ -567,8 +561,8 @@ void VulkrApp::update()
     outputImageCopyRegion.dstOffset = { 0, 0, 0 };
     outputImageCopyRegion.extent = { swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, 1u };
     // Copy output image to swapchain image and history image (note that they can execute in any order due to lack of barriers)
-    vkCmdCopyImage(frameData.commandBuffers[currentFrame][2]->getHandle(), outputImageTexture->image->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swapchain->getImages()[swapchainImageIndex]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &outputImageCopyRegion);
-    vkCmdCopyImage(frameData.commandBuffers[currentFrame][2]->getHandle(), outputImageTexture->image->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, historyImageTexture->image->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &outputImageCopyRegion);
+    vkCmdCopyImage(frameData.commandBuffers[currentFrame][2]->getHandle(), outputImageView->getImage()->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swapchain->getImages()[swapchainImageIndex]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &outputImageCopyRegion);
+    vkCmdCopyImage(frameData.commandBuffers[currentFrame][2]->getHandle(), outputImageView->getImage()->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, historyImageView->getImage()->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &outputImageCopyRegion);
 
     VkBufferCopy cameraBufferCopyRegion{};
     cameraBufferCopyRegion.srcOffset = 0ull;
@@ -592,7 +586,7 @@ void VulkrApp::update()
     transitionHistoryImageLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
     transitionHistoryImageLayoutBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     transitionHistoryImageLayoutBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    transitionHistoryImageLayoutBarrier.image = historyImageTexture->image->getHandle();
+    transitionHistoryImageLayoutBarrier.image = historyImageView->getImage()->getHandle();
     transitionHistoryImageLayoutBarrier.subresourceRange = subresourceRange;
 
     VkImageMemoryBarrier2 transitionOutputImageLayoutBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
@@ -605,7 +599,7 @@ void VulkrApp::update()
     transitionOutputImageLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
     transitionOutputImageLayoutBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     transitionOutputImageLayoutBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    transitionOutputImageLayoutBarrier.image = outputImageTexture->image->getHandle();
+    transitionOutputImageLayoutBarrier.image = outputImageView->getImage()->getHandle();
     transitionOutputImageLayoutBarrier.subresourceRange = subresourceRange;
 
     std::array<VkImageMemoryBarrier2, 2> transitionImageBarriers{ transitionHistoryImageLayoutBarrier, transitionOutputImageLayoutBarrier };
@@ -1556,7 +1550,7 @@ void VulkrApp::createDescriptorSetLayouts()
     VkDescriptorSetLayoutBinding samplerLayoutBinding{};
     samplerLayoutBinding.binding = 0u;
     samplerLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    samplerLayoutBinding.descriptorCount = to_u32(textures.size());
+    samplerLayoutBinding.descriptorCount = to_u32(textureImageViews.size());
     samplerLayoutBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
     samplerLayoutBinding.pImmutableSamplers = nullptr;
 
@@ -1991,11 +1985,11 @@ void VulkrApp::createFramebuffers()
 {
     for (uint32_t i = 0; i < maxFramesInFlight; ++i)
     {
-        std::vector<VkImageView> offscreenAttachments{ outputImageTexture->imageview->getHandle(), copyOutputImageTexture->imageview->getHandle(), velocityImageTexture->imageview->getHandle(), depthImageView->getHandle() };
+        std::vector<VkImageView> offscreenAttachments{ outputImageView->getHandle(), copyOutputImageView->getHandle(), velocityImageView->getHandle(), depthImageView->getHandle() };
         frameData.offscreenFramebuffers[i] = std::make_unique<Framebuffer>(*device, *swapchain, *mainRenderPass.renderPass, offscreenAttachments);
         setDebugUtilsObjectName(device->getHandle(), frameData.offscreenFramebuffers[i]->getHandle(), "outputImageFramebuffer for frame #" + std::to_string(i));
 
-        std::vector<VkImageView> postProcessingAttachments{ outputImageTexture->imageview->getHandle(), depthImageView->getHandle() };
+        std::vector<VkImageView> postProcessingAttachments{ outputImageView->getHandle(), depthImageView->getHandle() };
         frameData.postProcessFramebuffers[i] = std::make_unique<Framebuffer>(*device, *swapchain, *postRenderPass.renderPass, postProcessingAttachments);
         setDebugUtilsObjectName(device->getHandle(), frameData.postProcessFramebuffers[i]->getHandle(), "postProcessingFramebuffer for frame #" + std::to_string(i));
     }
@@ -2106,10 +2100,10 @@ void VulkrApp::createDepthResources()
 
     VkExtent3D extent{ swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, 1 };
     // If we don't propery synchronize between renderpasses that use the same depth buffer, we could have data hazards
-    depthImage = std::make_unique<Image>(*device, depthFormat, extent, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VMA_MEMORY_USAGE_GPU_ONLY /* default values for remaining params */);
-    depthImageView = std::make_unique<ImageView>(*depthImage, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_DEPTH_BIT, depthFormat);
+    std::unique_ptr<Image> depthImage = std::make_unique<Image>(*device, depthFormat, extent, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VMA_MEMORY_USAGE_GPU_ONLY /* default values for remaining params */);
+    depthImageView = std::make_unique<ImageView>(std::move(depthImage), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_DEPTH_BIT, depthFormat);
 
-    setDebugUtilsObjectName(device->getHandle(), depthImage->getHandle(), "depthImage");
+    setDebugUtilsObjectName(device->getHandle(), depthImageView->getImage()->getHandle(), "depthImage");
     setDebugUtilsObjectName(device->getHandle(), depthImageView->getHandle(), "depthImageView");
 }
 
@@ -2636,15 +2630,15 @@ void VulkrApp::createDescriptorSets()
     // Bindings 2, 3 and 4 are the history image, velocity image and copy output image respectively
     VkDescriptorImageInfo historyImageInfo{};
     historyImageInfo.sampler = VK_NULL_HANDLE;
-    historyImageInfo.imageView = historyImageTexture->imageview->getHandle();
+    historyImageInfo.imageView = historyImageView->getHandle();
     historyImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
     VkDescriptorImageInfo velocityImageInfo{};
     velocityImageInfo.sampler = VK_NULL_HANDLE;
-    velocityImageInfo.imageView = velocityImageTexture->imageview->getHandle();
+    velocityImageInfo.imageView = velocityImageView->getHandle();
     velocityImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
     VkDescriptorImageInfo copyOutputImageInfo{};
     copyOutputImageInfo.sampler = VK_NULL_HANDLE;
-    copyOutputImageInfo.imageView = copyOutputImageTexture->imageview->getHandle();
+    copyOutputImageInfo.imageView = copyOutputImageView->getHandle();
     copyOutputImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
     std::array<VkDescriptorImageInfo, 3> postProcessingStorageImageInfos{ historyImageInfo, velocityImageInfo, copyOutputImageInfo };
         
@@ -2734,11 +2728,11 @@ void VulkrApp::createDescriptorSets()
     setDebugUtilsObjectName(device->getHandle(), textureDescriptorSet->getHandle(), "textureDescriptorSet");
 
     std::vector<VkDescriptorImageInfo> textureImageInfos;
-    for (auto &texture : textures)
+    for (auto &texture : textureImageViews)
     {
         VkDescriptorImageInfo textureImageInfo{};
         textureImageInfo.sampler = textureSampler->getHandle();
-        textureImageInfo.imageView = texture.imageview->getHandle();
+        textureImageInfo.imageView = texture->getHandle();
         textureImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         textureImageInfos.push_back(textureImageInfo);
     }
@@ -2786,10 +2780,12 @@ void VulkrApp::loadTextureImages(const std::vector<std::string> &textureFiles)
     for (const std::string &textureFile : textureFiles)
     {
         LOGI(std::to_string(x++) + ": processing " + textureFile);
-        Texture texture;
-        texture.image = createTextureImage(std::string("../../assets/textures/" + textureFile).c_str());
-        texture.imageview = std::make_unique<ImageView>(*texture.image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, texture.image->getFormat());
-        textures.emplace_back(std::move(texture));
+
+        std::unique_ptr<Image> imageOfTexture = createTextureImage(std::string("../../assets/textures/" + textureFile).c_str());
+        VkFormat textureImageFormat = imageOfTexture->getFormat();
+
+        std::unique_ptr<ImageView> texture = std::make_unique<ImageView>(std::move(imageOfTexture), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, textureImageFormat);
+        textureImageViews.emplace_back(std::move(texture));
     }
 }
 
@@ -2842,7 +2838,7 @@ void VulkrApp::loadModel(const std::string &objFileName)
     setDebugUtilsObjectName(device->getHandle(), objModel.materialsIndexBuffer->getHandle(), (std::string("matIdx_" + objNb).c_str()));
 
     objModel.objFileName = objFileName;
-    objModel.txtOffset = static_cast<uint64_t>(textures.size());
+    objModel.txtOffset = static_cast<uint64_t>(textureImageViews.size());
     loadTextureImages(objLoader.textures);
 
     objModels.push_back(std::move(objModel));
@@ -3062,32 +3058,32 @@ void VulkrApp::createImageResourcesForFrames()
     subresourceRange.baseArrayLayer = 0u;
     subresourceRange.layerCount = 1u;
 
-    // Create textures
-    outputImageTexture = std::make_unique<Texture>();
-    outputImageTexture->image = std::make_unique<Image>(*device, swapchain->getProperties().surfaceFormat.format, extent, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
-    outputImageTexture->imageview = std::make_unique<ImageView>(*(outputImageTexture->image), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, outputImageTexture->image->getFormat());
+    // Create textureImageViews
+    std::unique_ptr<Image> outputImage = std::make_unique<Image>(*device, swapchain->getProperties().surfaceFormat.format, extent, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+    VkFormat outputImageFormat = outputImage->getFormat();
+    outputImageView = std::make_unique<ImageView>(std::move(outputImage), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, outputImageFormat);
 
-    copyOutputImageTexture = std::make_unique<Texture>();
-    copyOutputImageTexture->image = std::make_unique<Image>(*device, swapchain->getProperties().surfaceFormat.format, extent, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
-    copyOutputImageTexture->imageview = std::make_unique<ImageView>(*(copyOutputImageTexture->image), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, copyOutputImageTexture->image->getFormat());
+    std::unique_ptr<Image> copyOutputImage = std::make_unique<Image>(*device, swapchain->getProperties().surfaceFormat.format, extent, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+    VkFormat copyOutputImageFormat = copyOutputImage->getFormat();
+    copyOutputImageView = std::make_unique<ImageView>(std::move(copyOutputImage), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, copyOutputImageFormat);
 
-    historyImageTexture = std::make_unique<Texture>();
-    historyImageTexture->image = std::make_unique<Image>(*device, swapchain->getProperties().surfaceFormat.format, extent, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
-    historyImageTexture->imageview = std::make_unique<ImageView>(*(historyImageTexture->image), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, historyImageTexture->image->getFormat());
+    std::unique_ptr<Image> historyImage = std::make_unique<Image>(*device, swapchain->getProperties().surfaceFormat.format, extent, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+    VkFormat historyImageFormat = historyImage->getFormat();
+    historyImageView = std::make_unique<ImageView>(std::move(historyImage), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, historyImageFormat);
 
-    velocityImageTexture = std::make_unique<Texture>();
-    velocityImageTexture->image = std::make_unique<Image>(*device, swapchain->getProperties().surfaceFormat.format, extent, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
-    velocityImageTexture->imageview = std::make_unique<ImageView>(*(velocityImageTexture->image), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, velocityImageTexture->image->getFormat());
+    std::unique_ptr<Image> velocityImage = std::make_unique<Image>(*device, swapchain->getProperties().surfaceFormat.format, extent, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+    VkFormat velocityImageFormat = velocityImage->getFormat();
+    velocityImageView = std::make_unique<ImageView>(std::move(velocityImage), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, velocityImageFormat);
 
     // Set debug markers
-    setDebugUtilsObjectName(device->getHandle(), outputImageTexture->image->getHandle(), "outputImage");
-    setDebugUtilsObjectName(device->getHandle(), outputImageTexture->imageview->getHandle(), "outputImageView");
-    setDebugUtilsObjectName(device->getHandle(), copyOutputImageTexture->image->getHandle(), "copyOutputImage");
-    setDebugUtilsObjectName(device->getHandle(), copyOutputImageTexture->imageview->getHandle(), "copyOutputImageView");
-    setDebugUtilsObjectName(device->getHandle(), historyImageTexture->image->getHandle(), "historyImage");
-    setDebugUtilsObjectName(device->getHandle(), historyImageTexture->imageview->getHandle(), "historyImageView");
-    setDebugUtilsObjectName(device->getHandle(), velocityImageTexture->image->getHandle(), "velocityImage");
-    setDebugUtilsObjectName(device->getHandle(), velocityImageTexture->imageview->getHandle(), "velocityImageView");
+    setDebugUtilsObjectName(device->getHandle(), outputImageView->getImage()->getHandle(), "outputImage");
+    setDebugUtilsObjectName(device->getHandle(), outputImageView->getHandle(), "outputImageView");
+    setDebugUtilsObjectName(device->getHandle(), copyOutputImageView->getImage()->getHandle(), "copyOutputImage");
+    setDebugUtilsObjectName(device->getHandle(), copyOutputImageView->getHandle(), "copyOutputImageView");
+    setDebugUtilsObjectName(device->getHandle(), historyImageView->getImage()->getHandle(), "historyImage");
+    setDebugUtilsObjectName(device->getHandle(), historyImageView->getHandle(), "historyImageView");
+    setDebugUtilsObjectName(device->getHandle(), velocityImageView->getImage()->getHandle(), "velocityImage");
+    setDebugUtilsObjectName(device->getHandle(), velocityImageView->getHandle(), "velocityImageView");
 
     // Create memory barriers for layout transition
     VkImageMemoryBarrier2 transitionOutputImageLayoutBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
@@ -3100,7 +3096,7 @@ void VulkrApp::createImageResourcesForFrames()
     transitionOutputImageLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
     transitionOutputImageLayoutBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     transitionOutputImageLayoutBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    transitionOutputImageLayoutBarrier.image = outputImageTexture->image->getHandle();
+    transitionOutputImageLayoutBarrier.image = outputImageView->getImage()->getHandle();
     transitionOutputImageLayoutBarrier.subresourceRange = subresourceRange;
 
     VkImageMemoryBarrier2 transitionCopyOutputImageLayoutBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
@@ -3113,7 +3109,7 @@ void VulkrApp::createImageResourcesForFrames()
     transitionCopyOutputImageLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
     transitionCopyOutputImageLayoutBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     transitionCopyOutputImageLayoutBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    transitionCopyOutputImageLayoutBarrier.image = copyOutputImageTexture->image->getHandle();
+    transitionCopyOutputImageLayoutBarrier.image = copyOutputImageView->getImage()->getHandle();
     transitionCopyOutputImageLayoutBarrier.subresourceRange = subresourceRange;
 
     VkImageMemoryBarrier2 transitionHistoryImageLayoutBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
@@ -3126,7 +3122,7 @@ void VulkrApp::createImageResourcesForFrames()
     transitionHistoryImageLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
     transitionHistoryImageLayoutBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     transitionHistoryImageLayoutBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    transitionHistoryImageLayoutBarrier.image = historyImageTexture->image->getHandle();
+    transitionHistoryImageLayoutBarrier.image = historyImageView->getImage()->getHandle();
     transitionHistoryImageLayoutBarrier.subresourceRange = subresourceRange;
 
     VkImageMemoryBarrier2 transitionVelocityImageLayoutBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
@@ -3139,7 +3135,7 @@ void VulkrApp::createImageResourcesForFrames()
     transitionVelocityImageLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
     transitionVelocityImageLayoutBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     transitionVelocityImageLayoutBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    transitionVelocityImageLayoutBarrier.image = velocityImageTexture->image->getHandle();
+    transitionVelocityImageLayoutBarrier.image = velocityImageView->getImage()->getHandle();
     transitionVelocityImageLayoutBarrier.subresourceRange = subresourceRange;
 
     std::vector<VkImageMemoryBarrier2> imageTransitionMemoryBarriers;
@@ -3749,7 +3745,7 @@ void VulkrApp::createRaytracingDescriptorSets()
 
         VkDescriptorImageInfo outputImageInfo{};
         outputImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-        outputImageInfo.imageView = outputImageTexture->imageview->getHandle();
+        outputImageInfo.imageView = outputImageView->getHandle();
         outputImageInfo.sampler = {};
 
         VkWriteDescriptorSet writeOutputImage{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
@@ -3772,7 +3768,7 @@ void VulkrApp::updateRaytracingDescriptorSet()
     {
         VkDescriptorImageInfo outputImageInfo{};
         outputImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-        outputImageInfo.imageView = outputImageTexture->imageview->getHandle();
+        outputImageInfo.imageView = outputImageView->getHandle();
         outputImageInfo.sampler = {};
 
         VkWriteDescriptorSet writeOutputImage{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };

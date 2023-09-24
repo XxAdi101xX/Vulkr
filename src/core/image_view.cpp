@@ -27,18 +27,18 @@
 namespace vulkr
 {
 
-ImageView::ImageView(const Image &image, VkImageViewType viewType, VkImageCreateFlags aspectMask, VkFormat format) :
-	device{ image.getDevice() },
-	image{ image }
+ImageView::ImageView(std::unique_ptr<Image> &&imageToMove, VkImageViewType viewType, VkImageCreateFlags aspectMask, VkFormat format) :
+	device{ imageToMove->getDevice() },
+	image{ std::move(imageToMove) }
 {
 	subresourceRange.aspectMask = aspectMask;
 	subresourceRange.baseMipLevel = 0;
-	subresourceRange.levelCount = image.getSubresource().mipLevel;
+	subresourceRange.levelCount = image->getSubresource().mipLevel;
 	subresourceRange.baseArrayLayer = 0;
-	subresourceRange.layerCount = image.getSubresource().arrayLayer;
+	subresourceRange.layerCount = image->getSubresource().arrayLayer;
 
 	VkImageViewCreateInfo createInfo{ VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
-	createInfo.image = image.getHandle();
+	createInfo.image = image->getHandle();
 	createInfo.viewType = viewType;
 	createInfo.format = format;
 	createInfo.subresourceRange = subresourceRange;
@@ -52,11 +52,13 @@ ImageView::~ImageView()
 	{
 		vkDestroyImageView(device.getHandle(), handle, nullptr);
 	}
+
+	image.reset();
 }
 
-const Image &ImageView::getImage() const
+const Image *ImageView::getImage() const
 {
-	return image;
+	return image.get();
 }
 
 const VkImageView &ImageView::getHandle() const
@@ -66,7 +68,7 @@ const VkImageView &ImageView::getHandle() const
 
 VkFormat ImageView::getFormat() const
 {
-	return image.getFormat();
+	return image->getFormat();
 }
 
 VkImageSubresourceRange ImageView::getSubresourceRange() const

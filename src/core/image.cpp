@@ -155,6 +155,7 @@ Image::~Image()
 			LOGW("Mapped data has not be explicity unmapped, will be unmapped in destructor..");
 			unmap();
 		}
+		// Equivilant to vkDestroyImage(device, image, allocationCallbacks) and vmaFreeMemory(allocator, allocation)
 		vmaDestroyImage(device.getMemoryAllocator(), handle, allocation);
 	}
 }
