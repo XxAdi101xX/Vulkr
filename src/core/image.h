@@ -70,7 +70,7 @@ public:
 
 	void unmap();
 
-	// Should not be used; left here for future reference
+	// Deprecated: left here for future reference
 	VkImageMemoryBarrier2 transitionImageLayout(VkImageLayout oldLayout, VkImageLayout newLayout, VkImageSubresourceRange subresourceRange);
 
 	/* Getters */

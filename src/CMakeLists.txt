@@ -22,8 +22,7 @@
 
 cmake_minimum_required(VERSION 3.10)
 
-project(src LANGUAGES C CXX)
-
+project(src)
 set(COMMON_FILES
     # Header Files
     common/helpers.h
@@ -35,6 +34,7 @@ set(COMMON_FILES
     common/timer.h
     common/obj_loader.h
     common/debug_util.h
+    common/gltf_loader.h
     # Source Files
     common/vulkan_common.cpp
     common/strings.cpp
@@ -43,6 +43,7 @@ set(COMMON_FILES
     common/timer.cpp
     common/obj_loader.cpp
     common/debug_util.cpp
+    common/gltf_loader.cpp
 )
 
 set(CORE_FILES
@@ -139,6 +140,7 @@ target_link_libraries(${PROJECT_NAME}
     VulkanMemoryAllocator
     stb
     tinyobjloader
+    tinygltf
 )
 
 # Link platform specific libraries

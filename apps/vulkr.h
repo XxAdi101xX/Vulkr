@@ -32,6 +32,7 @@
 #include "common/timer.h"
 #include "common/obj_loader.h"
 #include "common/debug_util.h"
+#include "common/gltf_loader.h"
 
 // Core Files
 #include "core/instance.h"
@@ -109,6 +110,8 @@ constexpr std::array<glm::vec3, 6> attractors = {
     glm::vec3(0.0f, 4.0f, 0.0f),
     glm::vec3(0.0f, -8.0f, 0.0f),
 };
+
+const std::string defaultModelFilePath = "../../assets/models/";
 
 // #define MULTI_THREAD // TODO: enabling multi-threaded loading tentatively works with rasterization but fails for the raytracing pipeline during the buildTlas second call; still a WIP
 bool raytracingEnabled{ false }; // Flag to enable ray tracing vs rasterization
@@ -205,9 +208,12 @@ struct ComputeParticlesPushConstant
 } computeParticlesPushConstant;
 
 /* CPU only structs */
+
+// Holds all of the necessary rendering data to display a .obj file model
+// TODO rename this to ObjModelRenderingData
 struct ObjModel
 {
-    std::string objFileName;
+    std::string objFilePath;
     uint64_t txtOffset;
     uint32_t verticesCount;
     uint32_t indicesCount;
@@ -215,6 +221,34 @@ struct ObjModel
     std::unique_ptr<Buffer> indexBuffer;
     std::unique_ptr<Buffer> materialsBuffer;
     std::unique_ptr<Buffer> materialsIndexBuffer;
+};
+
+enum PBRWorkflows { PBR_WORKFLOW_METALLIC_ROUGHNESS = 0, PBR_WORKFLOW_SPECULAR_GLOSINESS = 1 };
+
+// Holds all of the necessary rendering data to display a .gltf file model
+// TODO maybe we merge both this with the OBjModel struct
+struct GltfModelRenderingData
+{
+    std::unique_ptr<Buffer> materialsBuffer;
+};
+
+// TODO should this be moved out of the CPU only section
+struct alignas(16) GltfMaterial {
+    glm::vec4 baseColorFactor;
+    glm::vec4 emissiveFactor;
+    glm::vec4 diffuseFactor;
+    glm::vec4 specularFactor;
+    float workflow;
+    int colorTextureSet;
+    int PhysicalDescriptorTextureSet;
+    int normalTextureSet;
+    int occlusionTextureSet;
+    int emissiveTextureSet;
+    float metallicFactor;
+    float roughnessFactor;
+    float alphaMask;
+    float alphaMaskCutoff;
+    float emissiveStrength;
 };
 
 struct PipelineData
@@ -405,6 +439,7 @@ private:
 
     struct Pipelines
     {
+        PipelineData pbr;
         PipelineData offscreen;
         PipelineData postProcess;
         PipelineData computeModelAnimation;
@@ -412,10 +447,15 @@ private:
         PipelineData computeParticleIntegrate;
         PipelineData rayTracing;
     } pipelines;
+
+    std::vector<GltfModelRenderingData> gltfModelsToRender;
     std::vector<ObjModel> objModels;
     std::vector<std::unique_ptr<ImageView>> textureImageViews;
     std::vector<ObjInstance> objInstances;
     std::vector<LightData> sceneLights;
+
+    uint32_t animationIndex = 0;
+    float animationTimer = 0.0f;
 
     bool haveLightsUpdated{ false };
 
@@ -440,6 +480,7 @@ private:
     void createPostRenderPass();
     void createDescriptorSetLayouts();
     void createMainRasterizationPipeline();
+    void createPbrRasterizationPipeline();
     void createPostProcessingPipeline();
     void createModelAnimationComputePipeline();
     void createParticleCalculateComputePipeline();
@@ -456,6 +497,7 @@ private:
     void createVertexBuffer(ObjModel &objModel, const ObjLoader &objLoader);
     void createIndexBuffer(ObjModel &objModel, const ObjLoader &objLoader);
     void createMaterialBuffer(ObjModel &objModel, const ObjLoader &objLoader);
+    void createMaterialBuffer(GltfModelRenderingData &gltfModelRenderingData, gltf::Model &loadedGltfModel);
     void createMaterialIndicesBuffer(ObjModel &objModel, const ObjLoader &objLoader);
     void createUniformBuffers();
     void createSSBOs();
@@ -463,8 +505,9 @@ private:
     void createDescriptorPool();
     void createDescriptorSets();
     void createSceneLights();
-    void loadModel(const std::string &objFileName);
-    void createInstance(const std::string &objFileName, glm::mat4 transform);
+    void loadGltfModel(const std::string &gltfFilePath);
+    void loadObjModel(const std::string &objFilePath);
+    void createInstance(const std::string &objFilePath, glm::mat4 transform);
     void loadModels();
     uint64_t getObjModelIndex(const std::string &name);
     void createScene();

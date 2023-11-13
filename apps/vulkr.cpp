@@ -67,6 +67,12 @@ VulkrApp::~VulkrApp()
     objModels.clear();
     objInstances.clear();
 
+    for (auto &it : gltfModelsToRender)
+    {
+        it.materialsBuffer.reset();
+    }
+    gltfModelsToRender.clear();
+
     for (auto &it : textureImageViews)
     {
         it.reset();
@@ -839,11 +845,11 @@ void VulkrApp::animateInstances()
 {
     const uint64_t startingIndex{ 2 };
     const int64_t wusonInstanceCount{
-        std::count_if(objInstances.begin(), objInstances.end(), [this](ObjInstance i) { return i.objIndex == getObjModelIndex("wuson.obj"); })
+        std::count_if(objInstances.begin(), objInstances.end(), [this](ObjInstance i) { return i.objIndex == getObjModelIndex(defaultModelFilePath + "wuson.obj"); })
     };
     if (wusonInstanceCount == 0)
     {
-        LOGW("No wuson instances found");
+        LOGW("No wuson instances found to animate");
         return;
     }
 
@@ -873,7 +879,7 @@ void VulkrApp::animateInstances()
 void VulkrApp::animateWithCompute()
 {
     // TODO: we might require a buffer memory barrier similar to the code in the other compute workflows
-    const uint64_t wusonModelIndex{ getObjModelIndex("wuson.obj") };
+    const uint64_t wusonModelIndex{ getObjModelIndex(defaultModelFilePath + "wuson.obj") };
 
     computePushConstant.indexCount = objModels[wusonModelIndex].indicesCount;
     computePushConstant.time = std::chrono::duration<float, std::chrono::seconds::period>(drawingTimer->elapsed()).count();
@@ -1583,26 +1589,26 @@ void VulkrApp::createMainRasterizationPipeline()
 
     // Position at location 0
     VkVertexInputAttributeDescription positionAttributeDescription;
-    positionAttributeDescription.binding = 0;
     positionAttributeDescription.location = 0;
+    positionAttributeDescription.binding = 0;
     positionAttributeDescription.format = VK_FORMAT_R32G32B32_SFLOAT;
     positionAttributeDescription.offset = offsetof(VertexObj, position);
     // Normal at location 1
     VkVertexInputAttributeDescription normalAttributeDescription;
-    normalAttributeDescription.binding = 0;
     normalAttributeDescription.location = 1;
+    normalAttributeDescription.binding = 0;
     normalAttributeDescription.format = VK_FORMAT_R32G32B32_SFLOAT;
     normalAttributeDescription.offset = offsetof(VertexObj, normal);
     // Color at location 2
     VkVertexInputAttributeDescription colorAttributeDescription;
-    colorAttributeDescription.binding = 0;
     colorAttributeDescription.location = 2;
+    colorAttributeDescription.binding = 0;
     colorAttributeDescription.format = VK_FORMAT_R32G32B32_SFLOAT;
     colorAttributeDescription.offset = offsetof(VertexObj, color);
     // TexCoord at location 3
     VkVertexInputAttributeDescription textureCoordinateAttributeDescription;
-    textureCoordinateAttributeDescription.binding = 0;
     textureCoordinateAttributeDescription.location = 3;
+    textureCoordinateAttributeDescription.binding = 0;
     textureCoordinateAttributeDescription.format = VK_FORMAT_R32G32_SFLOAT;
     textureCoordinateAttributeDescription.offset = offsetof(VertexObj, textureCoordinate);
 
@@ -1690,9 +1696,9 @@ void VulkrApp::createMainRasterizationPipeline()
 
     std::vector<VkDescriptorSetLayout> descriptorSetLayoutHandles {
         globalDescriptorSetLayout->getHandle(),
-        objectDescriptorSetLayout->getHandle(),
-        textureDescriptorSetLayout->getHandle(),
-        taaDescriptorSetLayout->getHandle()
+            objectDescriptorSetLayout->getHandle(),
+            textureDescriptorSetLayout->getHandle(),
+            taaDescriptorSetLayout->getHandle()
     };
 
     std::vector<VkPushConstantRange> pushConstantRangeHandles;
@@ -1719,6 +1725,172 @@ void VulkrApp::createMainRasterizationPipeline()
     pipelines.offscreen.pipeline = std::move(mainRasterizationPipeline);
 }
 
+void VulkrApp::createPbrRasterizationPipeline()
+{
+    VertexInputState vertexInputState{};
+    vertexInputState.bindingDescriptions.reserve(1);
+    vertexInputState.attributeDescriptions.reserve(3);
+
+    VkVertexInputBindingDescription bindingDescription{};
+    bindingDescription.binding = 0;
+    bindingDescription.stride = sizeof(vulkr::gltf::Model::Vertex);
+    bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+    vertexInputState.bindingDescriptions.emplace_back(bindingDescription);
+
+    // Position at location 0
+    VkVertexInputAttributeDescription positionAttributeDescription;
+    positionAttributeDescription.location = 0;
+    positionAttributeDescription.binding = 0;
+    positionAttributeDescription.format = VK_FORMAT_R32G32B32_SFLOAT;
+    positionAttributeDescription.offset = offsetof(vulkr::gltf::Model::Vertex, pos);
+    // Normal at location 1
+    VkVertexInputAttributeDescription normalAttributeDescription;
+    normalAttributeDescription.location = 1;
+    normalAttributeDescription.binding = 0;
+    normalAttributeDescription.format = VK_FORMAT_R32G32B32_SFLOAT;
+    normalAttributeDescription.offset = offsetof(vulkr::gltf::Model::Vertex, normal);
+    // uv0 at location 2
+    VkVertexInputAttributeDescription uv0AttributeDescription;
+    uv0AttributeDescription.location = 2;
+    uv0AttributeDescription.binding = 0;
+    uv0AttributeDescription.format = VK_FORMAT_R32G32_SFLOAT;
+    uv0AttributeDescription.offset = offsetof(vulkr::gltf::Model::Vertex, uv0);
+    // uv1 at location 3
+    VkVertexInputAttributeDescription uv1AttributeDescription;
+    uv1AttributeDescription.location = 3;
+    uv1AttributeDescription.binding = 0;
+    uv1AttributeDescription.format = VK_FORMAT_R32G32_SFLOAT;
+    uv1AttributeDescription.offset = offsetof(vulkr::gltf::Model::Vertex, uv1);
+    // uv1 at location 3
+    VkVertexInputAttributeDescription joint0AttributeDescription;
+    joint0AttributeDescription.location = 4;
+    joint0AttributeDescription.binding = 0;
+    joint0AttributeDescription.format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    joint0AttributeDescription.offset = offsetof(vulkr::gltf::Model::Vertex, joint0);
+    // uv1 at location 3
+    VkVertexInputAttributeDescription weight0AttributeDescription;
+    weight0AttributeDescription.location = 5;
+    weight0AttributeDescription.binding = 0;
+    weight0AttributeDescription.format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    weight0AttributeDescription.offset = offsetof(vulkr::gltf::Model::Vertex, weight0);
+    // uv1 at location 3
+    VkVertexInputAttributeDescription colorAttributeDescription;
+    colorAttributeDescription.location = 6;
+    colorAttributeDescription.binding = 0;
+    colorAttributeDescription.format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    colorAttributeDescription.offset = offsetof(vulkr::gltf::Model::Vertex, color);
+
+    vertexInputState.attributeDescriptions.emplace_back(positionAttributeDescription);
+    vertexInputState.attributeDescriptions.emplace_back(normalAttributeDescription);
+    vertexInputState.attributeDescriptions.emplace_back(colorAttributeDescription);
+    vertexInputState.attributeDescriptions.emplace_back(uv0AttributeDescription);
+    vertexInputState.attributeDescriptions.emplace_back(uv1AttributeDescription);
+    vertexInputState.attributeDescriptions.emplace_back(joint0AttributeDescription);
+    vertexInputState.attributeDescriptions.emplace_back(weight0AttributeDescription);
+    vertexInputState.attributeDescriptions.emplace_back(colorAttributeDescription);
+
+    InputAssemblyState inputAssemblyState{};
+    inputAssemblyState.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    inputAssemblyState.primitiveRestartEnable = VK_FALSE;
+
+    ViewportState viewportState{};
+    VkViewport viewport{ 0.0f, 0.0f, static_cast<float>(swapchain->getProperties().imageExtent.width), static_cast<float>(swapchain->getProperties().imageExtent.height), 0.0f, 1.0f };
+    viewportState.viewports.emplace_back(viewport);
+    VkRect2D scissor{};
+    scissor.offset = { 0, 0 };
+    scissor.extent = swapchain->getProperties().imageExtent;
+    viewportState.scissors.emplace_back(scissor);
+
+    RasterizationState rasterizationState{};
+    rasterizationState.depthClampEnable = VK_FALSE;
+    rasterizationState.rasterizerDiscardEnable = VK_FALSE;
+    rasterizationState.polygonMode = VK_POLYGON_MODE_FILL;
+    rasterizationState.cullMode = VK_CULL_MODE_BACK_BIT;
+    rasterizationState.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    rasterizationState.lineWidth = 1.0f;
+    rasterizationState.depthBiasEnable = VK_FALSE;
+
+    MultisampleState multisampleState{};
+    multisampleState.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+    multisampleState.sampleShadingEnable = VK_FALSE;
+
+    DepthStencilState depthStencilState{};
+    depthStencilState.depthTestEnable = VK_TRUE;
+    depthStencilState.depthWriteEnable = VK_TRUE;
+    // TODO: change this to VK_COMPARE_OP_GREATER: https://developer.nvidia.com/content/depth-precision-visualized , will need to also change the depthStencil clearValue to 0.0f instead of 1.0f
+    depthStencilState.depthCompareOp = VK_COMPARE_OP_LESS;
+    depthStencilState.depthBoundsTestEnable = VK_FALSE;
+    depthStencilState.stencilTestEnable = VK_FALSE;
+
+    ColorBlendAttachmentState colorBlendAttachmentState{};
+    colorBlendAttachmentState.blendEnable = VK_FALSE;
+
+    ColorBlendState colorBlendState{};
+    colorBlendState.logicOpEnable = VK_FALSE;
+    colorBlendState.logicOp = VK_LOGIC_OP_COPY;
+    colorBlendState.attachments.emplace_back(colorBlendAttachmentState); // No blending for output image
+    colorBlendState.blendConstants[0] = 0.0f;
+    colorBlendState.blendConstants[1] = 0.0f;
+    colorBlendState.blendConstants[2] = 0.0f;
+    colorBlendState.blendConstants[3] = 0.0f;
+
+    std::vector<VkDynamicState> dynamicStates;
+
+    std::shared_ptr<ShaderSource> mainVertexShader = std::make_shared<ShaderSource>("rasterization/pbr.vert.spv");
+    VkSpecializationInfo mainVertexShaderSpecializationInfo;
+    mainVertexShaderSpecializationInfo.mapEntryCount = 0;
+    mainVertexShaderSpecializationInfo.dataSize = 0;
+
+    std::shared_ptr<ShaderSource> mainFragmentShader = std::make_shared<ShaderSource>("rasterization/material_pbr.frag.spv");
+    struct SpecializationData {
+        uint32_t maxLightCount;
+    } specializationData;
+    const std::array<VkSpecializationMapEntry, 1> entries{
+        {
+            { 0u, offsetof(SpecializationData, maxLightCount), sizeof(uint32_t) }
+        }
+    };
+    specializationData.maxLightCount = maxLightCount;
+
+    VkSpecializationInfo mainFragmentShaderSpecializationInfo =
+    {
+        to_u32(entries.size()),
+        entries.data(),
+        to_u32(sizeof(SpecializationData)),
+        &specializationData
+    };
+
+    std::vector<ShaderModule> shaderModules;
+    shaderModules.emplace_back(*device, VK_SHADER_STAGE_VERTEX_BIT, mainVertexShaderSpecializationInfo, mainVertexShader);
+    shaderModules.emplace_back(*device, VK_SHADER_STAGE_FRAGMENT_BIT, mainFragmentShaderSpecializationInfo, mainFragmentShader);
+
+    std::vector<VkDescriptorSetLayout> descriptorSetLayoutHandles {
+        globalDescriptorSetLayout->getHandle(),
+        objectDescriptorSetLayout->getHandle(),
+        textureDescriptorSetLayout->getHandle(),
+        taaDescriptorSetLayout->getHandle()
+    };
+
+    std::vector<VkPushConstantRange> pushConstantRangeHandles;
+
+    std::unique_ptr<GraphicsPipelineState> pbrRasterizationPipelineState = std::make_unique<GraphicsPipelineState>(
+        std::make_unique<PipelineLayout>(*device, shaderModules, descriptorSetLayoutHandles, pushConstantRangeHandles),
+        *mainRenderPass.renderPass,
+        vertexInputState,
+        inputAssemblyState,
+        viewportState,
+        rasterizationState,
+        multisampleState,
+        depthStencilState,
+        colorBlendState,
+        dynamicStates
+    );
+    std::unique_ptr<GraphicsPipeline> pbrRasterizationPipeline = std::make_unique<GraphicsPipeline>(*device, *pbrRasterizationPipelineState, nullptr);
+
+    pipelines.pbr.pipelineState = std::move(pbrRasterizationPipelineState);
+    pipelines.pbr.pipeline = std::move(pbrRasterizationPipeline);
+}
+
 void VulkrApp::createPostProcessingPipeline()
 {
     VertexInputState vertexInputState{};
@@ -1733,26 +1905,26 @@ void VulkrApp::createPostProcessingPipeline()
 
     // Position at location 0
     VkVertexInputAttributeDescription positionAttributeDescription;
-    positionAttributeDescription.binding = 0;
     positionAttributeDescription.location = 0;
+    positionAttributeDescription.binding = 0;
     positionAttributeDescription.format = VK_FORMAT_R32G32B32_SFLOAT;
     positionAttributeDescription.offset = offsetof(VertexObj, position);
     // Normal at location 1
     VkVertexInputAttributeDescription normalAttributeDescription;
-    normalAttributeDescription.binding = 0;
     normalAttributeDescription.location = 1;
+    normalAttributeDescription.binding = 0;
     normalAttributeDescription.format = VK_FORMAT_R32G32B32_SFLOAT;
     normalAttributeDescription.offset = offsetof(VertexObj, normal);
     // Color at location 2
     VkVertexInputAttributeDescription colorAttributeDescription;
-    colorAttributeDescription.binding = 0;
     colorAttributeDescription.location = 2;
+    colorAttributeDescription.binding = 0;
     colorAttributeDescription.format = VK_FORMAT_R32G32B32_SFLOAT;
     colorAttributeDescription.offset = offsetof(VertexObj, color);
     // TexCoord at location 3
     VkVertexInputAttributeDescription textureCoordinateAttributeDescription;
-    textureCoordinateAttributeDescription.binding = 0;
     textureCoordinateAttributeDescription.location = 3;
+    textureCoordinateAttributeDescription.binding = 0;
     textureCoordinateAttributeDescription.format = VK_FORMAT_R32G32_SFLOAT;
     textureCoordinateAttributeDescription.offset = offsetof(VertexObj, textureCoordinate);
 
@@ -2383,6 +2555,70 @@ void VulkrApp::createMaterialBuffer(ObjModel& objModel, const ObjLoader &objLoad
     copyBufferToBuffer(*stagingBuffer, *(objModel.materialsBuffer), bufferSize);
 }
 
+void VulkrApp::createMaterialBuffer(GltfModelRenderingData &gltfModelRenderingData, gltf::Model &loadedGltfModel)
+{
+    std::vector<GltfMaterial> gltfMaterials{};
+    for (auto &material : loadedGltfModel.materials) {
+        GltfMaterial gltfMaterial{};
+
+        gltfMaterial.emissiveFactor = material.emissiveFactor;
+        // To save space, availabilty and texture coordinate set are combined
+        // -1 = texture not used for this material, >= 0 texture used and index of texture coordinate set
+        gltfMaterial.colorTextureSet = material.baseColorTexture != nullptr ? material.texCoordSets.baseColor : -1;
+        gltfMaterial.normalTextureSet = material.normalTexture != nullptr ? material.texCoordSets.normal : -1;
+        gltfMaterial.occlusionTextureSet = material.occlusionTexture != nullptr ? material.texCoordSets.occlusion : -1;
+        gltfMaterial.emissiveTextureSet = material.emissiveTexture != nullptr ? material.texCoordSets.emissive : -1;
+        gltfMaterial.alphaMask = static_cast<float>(material.alphaMode == gltf::Material::ALPHAMODE_MASK);
+        gltfMaterial.alphaMaskCutoff = material.alphaCutoff;
+        gltfMaterial.emissiveStrength = material.emissiveStrength;
+
+        // TODO: glTF specs states that metallic roughness should be preferred, even if specular glosiness is present
+
+        if (material.pbrWorkflows.metallicRoughness) {
+            // Metallic roughness workflow
+            gltfMaterial.workflow = static_cast<float>(PBR_WORKFLOW_METALLIC_ROUGHNESS);
+            gltfMaterial.baseColorFactor = material.baseColorFactor;
+            gltfMaterial.metallicFactor = material.metallicFactor;
+            gltfMaterial.roughnessFactor = material.roughnessFactor;
+            gltfMaterial.PhysicalDescriptorTextureSet = material.metallicRoughnessTexture != nullptr ? material.texCoordSets.metallicRoughness : -1;
+            gltfMaterial.colorTextureSet = material.baseColorTexture != nullptr ? material.texCoordSets.baseColor : -1;
+        }
+
+        if (material.pbrWorkflows.specularGlossiness) {
+            // Specular glossiness workflow
+            gltfMaterial.workflow = static_cast<float>(PBR_WORKFLOW_SPECULAR_GLOSINESS);
+            gltfMaterial.PhysicalDescriptorTextureSet = material.extension.specularGlossinessTexture != nullptr ? material.texCoordSets.specularGlossiness : -1;
+            gltfMaterial.colorTextureSet = material.extension.diffuseTexture != nullptr ? material.texCoordSets.baseColor : -1;
+            gltfMaterial.diffuseFactor = material.extension.diffuseFactor;
+            gltfMaterial.specularFactor = glm::vec4(material.extension.specularFactor, 1.0f);
+        }
+
+        gltfMaterials.push_back(gltfMaterial);
+    }
+
+    VkDeviceSize bufferSize{ gltfMaterials.size() * sizeof(GltfMaterial) };
+
+    VkBufferCreateInfo bufferInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+    bufferInfo.size = bufferSize;
+    bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+    VmaAllocationCreateInfo memoryInfo{};
+    memoryInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
+
+    std::unique_ptr<Buffer> stagingBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
+
+    bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | m_rayTracingBufferUsageFlags;
+    memoryInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+
+    gltfModelRenderingData.materialsBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
+
+    void *mappedData = stagingBuffer->map();
+    memcpy(mappedData, gltfMaterials.data(), static_cast<size_t>(bufferSize));
+    stagingBuffer->unmap();
+    copyBufferToBuffer(*stagingBuffer, *(gltfModelRenderingData.materialsBuffer), bufferSize);
+}
+
 void VulkrApp::createMaterialIndicesBuffer(ObjModel &objModel, const ObjLoader& objLoader)
 {
     VkDeviceSize bufferSize{ sizeof(objLoader.materialIndices[0]) * objLoader.materialIndices.size() };
@@ -2803,14 +3039,11 @@ void VulkrApp::setupSynchronizationObjects()
     }
 }
 
-void VulkrApp::loadModel(const std::string &objFileName)
+void VulkrApp::loadObjModel(const std::string &objFilePath)
 {
-    const std::string modelPath = "../../assets/models/";
-    const std::string filePath = modelPath + objFileName;
-
     ObjModel objModel;
     ObjLoader objLoader;
-    objLoader.loadModel(filePath.c_str());
+    objLoader.loadModel(objFilePath.c_str());
 
     // Applying gamma correction to convert the ambient, diffuse and specular values from srgb non-linear to srgb linear prior to usage in shaders
     for (auto &m : objLoader.materials)
@@ -2837,16 +3070,33 @@ void VulkrApp::loadModel(const std::string &objFileName)
     setDebugUtilsObjectName(device->getHandle(), objModel.materialsBuffer->getHandle(), (std::string("mat_" + objNb).c_str()));
     setDebugUtilsObjectName(device->getHandle(), objModel.materialsIndexBuffer->getHandle(), (std::string("matIdx_" + objNb).c_str()));
 
-    objModel.objFileName = objFileName;
+    objModel.objFilePath = objFilePath;
     objModel.txtOffset = static_cast<uint64_t>(textureImageViews.size());
     loadTextureImages(objLoader.textures);
 
     objModels.push_back(std::move(objModel));
 }
 
-void VulkrApp::createInstance(const std::string &objFileName, glm::mat4 transform)
+void VulkrApp::loadGltfModel(const std::string &gltfFilePath)
 {
-    uint64_t objModelIndex = getObjModelIndex(objFileName);
+    LOGI("Loading scene from {}", gltfFilePath);
+    GltfModelRenderingData gltfModelRenderingData;
+    gltf::Model gltfModel;
+    animationIndex = 0;
+    animationTimer = 0.0f;
+    auto tStart = std::chrono::high_resolution_clock::now();
+    gltfModel.loadFromFile(gltfFilePath, device.get(), frameData.commandPools[0].get(), m_transferQueue->getHandle());
+    createMaterialBuffer(gltfModelRenderingData, gltfModel);
+    auto tFileLoad = std::chrono::duration<double, std::milli>(std::chrono::high_resolution_clock::now() - tStart).count();
+    std::cout << "Loading took " << tFileLoad << " ms" << std::endl;
+
+    gltfModelsToRender.push_back(std::move(gltfModelRenderingData));
+    gltfModel.destroy(device.get());
+}
+
+void VulkrApp::createInstance(const std::string &objFilePath, glm::mat4 transform)
+{
+    uint64_t objModelIndex = getObjModelIndex(objFilePath);
     ObjModel &objModel = objModels[objModelIndex];
 
     ObjInstance instance;
@@ -2882,11 +3132,12 @@ void VulkrApp::createSceneLights()
 
 void VulkrApp::loadModels()
 {
-    const std::array<std::string, 4> modelFiles {
+    const std::array<std::string, 5> modelFiles {
         "plane.obj",
         "Medieval_building.obj",
         "wuson.obj",
         "cube.obj",
+        "DamagedHelmet.gltf"
         //"monkey_smooth.obj",
         //"lost_empire.obj",
     };
@@ -2902,8 +3153,6 @@ void VulkrApp::loadModels()
         existingModels.insert(modelFiles[i]);
     }
 
-    objModels.reserve(modelFiles.size());
-
 #ifdef MULTI_THREAD
     std::vector<std::thread> modelLoadThreads;
 #endif
@@ -2912,7 +3161,26 @@ void VulkrApp::loadModels()
 #ifdef MULTI_THREAD
         modelLoadThreads.push_back(std::thread(&VulkrApp::loadModel, this, modelFile));
 #else
-        loadModel(modelFile);
+        std::string filePath = defaultModelFilePath + modelFile;
+        std::ifstream file(filePath);
+        if (!file.good())
+        {
+            LOGE("{} does not exist!", modelFile);
+            std::abort();
+        }
+
+        if (modelFile.find(".obj") != std::string::npos)
+        {
+            loadObjModel(filePath);
+        }
+        else if (modelFile.find(".gltf") != std::string::npos)
+        {
+            loadGltfModel(filePath);
+        }
+        else
+        {
+            LOGEANDABORT("Unknown model file type!")
+        }
 #endif
     }
 
@@ -2932,21 +3200,21 @@ void VulkrApp::createScene()
     }
 
     // The sphere instance index is hardcoded in the animate.comp file, so when you add or remove an instance, that must be updated
-    createInstance("plane.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(0, 0, 0)));
-    createInstance("Medieval_building.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ 5, 0,0 }));
+    createInstance(defaultModelFilePath + "plane.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(0, 0, 0)));
+    createInstance(defaultModelFilePath + "Medieval_building.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ 5, 0,0 }));
     // All wuson instances are assumed to be one after another for the transformation matrix calculations
-    createInstance("wuson.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 3)));
-    createInstance("wuson.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 7)));
-    createInstance("wuson.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 10)));
-    createInstance("Medieval_building.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ 15, 0,0 }));
-    //createInstance("monkey_smooth.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 3)));
-    //createInstance("lost_empire.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ 5,-10,0 }));
+    createInstance(defaultModelFilePath + "wuson.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 3)));
+    createInstance(defaultModelFilePath + "wuson.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 7)));
+    createInstance(defaultModelFilePath + "wuson.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 10)));
+    createInstance(defaultModelFilePath + "Medieval_building.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ 15, 0,0 }));
+    //createInstance(defaultModelFilePath +"monkey_smooth.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 3)));
+    //createInstance(defaultModelFilePath +"lost_empire.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ 5,-10,0 }));
 
     // ALl particle instances are assumed to be grouped together
     computeParticlesPushConstant.startingIndex = static_cast<int>(objInstances.size());
     for (int i = 0; i < computeParticlesPushConstant.particleCount; ++i)
     {
-        createInstance("cube.obj", glm::translate(glm::scale(glm::mat4{ 1.0 }, glm::vec3(0.2f, 0.2f, 0.2f)), glm::vec3(allParticleData[i].position.xyz)));
+        createInstance(defaultModelFilePath + "cube.obj", glm::translate(glm::scale(glm::mat4{ 1.0 }, glm::vec3(0.2f, 0.2f, 0.2f)), glm::vec3(allParticleData[i].position.xyz)));
     }
 
     if (objInstances.size() > maxInstanceCount)
@@ -2959,7 +3227,7 @@ uint64_t VulkrApp::getObjModelIndex(const std::string &name)
 {
     for (uint64_t i = 0; i < objModels.size(); ++i)
     {
-        if (objModels[i].objFileName.compare(name) == 0) return i;
+        if (objModels[i].objFilePath.compare(name) == 0) return i;
     }
 
     LOGEANDABORT("Object model {} not found", name);

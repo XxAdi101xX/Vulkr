@@ -34,7 +34,8 @@ void ObjLoader::loadModel(const char *filename)
     reader.ParseFromFile(filename);
     if (!reader.Valid())
     {
-        LOGEANDABORT(reader.Error().c_str());
+        LOGE(reader.Error().c_str());
+        std::abort();
     }
 
     // Attrib contains the vertex arrays of the file
