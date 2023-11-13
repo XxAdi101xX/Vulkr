@@ -23,3 +23,6 @@
 [submodule "third_party/imgui"]
 	path = third_party/imgui
 	url = git@github.com:ocornut/imgui.git
+[submodule "third_party/tinygltf"]
+	path = third_party/tinygltf
+	url = git@github.com:syoyo/tinygltf.git
