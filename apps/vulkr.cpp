@@ -56,19 +56,21 @@ VulkrApp::~VulkrApp()
     postProcessingDescriptorSetLayout.reset();
     taaDescriptorSetLayout.reset();
     particleComputeDescriptorSetLayout.reset();
+    gltfMaterialSamplersDescriptorSetLayout.reset();
 
-    for (auto &it : objModels)
+    for (auto &it : objModelsToRender)
     {
         it.indexBuffer.reset();
         it.vertexBuffer.reset();
         it.materialsBuffer.reset();
         it.materialsIndexBuffer.reset();
     }
-    objModels.clear();
+    objModelsToRender.clear();
     objInstances.clear();
 
     for (auto &it : gltfModelsToRender)
     {
+        it.gltfModel.destroy(device.get());
         it.materialsBuffer.reset();
     }
     gltfModelsToRender.clear();
@@ -881,14 +883,14 @@ void VulkrApp::animateWithCompute()
     // TODO: we might require a buffer memory barrier similar to the code in the other compute workflows
     const uint64_t wusonModelIndex{ getObjModelIndex(defaultModelFilePath + "wuson.obj") };
 
-    computePushConstant.indexCount = objModels[wusonModelIndex].indicesCount;
+    computePushConstant.indexCount = objModelsToRender[wusonModelIndex].indicesCount;
     computePushConstant.time = std::chrono::duration<float, std::chrono::seconds::period>(drawingTimer->elapsed()).count();
 
     PipelineData &pipelineData = pipelines.computeModelAnimation;
     vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipeline->getHandle());
     vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipelineState->getPipelineLayout().getHandle(), 0, 1, &objectDescriptorSet->getHandle(), 0, nullptr);
     vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstant), &computePushConstant);
-    vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), objModels[wusonModelIndex].indicesCount / m_workGroupSize, 1u, 1u);
+    vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), objModelsToRender[wusonModelIndex].indicesCount / m_workGroupSize, 1u, 1u);
 }
 
 void VulkrApp::computeParticles()
@@ -1096,19 +1098,19 @@ void VulkrApp::rasterize()
     uint64_t lastObjIndex{ 0ull };
     for (uint32_t index = 0u; index < objInstances.size(); index++)
     {
-        ObjModel &objModel = objModels[objInstances[index].objIndex];
+        ObjModelRenderingData &objModelRenderingData = objModelsToRender[objInstances[index].objIndex];
         // Bind the vertex and index buffers if the instance model is different from the previous one (we always bind for the first one)
         if (index == 0 || objInstances[index].objIndex != lastObjIndex)
         {
-            VkBuffer vertexBuffers[] = { objModel.vertexBuffer->getHandle() };
+            VkBuffer vertexBuffers[] = { objModelRenderingData.vertexBuffer->getHandle() };
             VkDeviceSize offsets[] = { 0ull };
             vkCmdBindVertexBuffers(frameData.commandBuffers[currentFrame][0]->getHandle(), 0u, 1u, vertexBuffers, offsets);
-            vkCmdBindIndexBuffer(frameData.commandBuffers[currentFrame][0]->getHandle(), objModel.indexBuffer->getHandle(), 0ull, VK_INDEX_TYPE_UINT32);
+            vkCmdBindIndexBuffer(frameData.commandBuffers[currentFrame][0]->getHandle(), objModelRenderingData.indexBuffer->getHandle(), 0ull, VK_INDEX_TYPE_UINT32);
 
             lastObjIndex = objInstances[index].objIndex;
         }
 
-        vkCmdDrawIndexed(frameData.commandBuffers[currentFrame][0]->getHandle(), to_u32(objModel.indicesCount), 1u, 0u, 0, index);
+        vkCmdDrawIndexed(frameData.commandBuffers[currentFrame][0]->getHandle(), to_u32(objModelRenderingData.indicesCount), 1u, 0u, 0, index);
     }
     
     debugUtilEndLabel(frameData.commandBuffers[currentFrame][0]->getHandle());
@@ -1145,19 +1147,19 @@ void VulkrApp::postProcess()
     uint64_t lastObjIndex{ 0ull };
     for (uint32_t index = 0u; index < objInstances.size(); index++)
     {
-        ObjModel &objModel = objModels[objInstances[index].objIndex];
+        ObjModelRenderingData &objModelRenderingData = objModelsToRender[objInstances[index].objIndex];
         // Bind the objModel if it's a different one from last one (we always bind the first time)
         if (index == 0 || objInstances[index].objIndex != lastObjIndex)
         {
-            VkBuffer vertexBuffers[] = { objModel.vertexBuffer->getHandle() };
+            VkBuffer vertexBuffers[] = { objModelRenderingData.vertexBuffer->getHandle() };
             VkDeviceSize offsets[] = { 0ull };
             vkCmdBindVertexBuffers(frameData.commandBuffers[currentFrame][1]->getHandle(), 0u, 1u, vertexBuffers, offsets);
-            vkCmdBindIndexBuffer(frameData.commandBuffers[currentFrame][1]->getHandle(), objModel.indexBuffer->getHandle(), 0u, VK_INDEX_TYPE_UINT32);
+            vkCmdBindIndexBuffer(frameData.commandBuffers[currentFrame][1]->getHandle(), objModelRenderingData.indexBuffer->getHandle(), 0u, VK_INDEX_TYPE_UINT32);
 
             lastObjIndex = objInstances[index].objIndex;
         }
 
-        vkCmdDrawIndexed(frameData.commandBuffers[currentFrame][1]->getHandle(), to_u32(objModel.indicesCount), 1u, 0u, 0, index);
+        vkCmdDrawIndexed(frameData.commandBuffers[currentFrame][1]->getHandle(), to_u32(objModelRenderingData.indicesCount), 1u, 0u, 0, index);
     }
 
     debugUtilEndLabel(frameData.commandBuffers[currentFrame][1]->getHandle());
@@ -2482,7 +2484,7 @@ void VulkrApp::copyBufferToBuffer(const Buffer &srcBuffer, const Buffer &dstBuff
     vkQueueWaitIdle(m_graphicsQueue->getHandle());
 }
 
-void VulkrApp::createVertexBuffer(ObjModel &objModel, const ObjLoader &objLoader)
+void VulkrApp::createVertexBuffer(ObjModelRenderingData &objModelRenderingData, const ObjLoader &objLoader)
 {
     VkDeviceSize bufferSize{ sizeof(objLoader.vertices[0]) * objLoader.vertices.size() };
 
@@ -2497,15 +2499,15 @@ void VulkrApp::createVertexBuffer(ObjModel &objModel, const ObjLoader &objLoader
 
     bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | m_rayTracingBufferUsageFlags;
     memoryInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
-    objModel.vertexBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
+    objModelRenderingData.vertexBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
 
     void *mappedData = stagingBuffer->map();
     memcpy(mappedData, objLoader.vertices.data(), static_cast<size_t>(bufferSize));
     stagingBuffer->unmap();
-    copyBufferToBuffer(*stagingBuffer, *(objModel.vertexBuffer), bufferSize);
+    copyBufferToBuffer(*stagingBuffer, *(objModelRenderingData.vertexBuffer), bufferSize);
 }
 
-void VulkrApp::createIndexBuffer(ObjModel &objModel, const ObjLoader &objLoader)
+void VulkrApp::createIndexBuffer(ObjModelRenderingData &objModelRenderingData, const ObjLoader &objLoader)
 {
     VkDeviceSize bufferSize{ sizeof(objLoader.indices[0]) * objLoader.indices.size() };
 
@@ -2522,15 +2524,15 @@ void VulkrApp::createIndexBuffer(ObjModel &objModel, const ObjLoader &objLoader)
     bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT | m_rayTracingBufferUsageFlags;
     memoryInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 
-    objModel.indexBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
+    objModelRenderingData.indexBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
 
     void *mappedData = stagingBuffer->map();
     memcpy(mappedData, objLoader.indices.data(), static_cast<size_t>(bufferSize));
     stagingBuffer->unmap();
-    copyBufferToBuffer(*stagingBuffer, *(objModel.indexBuffer), bufferSize);
+    copyBufferToBuffer(*stagingBuffer, *(objModelRenderingData.indexBuffer), bufferSize);
 }
 
-void VulkrApp::createMaterialBuffer(ObjModel& objModel, const ObjLoader &objLoader)
+void VulkrApp::createMaterialBuffer(ObjModelRenderingData &objModelRenderingData, const ObjLoader &objLoader)
 {
     VkDeviceSize bufferSize{ sizeof(objLoader.materials[0]) * objLoader.materials.size() };
 
@@ -2547,18 +2549,18 @@ void VulkrApp::createMaterialBuffer(ObjModel& objModel, const ObjLoader &objLoad
     bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | m_rayTracingBufferUsageFlags;
     memoryInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 
-    objModel.materialsBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
+    objModelRenderingData.materialsBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
 
     void *mappedData = stagingBuffer->map();
     memcpy(mappedData, objLoader.materials.data(), static_cast<size_t>(bufferSize));
     stagingBuffer->unmap();
-    copyBufferToBuffer(*stagingBuffer, *(objModel.materialsBuffer), bufferSize);
+    copyBufferToBuffer(*stagingBuffer, *(objModelRenderingData.materialsBuffer), bufferSize);
 }
 
-void VulkrApp::createMaterialBuffer(GltfModelRenderingData &gltfModelRenderingData, gltf::Model &loadedGltfModel)
+void VulkrApp::createMaterialBuffer(GltfModelRenderingData &gltfModelRenderingData)
 {
     std::vector<GltfMaterial> gltfMaterials{};
-    for (auto &material : loadedGltfModel.materials) {
+    for (auto &material : gltfModelRenderingData.gltfModel.materials) {
         GltfMaterial gltfMaterial{};
 
         gltfMaterial.emissiveFactor = material.emissiveFactor;
@@ -2619,7 +2621,7 @@ void VulkrApp::createMaterialBuffer(GltfModelRenderingData &gltfModelRenderingDa
     copyBufferToBuffer(*stagingBuffer, *(gltfModelRenderingData.materialsBuffer), bufferSize);
 }
 
-void VulkrApp::createMaterialIndicesBuffer(ObjModel &objModel, const ObjLoader& objLoader)
+void VulkrApp::createMaterialIndicesBuffer(ObjModelRenderingData &objModelRenderingData, const ObjLoader& objLoader)
 {
     VkDeviceSize bufferSize{ sizeof(objLoader.materialIndices[0]) * objLoader.materialIndices.size() };
 
@@ -2636,12 +2638,12 @@ void VulkrApp::createMaterialIndicesBuffer(ObjModel &objModel, const ObjLoader& 
     bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | m_rayTracingBufferUsageFlags;
     memoryInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 
-    objModel.materialsIndexBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
+    objModelRenderingData.materialsIndexBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
 
     void *mappedData = stagingBuffer->map();
     memcpy(mappedData, objLoader.materialIndices.data(), static_cast<size_t>(bufferSize));
     stagingBuffer->unmap();
-    copyBufferToBuffer(*stagingBuffer, *(objModel.materialsIndexBuffer), bufferSize);
+    copyBufferToBuffer(*stagingBuffer, *(objModelRenderingData.materialsIndexBuffer), bufferSize);
 }
 
 void VulkrApp::createUniformBuffers()
@@ -3041,7 +3043,7 @@ void VulkrApp::setupSynchronizationObjects()
 
 void VulkrApp::loadObjModel(const std::string &objFilePath)
 {
-    ObjModel objModel;
+    ObjModelRenderingData objModelRenderingData;
     ObjLoader objLoader;
     objLoader.loadModel(objFilePath.c_str());
 
@@ -3053,66 +3055,64 @@ void VulkrApp::loadObjModel(const std::string &objFilePath)
         m.specular = glm::pow(m.specular, glm::vec3(2.2f));
     }
 
-    objModel.verticesCount = to_u32(objLoader.vertices.size());
-    objModel.indicesCount = to_u32(objLoader.indices.size());
+    objModelRenderingData.verticesCount = to_u32(objLoader.vertices.size());
+    objModelRenderingData.indicesCount = to_u32(objLoader.indices.size());
 
 #ifdef MULTI_THREAD
     std::scoped_lock<std::mutex> bufferLock(bufferMutex); // Lock
 #endif
-    createVertexBuffer(objModel, objLoader);
-    createIndexBuffer(objModel, objLoader);
-    createMaterialBuffer(objModel, objLoader);
-    createMaterialIndicesBuffer(objModel, objLoader);
+    createVertexBuffer(objModelRenderingData, objLoader);
+    createIndexBuffer(objModelRenderingData, objLoader);
+    createMaterialBuffer(objModelRenderingData, objLoader);
+    createMaterialIndicesBuffer(objModelRenderingData, objLoader);
 
-    std::string objNb = std::to_string(objModels.size());
-    setDebugUtilsObjectName(device->getHandle(), objModel.vertexBuffer->getHandle(), (std::string("vertex_" + objNb).c_str()));
-    setDebugUtilsObjectName(device->getHandle(), objModel.indexBuffer->getHandle(), (std::string("index_" + objNb).c_str()));
-    setDebugUtilsObjectName(device->getHandle(), objModel.materialsBuffer->getHandle(), (std::string("mat_" + objNb).c_str()));
-    setDebugUtilsObjectName(device->getHandle(), objModel.materialsIndexBuffer->getHandle(), (std::string("matIdx_" + objNb).c_str()));
+    std::string objNb = std::to_string(objModelsToRender.size());
+    setDebugUtilsObjectName(device->getHandle(), objModelRenderingData.vertexBuffer->getHandle(), (std::string("vertex_" + objNb).c_str()));
+    setDebugUtilsObjectName(device->getHandle(), objModelRenderingData.indexBuffer->getHandle(), (std::string("index_" + objNb).c_str()));
+    setDebugUtilsObjectName(device->getHandle(), objModelRenderingData.materialsBuffer->getHandle(), (std::string("mat_" + objNb).c_str()));
+    setDebugUtilsObjectName(device->getHandle(), objModelRenderingData.materialsIndexBuffer->getHandle(), (std::string("matIdx_" + objNb).c_str()));
 
-    objModel.objFilePath = objFilePath;
-    objModel.txtOffset = static_cast<uint64_t>(textureImageViews.size());
+    objModelRenderingData.objFilePath = objFilePath;
+    objModelRenderingData.txtOffset = static_cast<uint64_t>(textureImageViews.size());
     loadTextureImages(objLoader.textures);
 
-    objModels.push_back(std::move(objModel));
+    objModelsToRender.push_back(std::move(objModelRenderingData));
 }
 
 void VulkrApp::loadGltfModel(const std::string &gltfFilePath)
 {
     LOGI("Loading scene from {}", gltfFilePath);
     GltfModelRenderingData gltfModelRenderingData;
-    gltf::Model gltfModel;
     animationIndex = 0;
     animationTimer = 0.0f;
     auto tStart = std::chrono::high_resolution_clock::now();
-    gltfModel.loadFromFile(gltfFilePath, device.get(), frameData.commandPools[0].get(), m_transferQueue->getHandle());
-    createMaterialBuffer(gltfModelRenderingData, gltfModel);
+    gltfModelRenderingData.gltfModel.loadFromFile(gltfFilePath, device.get(), frameData.commandPools[0].get(), m_transferQueue->getHandle());
+    createMaterialBuffer(gltfModelRenderingData);
     auto tFileLoad = std::chrono::duration<double, std::milli>(std::chrono::high_resolution_clock::now() - tStart).count();
     std::cout << "Loading took " << tFileLoad << " ms" << std::endl;
 
     gltfModelsToRender.push_back(std::move(gltfModelRenderingData));
-    gltfModel.destroy(device.get());
 }
 
 void VulkrApp::createInstance(const std::string &objFilePath, glm::mat4 transform)
 {
     uint64_t objModelIndex = getObjModelIndex(objFilePath);
-    ObjModel &objModel = objModels[objModelIndex];
+    ObjModelRenderingData &objModelRenderingData = objModelsToRender[objModelIndex];
 
     ObjInstance instance;
     instance.transform = transform;
     instance.transformIT = glm::transpose(glm::inverse(transform));
     instance.objIndex = objModelIndex;
-    instance.textureOffset = objModel.txtOffset;
+    instance.textureOffset = objModelRenderingData.txtOffset;
 
     VkBufferDeviceAddressInfo bufferDeviceAddressInfo = { VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO_KHR };
-    bufferDeviceAddressInfo.buffer = objModel.vertexBuffer->getHandle();
+    bufferDeviceAddressInfo.buffer = objModelRenderingData.vertexBuffer->getHandle();
     instance.vertices = vkGetBufferDeviceAddress(device->getHandle(), &bufferDeviceAddressInfo);
-    bufferDeviceAddressInfo.buffer = objModel.indexBuffer->getHandle();
+    bufferDeviceAddressInfo.buffer = objModelRenderingData.indexBuffer->getHandle();
     instance.indices = vkGetBufferDeviceAddress(device->getHandle(), &bufferDeviceAddressInfo);
-    bufferDeviceAddressInfo.buffer = objModel.materialsBuffer->getHandle();
+    bufferDeviceAddressInfo.buffer = objModelRenderingData.materialsBuffer->getHandle();
     instance.materials = vkGetBufferDeviceAddress(device->getHandle(), &bufferDeviceAddressInfo);
-    bufferDeviceAddressInfo.buffer = objModel.materialsIndexBuffer->getHandle();
+    bufferDeviceAddressInfo.buffer = objModelRenderingData.materialsIndexBuffer->getHandle();
     instance.materialIndices = vkGetBufferDeviceAddress(device->getHandle(), &bufferDeviceAddressInfo);
 
     objInstances.push_back(std::move(instance));
@@ -3225,9 +3225,9 @@ void VulkrApp::createScene()
 
 uint64_t VulkrApp::getObjModelIndex(const std::string &name)
 {
-    for (uint64_t i = 0; i < objModels.size(); ++i)
+    for (uint64_t i = 0; i < objModelsToRender.size(); ++i)
     {
-        if (objModels[i].objFilePath.compare(name) == 0) return i;
+        if (objModelsToRender[i].objFilePath.compare(name) == 0) return i;
     }
 
     LOGEANDABORT("Object model {} not found", name);
@@ -3450,13 +3450,13 @@ void VulkrApp::createImageResourcesForFrames()
 BlasInput VulkrApp::objectToVkGeometryKHR(size_t objModelIndex)
 {
     VkBufferDeviceAddressInfo bufferDeviceAddressInfo = { VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO };
-    bufferDeviceAddressInfo.buffer = objModels[objModelIndex].vertexBuffer->getHandle();
+    bufferDeviceAddressInfo.buffer = objModelsToRender[objModelIndex].vertexBuffer->getHandle();
     // We can take advantage of the fact that position is the first member of Vertex
     VkDeviceAddress vertexAddress = vkGetBufferDeviceAddress(device->getHandle(), &bufferDeviceAddressInfo);
-    bufferDeviceAddressInfo.buffer = objModels[objModelIndex].indexBuffer->getHandle();
+    bufferDeviceAddressInfo.buffer = objModelsToRender[objModelIndex].indexBuffer->getHandle();
     VkDeviceAddress indexAddress = vkGetBufferDeviceAddress(device->getHandle(), &bufferDeviceAddressInfo);
 
-    uint32_t maxPrimitiveCount = objModels[objModelIndex].indicesCount / 3;
+    uint32_t maxPrimitiveCount = objModelsToRender[objModelIndex].indicesCount / 3;
 
     // Describe buffer as array of VertexObj.
     VkAccelerationStructureGeometryTrianglesDataKHR triangles{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR };
@@ -3468,7 +3468,7 @@ BlasInput VulkrApp::objectToVkGeometryKHR(size_t objModelIndex)
     triangles.indexData.deviceAddress = indexAddress;
     // Indicate identity transform by setting transformData to null device pointer.
     //triangles.transformData = {};
-    triangles.maxVertex = objModels[objModelIndex].verticesCount;
+    triangles.maxVertex = objModelsToRender[objModelIndex].verticesCount;
 
     // Identify the above data as containing opaque triangles.
     VkAccelerationStructureGeometryKHR asGeometry{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR };
@@ -3518,8 +3518,8 @@ void VulkrApp::buildBlas()
     VkBuildAccelerationStructureFlagsKHR buildAccelerationStructureFlags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR/* | VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_COMPACTION_BIT_KHR */;
 
     std::vector<BlasInput> blasInputs;
-    blasInputs.reserve(objModels.size());
-    for (uint32_t i = 0; i < objModels.size(); ++i)
+    blasInputs.reserve(objModelsToRender.size());
+    for (uint32_t i = 0; i < objModelsToRender.size(); ++i)
     {
         BlasInput blasInput = objectToVkGeometryKHR(i);
         blasInputs.emplace_back(blasInput); // We could add more geometry in each BLAS, but we add only one for now
@@ -3946,7 +3946,7 @@ void VulkrApp::buildTlas(bool update)
 
 VkDeviceAddress VulkrApp::getBlasDeviceAddress(uint64_t blasId)
 {
-    if (blasId >= objModels.size()) LOGEANDABORT("Invalid blasId");
+    if (blasId >= objModelsToRender.size()) LOGEANDABORT("Invalid blasId");
     VkAccelerationStructureDeviceAddressInfoKHR addressInfo{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR };
     addressInfo.accelerationStructure = m_blas[blasId].accelerationStructure->accelerationStuctureKHR;
     return vkGetAccelerationStructureDeviceAddressKHR(device->getHandle(), &addressInfo);

@@ -211,7 +211,7 @@ struct ComputeParticlesPushConstant
 
 // Holds all of the necessary rendering data to display a .obj file model
 // TODO rename this to ObjModelRenderingData
-struct ObjModel
+struct ObjModelRenderingData
 {
     std::string objFilePath;
     uint64_t txtOffset;
@@ -226,9 +226,9 @@ struct ObjModel
 enum PBRWorkflows { PBR_WORKFLOW_METALLIC_ROUGHNESS = 0, PBR_WORKFLOW_SPECULAR_GLOSINESS = 1 };
 
 // Holds all of the necessary rendering data to display a .gltf file model
-// TODO maybe we merge both this with the OBjModel struct
 struct GltfModelRenderingData
 {
+    gltf::Model gltfModel;
     std::unique_ptr<Buffer> materialsBuffer;
 };
 
@@ -370,6 +370,7 @@ private:
     std::unique_ptr<DescriptorSetLayout> postProcessingDescriptorSetLayout{ nullptr };
     std::unique_ptr<DescriptorSetLayout> taaDescriptorSetLayout{ nullptr };
     std::unique_ptr<DescriptorSetLayout> particleComputeDescriptorSetLayout{ nullptr };
+    std::unique_ptr<DescriptorSetLayout> gltfMaterialSamplersDescriptorSetLayout{ nullptr };
     std::unique_ptr<DescriptorPool> descriptorPool;
     std::unique_ptr<DescriptorPool> imguiPool;
 
@@ -449,7 +450,7 @@ private:
     } pipelines;
 
     std::vector<GltfModelRenderingData> gltfModelsToRender;
-    std::vector<ObjModel> objModels;
+    std::vector<ObjModelRenderingData> objModelsToRender;
     std::vector<std::unique_ptr<ImageView>> textureImageViews;
     std::vector<ObjInstance> objInstances;
     std::vector<LightData> sceneLights;
@@ -494,11 +495,11 @@ private:
     void createTextureSampler();
     void loadTextureImages(const std::vector<std::string> &textureFiles);
     void copyBufferToBuffer(const Buffer &srcBuffer, const Buffer &dstBuffer, VkDeviceSize size);
-    void createVertexBuffer(ObjModel &objModel, const ObjLoader &objLoader);
-    void createIndexBuffer(ObjModel &objModel, const ObjLoader &objLoader);
-    void createMaterialBuffer(ObjModel &objModel, const ObjLoader &objLoader);
-    void createMaterialBuffer(GltfModelRenderingData &gltfModelRenderingData, gltf::Model &loadedGltfModel);
-    void createMaterialIndicesBuffer(ObjModel &objModel, const ObjLoader &objLoader);
+    void createVertexBuffer(ObjModelRenderingData &objModelRenderingData, const ObjLoader &objLoader);
+    void createIndexBuffer(ObjModelRenderingData &objModelRenderingData, const ObjLoader &objLoader);
+    void createMaterialBuffer(ObjModelRenderingData &objModelRenderingData, const ObjLoader &objLoader);
+    void createMaterialBuffer(GltfModelRenderingData &gltfModelRenderingData);
+    void createMaterialIndicesBuffer(ObjModelRenderingData &objModelRenderingData, const ObjLoader &objLoader);
     void createUniformBuffers();
     void createSSBOs();
     void prepareParticleData();
