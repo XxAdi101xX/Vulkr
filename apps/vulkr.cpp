@@ -57,6 +57,8 @@ VulkrApp::~VulkrApp()
     taaDescriptorSetLayout.reset();
     particleComputeDescriptorSetLayout.reset();
     gltfMaterialSamplersDescriptorSetLayout.reset();
+    gltfNodeDescriptorSetLayout.reset();
+    gltfMaterialDescriptorSetLayout.reset();
 
     for (auto &it : objModelsToRender)
     {
@@ -128,6 +130,8 @@ void VulkrApp::cleanupSwapchain()
     }
 
     // Pipelines
+    pipelines.pbr.pipeline.reset();
+    pipelines.pbr.pipelineState.reset();
     pipelines.offscreen.pipeline.reset();
     pipelines.offscreen.pipelineState.reset();
     pipelines.postProcess.pipeline.reset();
@@ -177,6 +181,7 @@ void VulkrApp::cleanupSwapchain()
     particleComputeDescriptorSet.reset();
     // textureDescriptorSet.reset(); // Don't need to reset textureDescriptorSet this one up on recreate since the texture data is the same across different swapchain configurations
     raytracingDescriptorSet.reset();
+    gltfMaterialDescriptorSet.reset();
 
     // Textures
     outputImageView.reset();
@@ -271,6 +276,7 @@ void VulkrApp::prepare()
     createMainRasterizationPipeline();
     //createModelAnimationComputePipeline();
     createPostProcessingPipeline();
+    createPbrRasterizationPipeline();
     createTextureSampler();
     createUniformBuffers();
     createSSBOs();
@@ -415,6 +421,7 @@ void VulkrApp::update()
 
         frameData.commandBuffers[currentFrame][0]->beginRenderPass(*mainRenderPass.renderPass, *(frameData.offscreenFramebuffers[currentFrame]), swapchain->getProperties().imageExtent, offscreenFramebufferClearValues, VK_SUBPASS_CONTENTS_INLINE);
         rasterize();
+        rasterizeGltf();
         frameData.commandBuffers[currentFrame][0]->endRenderPass();
     }
 
@@ -721,6 +728,7 @@ void VulkrApp::recreateSwapchain()
     createPostRenderPass();
     createMainRasterizationPipeline();
     createPostProcessingPipeline();
+    createPbrRasterizationPipeline();
     //createModelAnimationComputePipeline();
     createDepthResources();
     createFramebuffers();
@@ -982,6 +990,105 @@ void VulkrApp::computeParticles()
 
         vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame][0]->getHandle(), &dependencyInfo);
     }
+}
+
+void VulkrApp::renderNode(vulkr::gltf::Node *node)
+{
+    if (node->mesh)
+    {
+        // Render mesh primitives
+        for (vulkr::gltf::Primitive *primitive : node->mesh->primitives)
+        {
+            std::string pipelineName = "pbr";
+            // TODO cleanup these comments
+            //std::string pipelineVariant = "";
+
+            //if (primitive->material.unlit) {
+            //    // KHR_materials_unlit
+            //    pipelineName = "unlit";
+            //};
+
+            //const VkPipeline pipeline = pipelines[pipelineName + pipelineVariant];
+            PipelineData &pipelineData = pipelines.pbr;
+
+            // This was moved out of the function
+            //if (pipeline != boundPipeline) {
+            //    vkCmdBindPipeline(commandBuffers[cbIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+            //    boundPipeline = pipeline;
+            //}
+
+            vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineData.pipeline->getHandle());
+
+            const std::vector<VkDescriptorSet> descriptorsets =
+            {
+                //descriptorSets[cbIndex].scene,
+                globalDescriptorSet->getHandle(),
+                primitive->material.descriptorSet,
+                node->mesh->uniformBuffer.descriptorSet,
+                gltfMaterialDescriptorSet->getHandle()
+            };
+            vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipelineState->getPipelineLayout().getHandle(), 0, static_cast<uint32_t>(descriptorsets.size()), descriptorsets.data(), 0, NULL);
+
+            // Pass material index for this primitive using a push constant, the shader uses this to index into the material buffer
+            gltfPushConstant.cameraPos = cameraController->getCamera()->getPosition();
+            gltfPushConstant.materialIndex = primitive->material.index;
+
+            vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GltfPushConstant), &gltfPushConstant);
+
+            if (primitive->hasIndices)
+            {
+                vkCmdDrawIndexed(frameData.commandBuffers[currentFrame][0]->getHandle(), primitive->indexCount, 1, primitive->firstIndex, 0, 0);
+            }
+            else
+            {
+                vkCmdDraw(frameData.commandBuffers[currentFrame][0]->getHandle(), primitive->vertexCount, 1, 0, 0);
+            }
+        }
+    }
+
+    for (auto child : node->children)
+    {
+        renderNode(child);
+    }
+}
+
+void VulkrApp::rasterizeGltf()
+{
+    for (auto &gltfModelToRender : gltfModelsToRender)
+    {
+        vulkr::gltf::Model &model = gltfModelToRender.gltfModel;
+        VkBuffer vertexBuffers[] = { model.vertexBuffer->getHandle() };
+        VkDeviceSize offsets[] = { 0ull };
+
+        vkCmdBindVertexBuffers(frameData.commandBuffers[currentFrame][0]->getHandle(), 0, 1, vertexBuffers, offsets);
+        if (model.indexBuffer->getHandle() != VK_NULL_HANDLE)
+        {
+            vkCmdBindIndexBuffer(frameData.commandBuffers[currentFrame][0]->getHandle(), model.indexBuffer->getHandle(), 0, VK_INDEX_TYPE_UINT32);
+        }
+
+        // TODO check if we also want to render by visibility
+        //boundPipeline = VK_NULL_HANDLE;
+
+        //// Opaque primitives first
+        //for (auto node : model.nodes) {
+        //    renderNode(node, i, vkglTF::Material::ALPHAMODE_OPAQUE);
+        //}
+        //// Alpha masked primitives
+        //for (auto node : model.nodes) {
+        //    renderNode(node, i, vkglTF::Material::ALPHAMODE_MASK);
+        //}
+        //// Transparent primitives
+        //// TODO: Correct depth sorting
+        //for (auto node : model.nodes) {
+        //    renderNode(node, i, vkglTF::Material::ALPHAMODE_BLEND);
+        //}
+
+        for (auto node : model.nodes)
+        {
+            renderNode(node);
+        }
+    }
+
 }
 
 void VulkrApp::initializeBufferData()
@@ -1575,6 +1682,30 @@ void VulkrApp::createDescriptorSetLayouts()
 
     std::vector<VkDescriptorSetLayoutBinding> particleComputeDescriptorSetLayoutBindings{ particleBufferLayoutBinding };
     particleComputeDescriptorSetLayout = std::make_unique<DescriptorSetLayout>(*device, particleComputeDescriptorSetLayoutBindings);
+
+    // glTF material sampler descriptor set layout
+    std::vector<VkDescriptorSetLayoutBinding> gltfMaterialSamplersLayoutBinding =
+    {
+        { 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr },
+        { 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr },
+        { 2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr },
+        { 3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr },
+        { 4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr },
+    };
+    gltfMaterialSamplersDescriptorSetLayout = std::make_unique<DescriptorSetLayout>(*device, gltfMaterialSamplersLayoutBinding);
+    
+    // glTF node descriptor set layout
+    std::vector<VkDescriptorSetLayoutBinding> gltfNodeLayoutBinding = 
+    {
+        { 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT, nullptr },
+    };
+    gltfNodeDescriptorSetLayout = std::make_unique<DescriptorSetLayout>(*device, gltfNodeLayoutBinding);
+
+    // glTF material descriptor set layout
+    std::vector<VkDescriptorSetLayoutBinding> gltfMaterialSetLayoutBindings = {
+    { 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr },
+    };
+    gltfMaterialDescriptorSetLayout = std::make_unique<DescriptorSetLayout>(*device, gltfMaterialSetLayoutBindings);
 }
 
 void VulkrApp::createMainRasterizationPipeline()
@@ -1763,19 +1894,19 @@ void VulkrApp::createPbrRasterizationPipeline()
     uv1AttributeDescription.binding = 0;
     uv1AttributeDescription.format = VK_FORMAT_R32G32_SFLOAT;
     uv1AttributeDescription.offset = offsetof(vulkr::gltf::Model::Vertex, uv1);
-    // uv1 at location 3
+    // joint0 at location 4
     VkVertexInputAttributeDescription joint0AttributeDescription;
     joint0AttributeDescription.location = 4;
     joint0AttributeDescription.binding = 0;
     joint0AttributeDescription.format = VK_FORMAT_R32G32B32A32_SFLOAT;
     joint0AttributeDescription.offset = offsetof(vulkr::gltf::Model::Vertex, joint0);
-    // uv1 at location 3
+    // weight0 at location 5
     VkVertexInputAttributeDescription weight0AttributeDescription;
     weight0AttributeDescription.location = 5;
     weight0AttributeDescription.binding = 0;
     weight0AttributeDescription.format = VK_FORMAT_R32G32B32A32_SFLOAT;
     weight0AttributeDescription.offset = offsetof(vulkr::gltf::Model::Vertex, weight0);
-    // uv1 at location 3
+    // color at location 6
     VkVertexInputAttributeDescription colorAttributeDescription;
     colorAttributeDescription.location = 6;
     colorAttributeDescription.binding = 0;
@@ -1784,7 +1915,6 @@ void VulkrApp::createPbrRasterizationPipeline()
 
     vertexInputState.attributeDescriptions.emplace_back(positionAttributeDescription);
     vertexInputState.attributeDescriptions.emplace_back(normalAttributeDescription);
-    vertexInputState.attributeDescriptions.emplace_back(colorAttributeDescription);
     vertexInputState.attributeDescriptions.emplace_back(uv0AttributeDescription);
     vertexInputState.attributeDescriptions.emplace_back(uv1AttributeDescription);
     vertexInputState.attributeDescriptions.emplace_back(joint0AttributeDescription);
@@ -1831,6 +1961,8 @@ void VulkrApp::createPbrRasterizationPipeline()
     colorBlendState.logicOpEnable = VK_FALSE;
     colorBlendState.logicOp = VK_LOGIC_OP_COPY;
     colorBlendState.attachments.emplace_back(colorBlendAttachmentState); // No blending for output image
+    colorBlendState.attachments.emplace_back(colorBlendAttachmentState); // No blending for copy output image
+    colorBlendState.attachments.emplace_back(colorBlendAttachmentState); // No blending for velocity image
     colorBlendState.blendConstants[0] = 0.0f;
     colorBlendState.blendConstants[1] = 0.0f;
     colorBlendState.blendConstants[2] = 0.0f;
@@ -1838,12 +1970,12 @@ void VulkrApp::createPbrRasterizationPipeline()
 
     std::vector<VkDynamicState> dynamicStates;
 
-    std::shared_ptr<ShaderSource> mainVertexShader = std::make_shared<ShaderSource>("rasterization/pbr.vert.spv");
-    VkSpecializationInfo mainVertexShaderSpecializationInfo;
-    mainVertexShaderSpecializationInfo.mapEntryCount = 0;
-    mainVertexShaderSpecializationInfo.dataSize = 0;
+    std::shared_ptr<ShaderSource> vertexShader = std::make_shared<ShaderSource>("rasterization/pbr.vert.spv");
+    VkSpecializationInfo vertexShaderSpecializationInfo;
+    vertexShaderSpecializationInfo.mapEntryCount = 0;
+    vertexShaderSpecializationInfo.dataSize = 0;
 
-    std::shared_ptr<ShaderSource> mainFragmentShader = std::make_shared<ShaderSource>("rasterization/material_pbr.frag.spv");
+    std::shared_ptr<ShaderSource> fragmentShader = std::make_shared<ShaderSource>("rasterization/material_pbr.frag.spv");
     struct SpecializationData {
         uint32_t maxLightCount;
     } specializationData;
@@ -1854,7 +1986,7 @@ void VulkrApp::createPbrRasterizationPipeline()
     };
     specializationData.maxLightCount = maxLightCount;
 
-    VkSpecializationInfo mainFragmentShaderSpecializationInfo =
+    VkSpecializationInfo fragmentShaderSpecializationInfo =
     {
         to_u32(entries.size()),
         entries.data(),
@@ -1863,17 +1995,19 @@ void VulkrApp::createPbrRasterizationPipeline()
     };
 
     std::vector<ShaderModule> shaderModules;
-    shaderModules.emplace_back(*device, VK_SHADER_STAGE_VERTEX_BIT, mainVertexShaderSpecializationInfo, mainVertexShader);
-    shaderModules.emplace_back(*device, VK_SHADER_STAGE_FRAGMENT_BIT, mainFragmentShaderSpecializationInfo, mainFragmentShader);
+    shaderModules.emplace_back(*device, VK_SHADER_STAGE_VERTEX_BIT, vertexShaderSpecializationInfo, vertexShader);
+    shaderModules.emplace_back(*device, VK_SHADER_STAGE_FRAGMENT_BIT, fragmentShaderSpecializationInfo, fragmentShader);
 
     std::vector<VkDescriptorSetLayout> descriptorSetLayoutHandles {
         globalDescriptorSetLayout->getHandle(),
-        objectDescriptorSetLayout->getHandle(),
-        textureDescriptorSetLayout->getHandle(),
-        taaDescriptorSetLayout->getHandle()
+        gltfMaterialSamplersDescriptorSetLayout->getHandle(),
+        gltfNodeDescriptorSetLayout->getHandle(),
+        gltfMaterialDescriptorSetLayout->getHandle()
     };
 
     std::vector<VkPushConstantRange> pushConstantRangeHandles;
+    VkPushConstantRange pushConstantRange{ VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GltfPushConstant) };
+    pushConstantRangeHandles.push_back(pushConstantRange);
 
     std::unique_ptr<GraphicsPipelineState> pbrRasterizationPipelineState = std::make_unique<GraphicsPipelineState>(
         std::make_unique<PipelineLayout>(*device, shaderModules, descriptorSetLayoutHandles, pushConstantRangeHandles),
@@ -3003,6 +3137,132 @@ void VulkrApp::createDescriptorSets()
         writeTextureDescriptorSet
     };
     vkUpdateDescriptorSets(device->getHandle(), to_u32(writeDescriptorSets.size()), writeDescriptorSets.data(), 0, nullptr);
+
+
+    // Per-Material descriptor sets
+    for (auto &gltfModelToRender : gltfModelsToRender)
+    {
+        for (auto &material : gltfModelToRender.gltfModel.materials) {
+            VkDescriptorSetAllocateInfo descriptorSetAllocInfo{};
+            descriptorSetAllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+            descriptorSetAllocInfo.descriptorPool = descriptorPool->getHandle();
+            descriptorSetAllocInfo.pSetLayouts = &gltfMaterialSamplersDescriptorSetLayout->getHandle();
+            descriptorSetAllocInfo.descriptorSetCount = 1u;
+            VK_CHECK(vkAllocateDescriptorSets(device->getHandle(), &descriptorSetAllocInfo, &material.descriptorSet));
+
+            // TODO currently we're passing in the textureImageViews[0] (could use historyImageView) as the "default" but it shouldn't be used based on the flag in GltfMaterial; 
+            // should check if this works, this also assumes that there is atelast one texture
+            VkDescriptorImageInfo defaultEmptyDescriptorImageInfo{};
+            defaultEmptyDescriptorImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            defaultEmptyDescriptorImageInfo.imageView = textureImageViews[0]->getHandle();
+            defaultEmptyDescriptorImageInfo.sampler = textureSampler->getHandle();
+
+            std::vector<VkDescriptorImageInfo> imageDescriptors = {
+                defaultEmptyDescriptorImageInfo,
+                defaultEmptyDescriptorImageInfo,
+                material.normalTexture ? material.normalTexture->descriptor : defaultEmptyDescriptorImageInfo,
+                material.occlusionTexture ? material.occlusionTexture->descriptor : defaultEmptyDescriptorImageInfo,
+                material.emissiveTexture ? material.emissiveTexture->descriptor : defaultEmptyDescriptorImageInfo
+            };
+
+            // TODO: glTF specs states that metallic roughness should be preferred, even if specular glosiness is present
+
+            if (material.pbrWorkflows.metallicRoughness) {
+                if (material.baseColorTexture) {
+                    imageDescriptors[0] = material.baseColorTexture->descriptor;
+                }
+                if (material.metallicRoughnessTexture) {
+                    imageDescriptors[1] = material.metallicRoughnessTexture->descriptor;
+                }
+            }
+
+			if (material.pbrWorkflows.specularGlossiness)
+			{
+				if (material.extension.diffuseTexture)
+				{
+					imageDescriptors[0] = material.extension.diffuseTexture->descriptor;
+				}
+				if (material.extension.specularGlossinessTexture)
+				{
+					imageDescriptors[1] = material.extension.specularGlossinessTexture->descriptor;
+				}
+			}
+
+            std::array<VkWriteDescriptorSet, 5> writeDescriptorSets{};
+            for (size_t i = 0; i < imageDescriptors.size(); i++)
+            {
+                writeDescriptorSets[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                writeDescriptorSets[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                writeDescriptorSets[i].descriptorCount = 1u;
+                writeDescriptorSets[i].dstSet = material.descriptorSet;
+                writeDescriptorSets[i].dstBinding = static_cast<uint32_t>(i);
+                writeDescriptorSets[i].pImageInfo = &imageDescriptors[i];
+            }
+
+            vkUpdateDescriptorSets(device->getHandle(), static_cast<uint32_t>(writeDescriptorSets.size()), writeDescriptorSets.data(), 0, NULL);
+        }
+
+        // Model node (matrices)
+        {
+            // Per-Node descriptor set
+            for (auto &node : gltfModelToRender.gltfModel.nodes)
+            {
+                setupNodeDescriptorSet(node);
+            }
+        }
+
+        // Material Buffer
+        {
+            VkDescriptorSetAllocateInfo gltfMaterialsDescriptorSetAllocateInfo{};
+            gltfMaterialsDescriptorSetAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+            gltfMaterialsDescriptorSetAllocateInfo.descriptorPool = descriptorPool->getHandle();
+            gltfMaterialsDescriptorSetAllocateInfo.pSetLayouts = &gltfMaterialDescriptorSetLayout->getHandle();
+            gltfMaterialsDescriptorSetAllocateInfo.descriptorSetCount = 1u;
+            gltfMaterialDescriptorSet = std::make_unique<DescriptorSet>(*device, gltfMaterialsDescriptorSetAllocateInfo);
+
+            VkDescriptorBufferInfo gltfMaterialBufferInfo{};
+            gltfMaterialBufferInfo.buffer = gltfModelToRender.materialsBuffer->getHandle();
+            gltfMaterialBufferInfo.offset = 0;
+            gltfMaterialBufferInfo.range = sizeof(GltfMaterial) * gltfModelToRender.gltfModel.materials.size();
+
+            VkWriteDescriptorSet writeDescriptorSet{};
+            writeDescriptorSet.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            writeDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            writeDescriptorSet.descriptorCount = 1;
+            writeDescriptorSet.dstSet = gltfMaterialDescriptorSet->getHandle();
+            writeDescriptorSet.dstBinding = 0;
+            writeDescriptorSet.pBufferInfo = &gltfMaterialBufferInfo;
+            vkUpdateDescriptorSets(device->getHandle(), 1, &writeDescriptorSet, 0, nullptr);
+        }
+    }
+}
+
+void VulkrApp::setupNodeDescriptorSet(vulkr::gltf::Node *node)
+{
+    if (node->mesh)
+    {
+        VkDescriptorSetAllocateInfo descriptorSetAllocInfo{};
+        descriptorSetAllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        descriptorSetAllocInfo.descriptorPool = descriptorPool->getHandle();
+        descriptorSetAllocInfo.pSetLayouts = &gltfNodeDescriptorSetLayout->getHandle();
+        descriptorSetAllocInfo.descriptorSetCount = 1u;
+        VK_CHECK(vkAllocateDescriptorSets(device->getHandle(), &descriptorSetAllocInfo, &node->mesh->uniformBuffer.descriptorSet));
+
+        VkWriteDescriptorSet writeDescriptorSet{};
+        writeDescriptorSet.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writeDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        writeDescriptorSet.descriptorCount = 1;
+        writeDescriptorSet.dstSet = node->mesh->uniformBuffer.descriptorSet;
+        writeDescriptorSet.dstBinding = 0;
+        writeDescriptorSet.pBufferInfo = &node->mesh->uniformBuffer.descriptor;
+
+        vkUpdateDescriptorSets(device->getHandle(), 1, &writeDescriptorSet, 0, nullptr);
+    }
+
+    for (auto &child : node->children)
+    {
+        setupNodeDescriptorSet(child);
+    }
 }
 
 void VulkrApp::createSemaphoreAndFencePools()
@@ -3089,7 +3349,7 @@ void VulkrApp::loadGltfModel(const std::string &gltfFilePath)
     gltfModelRenderingData.gltfModel.loadFromFile(gltfFilePath, device.get(), frameData.commandPools[0].get(), m_transferQueue->getHandle());
     createMaterialBuffer(gltfModelRenderingData);
     auto tFileLoad = std::chrono::duration<double, std::milli>(std::chrono::high_resolution_clock::now() - tStart).count();
-    std::cout << "Loading took " << tFileLoad << " ms" << std::endl;
+    LOGI("Loading took {} ms", tFileLoad);
 
     gltfModelsToRender.push_back(std::move(gltfModelRenderingData));
 }

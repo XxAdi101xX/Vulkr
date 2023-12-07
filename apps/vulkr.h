@@ -207,6 +207,11 @@ struct ComputeParticlesPushConstant
     int blank{ 0 }; // alignment
 } computeParticlesPushConstant;
 
+struct GltfPushConstant {
+    glm::vec3 cameraPos;
+    int materialIndex{ 0 };
+} gltfPushConstant;
+
 /* CPU only structs */
 
 // Holds all of the necessary rendering data to display a .obj file model
@@ -371,6 +376,8 @@ private:
     std::unique_ptr<DescriptorSetLayout> taaDescriptorSetLayout{ nullptr };
     std::unique_ptr<DescriptorSetLayout> particleComputeDescriptorSetLayout{ nullptr };
     std::unique_ptr<DescriptorSetLayout> gltfMaterialSamplersDescriptorSetLayout{ nullptr };
+    std::unique_ptr<DescriptorSetLayout> gltfNodeDescriptorSetLayout{ nullptr };
+    std::unique_ptr<DescriptorSetLayout> gltfMaterialDescriptorSetLayout{ nullptr };
     std::unique_ptr<DescriptorPool> descriptorPool;
     std::unique_ptr<DescriptorPool> imguiPool;
 
@@ -413,6 +420,7 @@ private:
     std::unique_ptr<Buffer> objectBuffer;
     std::unique_ptr<Buffer> previousFrameObjectBuffer;
     std::unique_ptr<Buffer> particleBuffer;
+    std::unique_ptr<Buffer> gltfMaterialsBuffer;
 
     // TAA related textures
     std::unique_ptr<ImageView> outputImageView;
@@ -428,6 +436,7 @@ private:
     std::unique_ptr<DescriptorSet> particleComputeDescriptorSet;
     std::unique_ptr<DescriptorSet> textureDescriptorSet; // This is currently only read by shaders
     std::unique_ptr<DescriptorSet> raytracingDescriptorSet;
+    std::unique_ptr<DescriptorSet> gltfMaterialDescriptorSet;
 
     size_t currentFrame{ 0 };
 
@@ -468,8 +477,10 @@ private:
     void animateInstances();
     void animateWithCompute();
     void computeParticles();
+    void renderNode(vulkr::gltf::Node *node);
     void dataUpdatePerFrame();
     void rasterize();
+    void rasterizeGltf();
     void postProcess();
     void cleanupSwapchain();
     void createInstance();
@@ -505,6 +516,7 @@ private:
     void prepareParticleData();
     void createDescriptorPool();
     void createDescriptorSets();
+    void setupNodeDescriptorSet(vulkr::gltf::Node *node);
     void createSceneLights();
     void loadGltfModel(const std::string &gltfFilePath);
     void loadObjModel(const std::string &objFilePath);
