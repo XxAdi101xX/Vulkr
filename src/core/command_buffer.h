@@ -60,7 +60,7 @@ public:
 
 	bool isRecording() const;
 
-	void begin(VkCommandBufferUsageFlags flags, CommandBuffer* primary_cmd_buf = nullptr);
+	void begin(VkCommandBufferUsageFlags flags, CommandBuffer *primary_cmd_buf = nullptr);
 
 	void end();
 

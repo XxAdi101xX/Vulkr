@@ -73,7 +73,7 @@ GraphicsPipeline::GraphicsPipeline(Device &device, GraphicsPipelineState &pipeli
 		// Since we only need the shadermodule during the creation of the pipeline, we don't keep the information in the shader module class and delete at the end
 		VkShaderModuleCreateInfo shaderModuleCreateInfo{ VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO };
 		shaderModuleCreateInfo.codeSize = shaderModule.getShaderSource().getData().size();
-		shaderModuleCreateInfo.pCode = reinterpret_cast<const uint32_t*>(shaderModule.getShaderSource().getData().data());
+		shaderModuleCreateInfo.pCode = reinterpret_cast<const uint32_t *>(shaderModule.getShaderSource().getData().data());
 		VK_CHECK(vkCreateShaderModule(device.getHandle(), &shaderModuleCreateInfo, nullptr, &shaderStageCreateInfo.module));
 
 		shaderStageCreateInfo.pName = shaderModule.getEntryPoint().c_str();
@@ -184,7 +184,7 @@ GraphicsPipeline::GraphicsPipeline(Device &device, GraphicsPipelineState &pipeli
 }
 
 // Compute Pipeline
-ComputePipeline::ComputePipeline(Device &device, ComputePipelineState &pipelineState, VkPipelineCache pipelineCache): Pipeline{ device, VK_PIPELINE_BIND_POINT_COMPUTE }, pipelineState{ pipelineState }
+ComputePipeline::ComputePipeline(Device &device, ComputePipelineState &pipelineState, VkPipelineCache pipelineCache) : Pipeline{ device, VK_PIPELINE_BIND_POINT_COMPUTE }, pipelineState{ pipelineState }
 {
 	if (pipelineState.getPipelineLayout().getShaderModules().size() != 1)
 	{
@@ -194,7 +194,7 @@ ComputePipeline::ComputePipeline(Device &device, ComputePipelineState &pipelineS
 	VkComputePipelineCreateInfo computePipelineCreateInfo{ VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO };
 	computePipelineCreateInfo.layout = pipelineState.getPipelineLayout().getHandle();
 
-	const ShaderModule &shaderModule =  pipelineState.getPipelineLayout().getShaderModules()[0];
+	const ShaderModule &shaderModule = pipelineState.getPipelineLayout().getShaderModules()[0];
 	VkPipelineShaderStageCreateInfo shaderStageCreateInfo{ VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO };
 	shaderStageCreateInfo.stage = shaderModule.getStage();
 
@@ -244,7 +244,7 @@ RayTracingPipeline::RayTracingPipeline(Device &device, RayTracingPipelineState &
 	rayPipelineInfo.pStages = shaderStageCreateInfos.data();
 	rayPipelineInfo.groupCount = to_u32(pipelineState.getRayTracingShaderGroups().size());
 	rayPipelineInfo.pGroups = pipelineState.getRayTracingShaderGroups().data();
-	rayPipelineInfo.maxPipelineRayRecursionDepth = 2;  
+	rayPipelineInfo.maxPipelineRayRecursionDepth = 2;
 	rayPipelineInfo.layout = pipelineState.getPipelineLayout().getHandle();
 
 	vkCreateRayTracingPipelinesKHR(device.getHandle(), {}, {}, 1, &rayPipelineInfo, nullptr, &handle);

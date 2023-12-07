@@ -22,11 +22,13 @@
 
 #include "platform.h"
 
-namespace vulkr {
+namespace vulkr
+{
 
 void Platform::initialize(std::unique_ptr<Application> &&applicationToOwn)
 {
-	if (applicationToOwn == nullptr) {
+	if (applicationToOwn == nullptr)
+	{
 		LOGEANDABORT("Application is not valid");
 	}
 
@@ -63,7 +65,8 @@ void Platform::runMainProcessingLoop() const
 
 void Platform::processApplication() const
 {
-	if (application->isFocused()) {
+	if (application->isFocused())
+	{
 		application->step();
 	}
 }

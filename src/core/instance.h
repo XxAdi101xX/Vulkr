@@ -30,15 +30,15 @@
 #include "physical_device.h"
 
 #include <GLFW/glfw3.h>
-namespace vulkr 
+namespace vulkr
 {
 
-class Instance 
+class Instance
 {
 public:
 	Instance(std::string applicationName);
 	~Instance();
-	
+
 	Instance(const Instance &) = delete;
 	Instance(Instance &&) = delete;
 	Instance &operator=(const Instance &) = delete;
@@ -48,8 +48,8 @@ public:
 	static VKAPI_ATTR VkBool32 VKAPI_CALL debugUtilsMessengerCallback(
 		VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
 		VkDebugUtilsMessageTypeFlagsEXT messageType,
-		const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
-		void* pUserData
+		const VkDebugUtilsMessengerCallbackDataEXT *pCallbackData,
+		void *pUserData
 	);
 
 	/* Get the instance handle */
@@ -77,7 +77,7 @@ private:
 	bool checkValidationLayerSupport() const;
 
 	/* Get all required instances */
-	std::vector<const char*> getRequiredInstanceExtensions() const;
+	std::vector<const char *> getRequiredInstanceExtensions() const;
 };
 
 } // namespace vulkr

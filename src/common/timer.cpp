@@ -23,7 +23,8 @@ namespace vulkr
 Timer::Timer() :
 	startTime{ Clock::now() },
 	previousTick{ Clock::now() }
-{}
+{
+}
 
 void Timer::start()
 {

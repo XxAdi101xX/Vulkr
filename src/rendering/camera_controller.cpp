@@ -41,191 +41,191 @@ std::shared_ptr<Camera> CameraController::getCamera() const
 
 void CameraController::handleInputEvents(const InputEvent &inputEvent)
 {
-    if (inputEvent.getEventSource() == EventSource::Keyboard)
-    {
-        const KeyInputEvent &keyInputEvent = dynamic_cast<const KeyInputEvent &>(inputEvent);
+	if (inputEvent.getEventSource() == EventSource::Keyboard)
+	{
+		const KeyInputEvent &keyInputEvent = dynamic_cast<const KeyInputEvent &>(inputEvent);
 
-        if (keyInputEvent.getAction() == KeyAction::Unknown)
-        {
-            LOGEANDABORT("Unknown key action encountered");
-        }
+		if (keyInputEvent.getAction() == KeyAction::Unknown)
+		{
+			LOGEANDABORT("Unknown key action encountered");
+		}
 
-        // Handle key input
-        switch (keyInputEvent.getInput())
-        {
-        case KeyInput::W:
-            if (keyInputEvent.getAction() == KeyAction::Press || keyInputEvent.getAction() == KeyAction::Repeat)
-            {
-                pan(0.0f, 0.0f, 3.0f);
-            }
-            break;
-        case KeyInput::S:
-            if (keyInputEvent.getAction() == KeyAction::Press || keyInputEvent.getAction() == KeyAction::Repeat)
-            {
-                pan(0.0f, 0.0f, -3.0f);
-            }
-            break;
-        case KeyInput::A:
-            if (keyInputEvent.getAction() == KeyAction::Press || keyInputEvent.getAction() == KeyAction::Repeat)
-            {
-                pan(250.0f, 0.0f, 0.0f);
-            }
-            break;
-        case KeyInput::D:
-            if (keyInputEvent.getAction() == KeyAction::Press || keyInputEvent.getAction() == KeyAction::Repeat)
-            {
-                pan(-250.0f, 0.0f, 0.0f);
-            }
-            break;
-        case KeyInput::E:
-            if (keyInputEvent.getAction() == KeyAction::Press || keyInputEvent.getAction() == KeyAction::Repeat)
-            {
-                pan(0.0f, 250.0f, 0.0f);
-            }
-            break;
-        case KeyInput::Q:
-            if (keyInputEvent.getAction() == KeyAction::Press || keyInputEvent.getAction() == KeyAction::Repeat)
-            {
-                pan(0.0f, -250.0f, 0.0f);
-            }
-            break;
-        }
-    }
-    else if (inputEvent.getEventSource() == EventSource::Mouse)
-    {
-        const MouseInputEvent &mouseInputEvent = dynamic_cast<const MouseInputEvent &>(inputEvent);
+		// Handle key input
+		switch (keyInputEvent.getInput())
+		{
+		case KeyInput::W:
+			if (keyInputEvent.getAction() == KeyAction::Press || keyInputEvent.getAction() == KeyAction::Repeat)
+			{
+				pan(0.0f, 0.0f, 3.0f);
+			}
+			break;
+		case KeyInput::S:
+			if (keyInputEvent.getAction() == KeyAction::Press || keyInputEvent.getAction() == KeyAction::Repeat)
+			{
+				pan(0.0f, 0.0f, -3.0f);
+			}
+			break;
+		case KeyInput::A:
+			if (keyInputEvent.getAction() == KeyAction::Press || keyInputEvent.getAction() == KeyAction::Repeat)
+			{
+				pan(250.0f, 0.0f, 0.0f);
+			}
+			break;
+		case KeyInput::D:
+			if (keyInputEvent.getAction() == KeyAction::Press || keyInputEvent.getAction() == KeyAction::Repeat)
+			{
+				pan(-250.0f, 0.0f, 0.0f);
+			}
+			break;
+		case KeyInput::E:
+			if (keyInputEvent.getAction() == KeyAction::Press || keyInputEvent.getAction() == KeyAction::Repeat)
+			{
+				pan(0.0f, 250.0f, 0.0f);
+			}
+			break;
+		case KeyInput::Q:
+			if (keyInputEvent.getAction() == KeyAction::Press || keyInputEvent.getAction() == KeyAction::Repeat)
+			{
+				pan(0.0f, -250.0f, 0.0f);
+			}
+			break;
+		}
+	}
+	else if (inputEvent.getEventSource() == EventSource::Mouse)
+	{
+		const MouseInputEvent &mouseInputEvent = dynamic_cast<const MouseInputEvent &>(inputEvent);
 
-        if (mouseInputEvent.getAction() == MouseAction::Unknown)
-        {
-            LOGEANDABORT("Unknown mouse action encountered");
-        }
+		if (mouseInputEvent.getAction() == MouseAction::Unknown)
+		{
+			LOGEANDABORT("Unknown mouse action encountered");
+		}
 
-        if (mouseInputEvent.getInput() == MouseInput::None)
-        {
-            handleCursorPositionChange(mouseInputEvent);
-        }
-        else if (mouseInputEvent.getInput() == MouseInput::Middle && mouseInputEvent.getAction() == MouseAction::Scroll)
-        {
-            handleMouseScroll(mouseInputEvent);
-        }
-        else
-        {
-            handleMouseButtonClick(mouseInputEvent);
-        }
-    }
+		if (mouseInputEvent.getInput() == MouseInput::None)
+		{
+			handleCursorPositionChange(mouseInputEvent);
+		}
+		else if (mouseInputEvent.getInput() == MouseInput::Middle && mouseInputEvent.getAction() == MouseAction::Scroll)
+		{
+			handleMouseScroll(mouseInputEvent);
+		}
+		else
+		{
+			handleMouseButtonClick(mouseInputEvent);
+		}
+	}
 }
 
 void CameraController::handleMouseButtonClick(const MouseInputEvent &mouseInputEvent)
 {
-    if (mouseInputEvent.getAction() == MouseAction::Click)
-    {
-        activeMouseInput = mouseInputEvent.getInput();
-        lastMousePosition = glm::vec2(mouseInputEvent.getPositionX(), mouseInputEvent.getPositionY());
-    }
-    else if (mouseInputEvent.getAction() == MouseAction::Release)
-    {
-        activeMouseInput = MouseInput::None;
-    }
-    else
-    {
-        LOGEANDABORT("Mouse input action is neither click or release");
-    }
+	if (mouseInputEvent.getAction() == MouseAction::Click)
+	{
+		activeMouseInput = mouseInputEvent.getInput();
+		lastMousePosition = glm::vec2(mouseInputEvent.getPositionX(), mouseInputEvent.getPositionY());
+	}
+	else if (mouseInputEvent.getAction() == MouseAction::Release)
+	{
+		activeMouseInput = MouseInput::None;
+	}
+	else
+	{
+		LOGEANDABORT("Mouse input action is neither click or release");
+	}
 }
 
 void CameraController::handleMouseScroll(const MouseInputEvent &mouseInputEvent)
 {
-    camera->setFovY(camera->getFovY() + (zoomStepSize * static_cast<float>(mouseInputEvent.getPositionY())));
+	camera->setFovY(camera->getFovY() + (zoomStepSize * static_cast<float>(mouseInputEvent.getPositionY())));
 }
 
 void CameraController::handleCursorPositionChange(const MouseInputEvent &mouseInputEvent)
 {
-    if (mouseInputEvent.getAction() != MouseAction::Move)
-    {
-        LOGEANDABORT("Unexpected action type encountered for a mouse input event of type none");
-    }
+	if (mouseInputEvent.getAction() != MouseAction::Move)
+	{
+		LOGEANDABORT("Unexpected action type encountered for a mouse input event of type none");
+	}
 
-    switch (activeMouseInput)
-    {
-    case MouseInput::Left:
-        orbit(mouseInputEvent);
-        break;
-    case MouseInput::Right:
-        zoomOnMouseDrag(mouseInputEvent);
-        break;
-    case MouseInput::Middle:
-        pan(float(mouseInputEvent.getPositionX() - lastMousePosition.x), float(mouseInputEvent.getPositionY() - lastMousePosition.y), 0.0f);
-        lastMousePosition = glm::vec2(mouseInputEvent.getPositionX(), mouseInputEvent.getPositionY());
-        break;
-    }
+	switch (activeMouseInput)
+	{
+	case MouseInput::Left:
+		orbit(mouseInputEvent);
+		break;
+	case MouseInput::Right:
+		zoomOnMouseDrag(mouseInputEvent);
+		break;
+	case MouseInput::Middle:
+		pan(float(mouseInputEvent.getPositionX() - lastMousePosition.x), float(mouseInputEvent.getPositionY() - lastMousePosition.y), 0.0f);
+		lastMousePosition = glm::vec2(mouseInputEvent.getPositionX(), mouseInputEvent.getPositionY());
+		break;
+	}
 }
 
 void CameraController::orbit(const MouseInputEvent &mouseInputEvent)
 {
-    // Calculate the rotation magnitude along the x and y axis
-    const float deltaAngleX = static_cast<float>(2.0f * M_PI / camera->getViewport().x);
-    const float deltaAngleY = static_cast<float>(M_PI / camera->getViewport().y);
-    const float rotationAngleX = static_cast<float>(lastMousePosition.x - mouseInputEvent.getPositionX()) * deltaAngleX;
-    float rotationAngleY = static_cast<float>(lastMousePosition.y - mouseInputEvent.getPositionY()) * deltaAngleY;
+	// Calculate the rotation magnitude along the x and y axis
+	const float deltaAngleX = static_cast<float>(2.0f * M_PI / camera->getViewport().x);
+	const float deltaAngleY = static_cast<float>(M_PI / camera->getViewport().y);
+	const float rotationAngleX = static_cast<float>(lastMousePosition.x - mouseInputEvent.getPositionX()) * deltaAngleX;
+	float rotationAngleY = static_cast<float>(lastMousePosition.y - mouseInputEvent.getPositionY()) * deltaAngleY;
 
-    // If the viewing direction is the same as the up direction, we will get rapid model flipping so we want to avoid that
-    if (glm::dot(camera->getViewDirection(), camera->getUp()) * sgn(rotationAngleY) > 0.99f)
-    {
-        rotationAngleY = 0.0f;
-    }
+	// If the viewing direction is the same as the up direction, we will get rapid model flipping so we want to avoid that
+	if (glm::dot(camera->getViewDirection(), camera->getUp()) * sgn(rotationAngleY) > 0.99f)
+	{
+		rotationAngleY = 0.0f;
+	}
 
-    glm::vec4 newPosition{ camera->getPosition(), 1.0f };
-    glm::vec4 pivot{ camera->getCenter(), 1.0f };
-    glm::mat4 rotationMatrixX{ 1.0f };
-    glm::mat4 rotationMatrixY{ 1.0f };
+	glm::vec4 newPosition{ camera->getPosition(), 1.0f };
+	glm::vec4 pivot{ camera->getCenter(), 1.0f };
+	glm::mat4 rotationMatrixX{ 1.0f };
+	glm::mat4 rotationMatrixY{ 1.0f };
 
-    // Rotate the camera around the pivot with respect to the x axis
-    rotationMatrixX = glm::rotate(rotationMatrixX, rotationAngleX, camera->getUp());
-    newPosition = (rotationMatrixX * (newPosition - pivot)) + pivot;
+	// Rotate the camera around the pivot with respect to the x axis
+	rotationMatrixX = glm::rotate(rotationMatrixX, rotationAngleX, camera->getUp());
+	newPosition = (rotationMatrixX * (newPosition - pivot)) + pivot;
 
-    // Rotate the camera around the pivot with respect to the y axis
-    rotationMatrixY = glm::rotate(rotationMatrixY, rotationAngleY, camera->getRight());
-    newPosition = (rotationMatrixY * (newPosition - pivot)) + pivot;
+	// Rotate the camera around the pivot with respect to the y axis
+	rotationMatrixY = glm::rotate(rotationMatrixY, rotationAngleY, camera->getRight());
+	newPosition = (rotationMatrixY * (newPosition - pivot)) + pivot;
 
-    // Update the camera view
-    camera->setView(newPosition, camera->getCenter(), camera->getUp());
+	// Update the camera view
+	camera->setView(newPosition, camera->getCenter(), camera->getUp());
 
-    // Update the last mouse position
-    lastMousePosition = glm::vec2(mouseInputEvent.getPositionX(), mouseInputEvent.getPositionY());
+	// Update the last mouse position
+	lastMousePosition = glm::vec2(mouseInputEvent.getPositionX(), mouseInputEvent.getPositionY());
 }
 
 void CameraController::zoomOnMouseDrag(const MouseInputEvent &mouseInputEvent)
 {
-    // Increase or decrease the fovy depending on the delta of the mouse change
-    if (mouseInputEvent.getPositionX() > lastMousePosition.x)
-    {
-        camera->setFovY(camera->getFovY() - zoomStepSize);
-    }
-    else
-    {
-        camera->setFovY(camera->getFovY() + zoomStepSize);
-    }
+	// Increase or decrease the fovy depending on the delta of the mouse change
+	if (mouseInputEvent.getPositionX() > lastMousePosition.x)
+	{
+		camera->setFovY(camera->getFovY() - zoomStepSize);
+	}
+	else
+	{
+		camera->setFovY(camera->getFovY() + zoomStepSize);
+	}
 
-    // Update the last mouse position
-    lastMousePosition = glm::vec2(mouseInputEvent.getPositionX(), mouseInputEvent.getPositionY());
+	// Update the last mouse position
+	lastMousePosition = glm::vec2(mouseInputEvent.getPositionX(), mouseInputEvent.getPositionY());
 }
 
 void CameraController::pan(const float dx, const float dy, const float dz)
 {
-    const float dxNormalized = dx / float(camera->getViewport().x);
-    const float dyNormalized = dy / float(camera->getViewport().y);
+	const float dxNormalized = dx / float(camera->getViewport().x);
+	const float dyNormalized = dy / float(camera->getViewport().y);
 
-    glm::vec3 z{ camera->getPosition() - camera->getCenter() };
-    float length = static_cast<float>(glm::length(z));
-    z = glm::normalize(z);
-    glm::vec3 x = glm::normalize(glm::cross(camera->getUp(), z));
-    glm::vec3 y = glm::normalize(glm::cross(z, x));
-    
-    x *= -dxNormalized * length;
-    y *= dyNormalized * length;
-    z *= dz;
+	glm::vec3 z{ camera->getPosition() - camera->getCenter() };
+	float length = static_cast<float>(glm::length(z));
+	z = glm::normalize(z);
+	glm::vec3 x = glm::normalize(glm::cross(camera->getUp(), z));
+	glm::vec3 y = glm::normalize(glm::cross(z, x));
 
-    camera->setPosition(camera->getPosition() + x + y + -z);
-    camera->setCenter(camera->getCenter() + x + y + -z);
+	x *= -dxNormalized * length;
+	y *= dyNormalized * length;
+	z *= dz;
+
+	camera->setPosition(camera->getPosition() + x + y + -z);
+	camera->setCenter(camera->getCenter() + x + y + -z);
 }
 
 } // namespace vulkr

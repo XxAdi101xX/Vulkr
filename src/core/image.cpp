@@ -168,7 +168,7 @@ void *Image::map()
 		{
 			LOGW("Mapping image memory that is not linear");
 		}
-		VK_CHECK(vmaMapMemory(device.getMemoryAllocator(), allocation, reinterpret_cast<void**>(&mappedData)));
+		VK_CHECK(vmaMapMemory(device.getMemoryAllocator(), allocation, reinterpret_cast<void **>(&mappedData)));
 		mapped = true;
 	}
 	return mappedData;
@@ -371,7 +371,7 @@ VkImageType Image::getType() const
 	return type;
 }
 
-const VkExtent3D& Image::getExtent() const
+const VkExtent3D &Image::getExtent() const
 {
 	return extent;
 }

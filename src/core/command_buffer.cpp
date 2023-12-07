@@ -84,7 +84,7 @@ void CommandBuffer::begin(VkCommandBufferUsageFlags flags, CommandBuffer *primar
 
 	VkCommandBufferBeginInfo beginInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
 	beginInfo.flags = flags;
-		
+
 	VkCommandBufferInheritanceInfo inheritance = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO };
 	if (level == VK_COMMAND_BUFFER_LEVEL_SECONDARY)
 	{

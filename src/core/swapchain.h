@@ -84,7 +84,7 @@ private:
 
 	/* The associating properties of the swapchain */
 	SwapchainProperties properties{};
-	
+
 	/* The images associated with the swapchain */
 	std::vector<std::unique_ptr<Image>> images;
 	// TODO: should I add the image_views here and also destruct them

@@ -33,7 +33,7 @@ Subpass::Subpass(
 	std::vector<VkAttachmentReference2> &depthStencilAttachments,
 	std::vector<uint32_t> &preserveAttachments,
 	VkPipelineBindPoint bindPoint,
-	VkSubpassDescriptionFlags descriptionFlags):
+	VkSubpassDescriptionFlags descriptionFlags) :
 	inputAttachments{ inputAttachments },
 	colorAttachments{ colorAttachments },
 	resolveAttachments{ resolveAttachments },

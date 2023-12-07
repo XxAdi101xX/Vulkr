@@ -27,8 +27,9 @@
 namespace vulkr
 {
 
-Application::Application(Platform  &platform, std::string name) : platform{ platform }, name { name }
-{}
+Application::Application(Platform &platform, std::string name) : platform{ platform }, name{ name }
+{
+}
 
 void Application::prepare()
 {

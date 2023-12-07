@@ -30,15 +30,15 @@
 namespace vulkr
 {
 
-DescriptorSet::DescriptorSet( Device &device, VkDescriptorSetAllocateInfo allocateInfo) :
-    device{ device }
+DescriptorSet::DescriptorSet(Device &device, VkDescriptorSetAllocateInfo allocateInfo) :
+	device{ device }
 {
-    VK_CHECK(vkAllocateDescriptorSets(device.getHandle(), &allocateInfo, &handle));
+	VK_CHECK(vkAllocateDescriptorSets(device.getHandle(), &allocateInfo, &handle));
 }
 
 const VkDescriptorSet &DescriptorSet::getHandle() const
 {
-    return handle;
+	return handle;
 }
 
 } // namespace vulkr

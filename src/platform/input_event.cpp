@@ -26,11 +26,13 @@ namespace vulkr
 {
 
 // InputEvent class method implementations
-InputEvent::InputEvent( EventSource eventSource) : eventSource{ eventSource }
-{}
+InputEvent::InputEvent(EventSource eventSource) : eventSource{ eventSource }
+{
+}
 
 InputEvent::~InputEvent()
-{}
+{
+}
 
 EventSource InputEvent::getEventSource() const
 {
@@ -38,11 +40,12 @@ EventSource InputEvent::getEventSource() const
 }
 
 // KeyInputEvent class method implementations
-KeyInputEvent::KeyInputEvent(KeyInput input, KeyAction action) : 
+KeyInputEvent::KeyInputEvent(KeyInput input, KeyAction action) :
 	InputEvent{ EventSource::Keyboard },
 	input{ input },
 	action{ action }
-{}
+{
+}
 
 KeyInput KeyInputEvent::getInput() const
 {
@@ -61,7 +64,8 @@ MouseInputEvent::MouseInputEvent(MouseInput input, MouseAction action, double po
 	action{ action },
 	positionX{ positionX },
 	positionY{ positionY }
-{}
+{
+}
 
 MouseInput MouseInputEvent::getInput() const
 {

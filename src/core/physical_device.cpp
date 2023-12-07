@@ -129,7 +129,7 @@ const std::vector<VkQueueFamilyProperties> &PhysicalDevice::getQueueFamilyProper
 
 VkBool32 PhysicalDevice::isPresentSupported(VkSurfaceKHR surface, uint32_t queue_family_index) const
 {
-	VkBool32 presentSupported { VK_FALSE };
+	VkBool32 presentSupported{ VK_FALSE };
 
 	if (surface != VK_NULL_HANDLE)
 	{

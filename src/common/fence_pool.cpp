@@ -26,7 +26,8 @@ namespace vulkr
 {
 
 FencePool::FencePool(Device &device) : device{ device }
-{}
+{
+}
 
 FencePool::~FencePool()
 {

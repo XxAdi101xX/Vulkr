@@ -37,7 +37,7 @@ Buffer::Buffer(Device &device, VkBufferCreateInfo bufferInfo, VmaAllocationCreat
 	persistent = (memoryInfo.flags & VMA_ALLOCATION_CREATE_MAPPED_BIT) != 0;
 	if (persistent)
 	{
-		mappedData = static_cast<uint8_t*>(allocationInfo.pMappedData);
+		mappedData = static_cast<uint8_t *>(allocationInfo.pMappedData);
 	}
 }
 
@@ -123,14 +123,14 @@ void Buffer::flush() const
 	vmaFlushAllocation(device.getMemoryAllocator(), allocation, 0, size);
 }
 
-void Buffer::update(const std::vector<uint8_t>& data, size_t offset)
+void Buffer::update(const std::vector<uint8_t> &data, size_t offset)
 {
 	update(data.data(), data.size(), offset);
 }
 
-void Buffer::update(void* data, size_t size, size_t offset)
+void Buffer::update(void *data, size_t size, size_t offset)
 {
-	update(reinterpret_cast<const uint8_t*>(data), size, offset);
+	update(reinterpret_cast<const uint8_t *>(data), size, offset);
 }
 
 void Buffer::update(const uint8_t *data, const size_t size, const size_t offset)

@@ -26,7 +26,8 @@ namespace vulkr
 {
 
 SemaphorePool::SemaphorePool(Device &device) : device{ device }
-{}
+{
+}
 
 SemaphorePool::~SemaphorePool()
 {

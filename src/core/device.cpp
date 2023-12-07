@@ -77,7 +77,7 @@ Device::Device(std::unique_ptr<PhysicalDevice> &&selectedPhysicalDevice, VkSurfa
 		// Populate queueCreateInfos
 		queuePriorities[queueFamilyIndex].resize(queueFamilyProperties.queueCount, 1.0f);
 
-		VkDeviceQueueCreateInfo queueCreateInfo { VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO };
+		VkDeviceQueueCreateInfo queueCreateInfo{ VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO };
 		queueCreateInfo.queueFamilyIndex = queueFamilyIndex;
 		queueCreateInfo.queueCount = queueFamilyProperties.queueCount;
 		queueCreateInfo.pQueuePriorities = queuePriorities[queueFamilyIndex].data();
@@ -119,7 +119,7 @@ Device::Device(std::unique_ptr<PhysicalDevice> &&selectedPhysicalDevice, VkSurfa
 	features2.features = this->physicalDevice->getRequestedFeatures(); // These features are specified in app.h
 	features2.pNext = &bufferDeviceAddressFeatures;
 
-	VkDeviceCreateInfo createInfo { VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
+	VkDeviceCreateInfo createInfo{ VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
 	createInfo.queueCreateInfoCount = to_u32(queueCreateInfos.size());
 	createInfo.pQueueCreateInfos = queueCreateInfos.data();
 	createInfo.enabledExtensionCount = to_u32(enabledExtensions.size());
@@ -134,7 +134,7 @@ Device::Device(std::unique_ptr<PhysicalDevice> &&selectedPhysicalDevice, VkSurfa
 	queues.resize(queueFamilyPropertiesCount);
 	for (uint32_t queueFamilyIndex = 0u; queueFamilyIndex < queueFamilyPropertiesCount; ++queueFamilyIndex)
 	{
-		const VkQueueFamilyProperties& queueFamilyProperties = this->physicalDevice->getQueueFamilyProperties()[queueFamilyIndex];
+		const VkQueueFamilyProperties &queueFamilyProperties = this->physicalDevice->getQueueFamilyProperties()[queueFamilyIndex];
 		bool presentSupported = this->physicalDevice->isPresentSupported(surface, queueFamilyIndex);
 
 		for (uint32_t queueIndex = 0u; queueIndex < queueFamilyProperties.queueCount; ++queueIndex)
@@ -144,7 +144,7 @@ Device::Device(std::unique_ptr<PhysicalDevice> &&selectedPhysicalDevice, VkSurfa
 	}
 
 	// Load device related Vulkan entrypoints directly from the driver to prevent the dispatch overhead incurred from supporting multiple VkDevice objects (see Volk docs)
-    volkLoadDevice(handle);
+	volkLoadDevice(handle);
 
 	// Setup VMA
 	VmaVulkanFunctions vmaVulkanFunctions{};
@@ -258,7 +258,7 @@ Queue *Device::getQueue(uint32_t queueFamilyIndex, uint32_t queueIndex)
 
 bool Device::isExtensionSupported(const char *extension) const
 {
-	for (auto& existingExtension : deviceExtensions)
+	for (auto &existingExtension : deviceExtensions)
 	{
 		if (strcmp(existingExtension.extensionName, extension) == 0)
 		{
@@ -269,9 +269,9 @@ bool Device::isExtensionSupported(const char *extension) const
 	return false;
 }
 
-bool Device::isExtensionEnabled(const char* extension) const
+bool Device::isExtensionEnabled(const char *extension) const
 {
-	return std::find_if(enabledExtensions.begin(), enabledExtensions.end(), [extension](const char* enabledExtension) { return strcmp(extension, enabledExtension) == 0; }) != enabledExtensions.end();
+	return std::find_if(enabledExtensions.begin(), enabledExtensions.end(), [extension](const char *enabledExtension) { return strcmp(extension, enabledExtension) == 0; }) != enabledExtensions.end();
 }
 
 VmaAllocator Device::getMemoryAllocator() const

@@ -30,7 +30,7 @@ const char *printVkResult(const VkResult result)
 		s = #r;                      \
 		break;
 
-	switch (result) 
+	switch (result)
 	{
 		PRINT_VK_RESULT_ENUM_NAME(VK_SUCCESS);
 		PRINT_VK_RESULT_ENUM_NAME(VK_NOT_READY);
@@ -102,7 +102,7 @@ bool isDepthStencilFormat(VkFormat format)
 
 VkFormat getSupportedDepthFormat(VkPhysicalDevice physicalDeviceHandle, bool depthOnly, const std::vector<VkFormat> &formatPriorityList)
 {
-	for (auto& format : formatPriorityList)
+	for (auto &format : formatPriorityList)
 	{
 		if (depthOnly && !isDepthOnlyFormat(format))
 		{

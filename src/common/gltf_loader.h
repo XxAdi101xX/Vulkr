@@ -4,7 +4,7 @@
  * Copyright (C) 2018-2022 by Sascha Willems - www.saschawillems.de
  *
  * This code is licensed under the MIT license (MIT) (http://opensource.org/licenses/MIT)
- * 
+ *
  * Note that this file has been modified to integrate into the Vulkr engine, but the core logic remains the same and is covered under the license above.
  */
 
@@ -22,7 +22,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
-// ERROR is already defined in wingdi.h and collides with a define in the Draco headers
+ // ERROR is already defined in wingdi.h and collides with a define in the Draco headers
 #if defined(_WIN32) && defined(ERROR) && defined(TINYGLTF_ENABLE_DRACO) 
 #undef ERROR
 #pragma message ("ERROR constant already defined, undefining")
@@ -83,7 +83,7 @@ struct Texture
 	void updateDescriptor();
 	void destroy();
 	// Load a texture from a glTF image (stored as vector of chars loaded via stb_image) and generate a full mip chaing for it
-	void fromglTfImage(tinygltf::Image &gltfimage, TextureSampler textureSampler, vulkr::Device *device,  vulkr::CommandPool *commandPool, VkQueue copyQueue);
+	void fromglTfImage(tinygltf::Image &gltfimage, TextureSampler textureSampler, vulkr::Device *device, vulkr::CommandPool *commandPool, VkQueue copyQueue);
 };
 
 struct Material
@@ -101,7 +101,8 @@ struct Material
 	Texture *occlusionTexture;
 	Texture *emissiveTexture;
 	bool doubleSided = false;
-	struct TexCoordSets {
+	struct TexCoordSets
+	{
 		uint8_t baseColor = 0;
 		uint8_t metallicRoughness = 0;
 		uint8_t specularGlossiness = 0;
@@ -109,13 +110,15 @@ struct Material
 		uint8_t occlusion = 0;
 		uint8_t emissive = 0;
 	} texCoordSets;
-	struct Extension {
+	struct Extension
+	{
 		Texture *specularGlossinessTexture;
 		Texture *diffuseTexture;
 		glm::vec4 diffuseFactor = glm::vec4(1.0f);
 		glm::vec3 specularFactor = glm::vec3(0.0f);
 	} extension;
-	struct PbrWorkflows {
+	struct PbrWorkflows
+	{
 		bool metallicRoughness = true;
 		bool specularGlossiness = false;
 	} pbrWorkflows;
@@ -143,12 +146,14 @@ struct Mesh
 	std::vector<Primitive *> primitives;
 	BoundingBox bb;
 	BoundingBox aabb;
-	struct UniformBuffer {
+	struct UniformBuffer
+	{
 		std::unique_ptr<vulkr::Buffer> buffer;
 		VkDescriptorBufferInfo descriptor;
 		VkDescriptorSet descriptorSet; // Will be filled in in the vulkr.cpp code
 	} uniformBuffer;
-	struct UniformBlock {
+	struct UniformBlock
+	{
 		glm::mat4 matrix;
 		glm::mat4 jointMatrix[MAX_NUM_JOINTS]{};
 		float jointcount{ 0 };

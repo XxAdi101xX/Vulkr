@@ -31,7 +31,7 @@ namespace vulkr
 class FencePool
 {
 public:
-	FencePool(Device& device);
+	FencePool(Device &device);
 	~FencePool();
 
 	FencePool(const FencePool &) = delete;

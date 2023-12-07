@@ -60,7 +60,7 @@ public:
 		VkSampleCountFlagBits sampleCount = VK_SAMPLE_COUNT_1_BIT
 	);
 	~Image();
- 
+
 	Image(Image &&) = delete;
 	Image(const Image &) = delete;
 	Image &operator=(const Image &) = delete;

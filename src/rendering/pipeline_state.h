@@ -57,7 +57,7 @@ struct ViewportState
 	std::vector<VkRect2D> scissors;
 };
 
-/** 
+/**
  * @brief Takes the geometry that is shaped by the vertices from the vertex shader and turns it into fragments to be colored by the fragment shader.
  * It also contains information depth testing, face culling and the scissor test.
  */
@@ -107,10 +107,10 @@ struct DepthStencilState
 	StencilOpState front{}; // optional if stencilTestEnabled is false
 	StencilOpState back{}; // optional if stencilTestEnabled is false
 	float minDepthBounds{ 0.0f };
-	float maxDepthBounds{ 1.0f } ;
+	float maxDepthBounds{ 1.0f };
 };
 
-/* 
+/*
  * After a fragment shader has returned a color, it needs to be combined with the color that is already in the framebuffer.
  * ColorBlendAttachmentState contain the configuration per attached framebuffer
  */
@@ -158,7 +158,7 @@ class GraphicsPipelineState final : public PipelineState
 public:
 	GraphicsPipelineState(
 		std::unique_ptr<PipelineLayout> &&pipelineLayout,
-		RenderPass& renderPass,
+		RenderPass &renderPass,
 		VertexInputState vertexInputState,
 		InputAssemblyState inputAssemblyState,
 		ViewportState viewportState,

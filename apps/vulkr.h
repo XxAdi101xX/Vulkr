@@ -22,7 +22,7 @@
 
 #pragma once
 
-// Vulkan Common
+ // Vulkan Common
 #include "common/vulkan_common.h"
 
 // Common files
@@ -103,12 +103,12 @@ constexpr uint32_t particlesPerAttractor{ 1024u };
 #endif
 
 constexpr std::array<glm::vec3, 6> attractors = {
-    glm::vec3(5.0f, 0.0f, 0.0f),
-    glm::vec3(-5.0f, 0.0f, 0.0f),
-    glm::vec3(0.0f, 0.0f, 5.0f),
-    glm::vec3(0.0f, 0.0f, -5.0f),
-    glm::vec3(0.0f, 4.0f, 0.0f),
-    glm::vec3(0.0f, -8.0f, 0.0f),
+	glm::vec3(5.0f, 0.0f, 0.0f),
+	glm::vec3(-5.0f, 0.0f, 0.0f),
+	glm::vec3(0.0f, 0.0f, 5.0f),
+	glm::vec3(0.0f, 0.0f, -5.0f),
+	glm::vec3(0.0f, 4.0f, 0.0f),
+	glm::vec3(0.0f, -8.0f, 0.0f),
 };
 
 const std::string defaultModelFilePath = "../../assets/models/";
@@ -120,96 +120,97 @@ bool temporalAntiAliasingEnabled{ false }; // Flag to enable temporal anti-alias
 /* Structs shared across the GPU and CPU */
 struct CameraData
 {
-    alignas(16) glm::mat4 view;
-    alignas(16) glm::mat4 proj;
+	alignas(16) glm::mat4 view;
+	alignas(16) glm::mat4 proj;
 };
 
 struct ObjInstance
 {
-    alignas(16) glm::mat4 transform;
-    alignas(16) glm::mat4 transformIT;
-    alignas(8) uint64_t objIndex;
-    alignas(8) uint64_t textureOffset;
-    alignas(8) VkDeviceAddress vertices;
-    alignas(8) VkDeviceAddress indices;
-    alignas(8) VkDeviceAddress materials;
-    alignas(8) VkDeviceAddress materialIndices;
+	alignas(16) glm::mat4 transform;
+	alignas(16) glm::mat4 transformIT;
+	alignas(8) uint64_t objIndex;
+	alignas(8) uint64_t textureOffset;
+	alignas(8) VkDeviceAddress vertices;
+	alignas(8) VkDeviceAddress indices;
+	alignas(8) VkDeviceAddress materials;
+	alignas(8) VkDeviceAddress materialIndices;
 
-    bool operator == (const ObjInstance &other) const
-    {
-        return
-            transform == other.transform &&
-            transformIT == other.transformIT &&
-            objIndex == other.objIndex &&
-            textureOffset == other.textureOffset &&
-            vertices == other.vertices &&
-            indices == other.indices &&
-            materials == other.materials &&
-            materialIndices == other.materialIndices;
-    }
+	bool operator == (const ObjInstance &other) const
+	{
+		return
+			transform == other.transform &&
+			transformIT == other.transformIT &&
+			objIndex == other.objIndex &&
+			textureOffset == other.textureOffset &&
+			vertices == other.vertices &&
+			indices == other.indices &&
+			materials == other.materials &&
+			materialIndices == other.materialIndices;
+	}
 
-    bool operator != (const ObjInstance &other) const
-    {
-        return !(*this == other);
-    }
+	bool operator != (const ObjInstance &other) const
+	{
+		return !(*this == other);
+	}
 };
 
 struct Particle
 {
-    alignas(16) glm::vec4 position; // xyz = position, w = mass
-    alignas(16) glm::vec4 velocity; // xyz = velocity, w = gradient texture position
+	alignas(16) glm::vec4 position; // xyz = position, w = mass
+	alignas(16) glm::vec4 velocity; // xyz = velocity, w = gradient texture position
 };
 
 struct LightData
 {
-    alignas(16) glm::vec3 lightPosition{ 10.0f, 4.3f, 7.1f };
-    alignas(4) float lightIntensity{ 140.0f };
-    alignas(4) int lightType{ 0 }; // 0: point, 1: directional (infinite)
-    // TODO: to support area lights, look into vector irradiance (Real time rendering page 379) where you can integrate over the various light vectors that an area light emits and convert it into a directional light source  without introducing any errors
+	alignas(16) glm::vec3 lightPosition{ 10.0f, 4.3f, 7.1f };
+	alignas(4) float lightIntensity{ 140.0f };
+	alignas(4) int lightType{ 0 }; // 0: point, 1: directional (infinite)
+	// TODO: to support area lights, look into vector irradiance (Real time rendering page 379) where you can integrate over the various light vectors that an area light emits and convert it into a directional light source  without introducing any errors
 };
 
 // Push constants; note that any modifications to push constants must be matched in the shaders and offsets must be set appropriately including when multiple push constants are defined for different stages (see layout(offset = 16))
 // ensure push constants fall under the max size (128 bytes is the min size so we shouldn't expect more than this); be careful of implicit padding (eg. vec3 should always be followed by a 4 byte datatype if possible or else it might pad to 16 bytes)
 struct RasterizationPushConstant
 {
-    int lightCount{ 0 };
+	int lightCount{ 0 };
 } rasterizationPushConstant;
 
 struct RaytracingPushConstant
 {
-    int lightCount{ 0 };
-    int frameSinceViewChange{ -1 }; // TODO not used
+	int lightCount{ 0 };
+	int frameSinceViewChange{ -1 }; // TODO not used
 } raytracingPushConstant;
 
 struct TaaPushConstant
 {
-    glm::vec2 jitter{ glm::vec2(0.0f) };
-    int frameSinceViewChange{ -1 };
-    int blank{ 0 }; // alignment
+	glm::vec2 jitter{ glm::vec2(0.0f) };
+	int frameSinceViewChange{ -1 };
+	int blank{ 0 }; // alignment
 } taaPushConstant;
 
 struct PostProcessPushConstant
 {
-    glm::vec2 imageExtent;
+	glm::vec2 imageExtent;
 } postProcessPushConstant;
 
 struct ComputePushConstant
 {
-    int indexCount;
-    float time;
+	int indexCount;
+	float time;
 } computePushConstant;
 
 struct ComputeParticlesPushConstant
 {
-    int startingIndex{ 0 };
-    int particleCount{ 0 };
-    float deltaTime{ 0.0f };
-    int blank{ 0 }; // alignment
+	int startingIndex{ 0 };
+	int particleCount{ 0 };
+	float deltaTime{ 0.0f };
+	int blank{ 0 }; // alignment
 } computeParticlesPushConstant;
 
-struct GltfPushConstant {
-    glm::vec3 cameraPos;
-    int materialIndex{ 0 };
+struct GltfPushConstant
+{
+	glm::vec3 cameraPos;
+	int materialIndex{ 0 };
 } gltfPushConstant;
 
 /* CPU only structs */
@@ -218,14 +219,14 @@ struct GltfPushConstant {
 // TODO rename this to ObjModelRenderingData
 struct ObjModelRenderingData
 {
-    std::string objFilePath;
-    uint64_t txtOffset;
-    uint32_t verticesCount;
-    uint32_t indicesCount;
-    std::unique_ptr<Buffer> vertexBuffer;
-    std::unique_ptr<Buffer> indexBuffer;
-    std::unique_ptr<Buffer> materialsBuffer;
-    std::unique_ptr<Buffer> materialsIndexBuffer;
+	std::string objFilePath;
+	uint64_t txtOffset;
+	uint32_t verticesCount;
+	uint32_t indicesCount;
+	std::unique_ptr<Buffer> vertexBuffer;
+	std::unique_ptr<Buffer> indexBuffer;
+	std::unique_ptr<Buffer> materialsBuffer;
+	std::unique_ptr<Buffer> materialsIndexBuffer;
 };
 
 enum PBRWorkflows { PBR_WORKFLOW_METALLIC_ROUGHNESS = 0, PBR_WORKFLOW_SPECULAR_GLOSINESS = 1 };
@@ -233,342 +234,345 @@ enum PBRWorkflows { PBR_WORKFLOW_METALLIC_ROUGHNESS = 0, PBR_WORKFLOW_SPECULAR_G
 // Holds all of the necessary rendering data to display a .gltf file model
 struct GltfModelRenderingData
 {
-    gltf::Model gltfModel;
-    std::unique_ptr<Buffer> materialsBuffer;
+	gltf::Model gltfModel;
+	std::unique_ptr<Buffer> materialsBuffer;
 };
 
 // TODO should this be moved out of the CPU only section
-struct alignas(16) GltfMaterial {
-    glm::vec4 baseColorFactor;
-    glm::vec4 emissiveFactor;
-    glm::vec4 diffuseFactor;
-    glm::vec4 specularFactor;
-    float workflow;
-    int colorTextureSet;
-    int PhysicalDescriptorTextureSet;
-    int normalTextureSet;
-    int occlusionTextureSet;
-    int emissiveTextureSet;
-    float metallicFactor;
-    float roughnessFactor;
-    float alphaMask;
-    float alphaMaskCutoff;
-    float emissiveStrength;
+struct alignas(16) GltfMaterial
+{
+	glm::vec4 baseColorFactor;
+	glm::vec4 emissiveFactor;
+	glm::vec4 diffuseFactor;
+	glm::vec4 specularFactor;
+	float workflow;
+	int colorTextureSet;
+	int PhysicalDescriptorTextureSet;
+	int normalTextureSet;
+	int occlusionTextureSet;
+	int emissiveTextureSet;
+	float metallicFactor;
+	float roughnessFactor;
+	float alphaMask;
+	float alphaMaskCutoff;
+	float emissiveStrength;
 };
 
 struct PipelineData
 {
-    std::unique_ptr<Pipeline> pipeline;
-    std::unique_ptr<PipelineState> pipelineState;
+	std::unique_ptr<Pipeline> pipeline;
+	std::unique_ptr<PipelineState> pipelineState;
 };
 
 struct AccelerationStructure
 {
-    AccelerationStructure(Device &device) : device(device)
-    {}
+	AccelerationStructure(Device &device) : device(device)
+	{
+	}
 
-    ~AccelerationStructure()
-    {
-        buffer.reset();
-        vkDestroyAccelerationStructureKHR(device.getHandle(), accelerationStuctureKHR, nullptr);
-    }
+	~AccelerationStructure()
+	{
+		buffer.reset();
+		vkDestroyAccelerationStructureKHR(device.getHandle(), accelerationStuctureKHR, nullptr);
+	}
 
-    Device &device;
-    VkAccelerationStructureKHR accelerationStuctureKHR = VK_NULL_HANDLE;
-    std::unique_ptr<Buffer> buffer;
+	Device &device;
+	VkAccelerationStructureKHR accelerationStuctureKHR = VK_NULL_HANDLE;
+	std::unique_ptr<Buffer> buffer;
 };
 
 // Inputs used to build the bottom-level acceleration structure.
 struct BlasInput
 {
-    // Data used to build acceleration structure geometry
-    std::vector<VkAccelerationStructureGeometryKHR> asGeometry;
-    std::vector<VkAccelerationStructureBuildRangeInfoKHR> asBuildRangeInfo;
+	// Data used to build acceleration structure geometry
+	std::vector<VkAccelerationStructureGeometryKHR> asGeometry;
+	std::vector<VkAccelerationStructureBuildRangeInfoKHR> asBuildRangeInfo;
 };
 
 // Bottom-level acceleration structure, along with the information needed to re-build it.
 struct BlasEntry
 {
-    BlasEntry(BlasInput input_) : input(input_)
-    {}
+	BlasEntry(BlasInput input_) : input(input_)
+	{
+	}
 
-    ~BlasEntry()
-    {
-        accelerationStructure.reset();
-    }
+	~BlasEntry()
+	{
+		accelerationStructure.reset();
+	}
 
-    // User provided input.
-    BlasInput input;
+	// User provided input.
+	BlasInput input;
 
-    // VkAccelerationStructureKHR plus extra info needed for our memory allocator.
-    std::unique_ptr<AccelerationStructure> accelerationStructure; // This struct will be initialized externally
+	// VkAccelerationStructureKHR plus extra info needed for our memory allocator.
+	std::unique_ptr<AccelerationStructure> accelerationStructure; // This struct will be initialized externally
 
-    // Additional parameters for acceleration structure builds
-    VkBuildAccelerationStructureFlagsKHR flags = 0;
+	// Additional parameters for acceleration structure builds
+	VkBuildAccelerationStructureFlagsKHR flags = 0;
 };
 
 struct Tlas
 {
-    std::unique_ptr<AccelerationStructure> accelerationStructure;
-    VkBuildAccelerationStructureFlagsKHR flags = 0;
+	std::unique_ptr<AccelerationStructure> accelerationStructure;
+	VkBuildAccelerationStructureFlagsKHR flags = 0;
 };
 
 /* VulkrApp class */
 class VulkrApp : public Application
 {
 public:
-    VulkrApp(Platform &platform, std::string name);
+	VulkrApp(Platform &platform, std::string name);
 
-    ~VulkrApp();
+	~VulkrApp();
 
-    virtual void prepare() override;
+	virtual void prepare() override;
 
-    virtual void update() override;
+	virtual void update() override;
 
-    virtual void recreateSwapchain() override;
+	virtual void recreateSwapchain() override;
 
-    virtual void handleInputEvents(const InputEvent& inputEvent) override;
+	virtual void handleInputEvents(const InputEvent &inputEvent) override;
 private:
-    /* IMPORTANT NOTICE: To enable/disable features, depending on whether it's core or packed into another feature extension struct, you might have to go into device.cpp to enabled them through another struct using the pNext chain */
-    const std::vector<const char *> deviceExtensions {
-        VK_KHR_SWAPCHAIN_EXTENSION_NAME, // Required to have access to the swapchain and render images to the screen
+	/* IMPORTANT NOTICE: To enable/disable features, depending on whether it's core or packed into another feature extension struct, you might have to go into device.cpp to enabled them through another struct using the pNext chain */
+	const std::vector<const char *> deviceExtensions{
+		VK_KHR_SWAPCHAIN_EXTENSION_NAME, // Required to have access to the swapchain and render images to the screen
 #ifndef RENDERDOC_DEBUG
-        VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME, // Required by VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME
-        VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME, // To build acceleration structures
-        VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME, // Provides access to vkCmdTraceRaysKHR
+		VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME, // Required by VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME
+		VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME, // To build acceleration structures
+		VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME, // Provides access to vkCmdTraceRaysKHR
 #endif
-        VK_EXT_HOST_QUERY_RESET_EXTENSION_NAME, // Provides access to vkResetQueryPool
-        VK_KHR_SHADER_NON_SEMANTIC_INFO_EXTENSION_NAME, // Required to use debugPrintfEXT in shaders
-        VK_KHR_SHADER_DRAW_PARAMETERS_EXTENSION_NAME,
-        VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME
-    };
+		VK_EXT_HOST_QUERY_RESET_EXTENSION_NAME, // Provides access to vkResetQueryPool
+		VK_KHR_SHADER_NON_SEMANTIC_INFO_EXTENSION_NAME, // Required to use debugPrintfEXT in shaders
+		VK_KHR_SHADER_DRAW_PARAMETERS_EXTENSION_NAME,
+		VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME
+	};
 
-    std::unique_ptr<Instance> m_instance{ nullptr };
-    VkSurfaceKHR m_surface{ VK_NULL_HANDLE };
-    std::unique_ptr<Device> device{ nullptr };
-    Queue *m_graphicsQueue{ VK_NULL_HANDLE };
-    Queue *m_computeQueue{ VK_NULL_HANDLE };
-    Queue *m_presentQueue{ VK_NULL_HANDLE };
-    Queue *m_transferQueue{ VK_NULL_HANDLE }; // TODO: currently unused in code
-    uint32_t m_workGroupSize;
-    uint32_t m_shadedMemorySize;
+	std::unique_ptr<Instance> m_instance{ nullptr };
+	VkSurfaceKHR m_surface{ VK_NULL_HANDLE };
+	std::unique_ptr<Device> device{ nullptr };
+	Queue *m_graphicsQueue{ VK_NULL_HANDLE };
+	Queue *m_computeQueue{ VK_NULL_HANDLE };
+	Queue *m_presentQueue{ VK_NULL_HANDLE };
+	Queue *m_transferQueue{ VK_NULL_HANDLE }; // TODO: currently unused in code
+	uint32_t m_workGroupSize;
+	uint32_t m_shadedMemorySize;
 
-    std::unique_ptr<Swapchain> swapchain{ nullptr };
+	std::unique_ptr<Swapchain> swapchain{ nullptr };
 
-    struct RenderPassData
-    {
-        std::unique_ptr<RenderPass> renderPass{ nullptr };
-        std::vector<Subpass> subpasses;
-        std::vector<VkAttachmentReference2> inputAttachments;
-        std::vector<VkAttachmentReference2> colorAttachments;
-        std::vector<VkAttachmentReference2> resolveAttachments;
-        std::vector<VkAttachmentReference2> depthStencilAttachments;
-        std::vector<uint32_t> preserveAttachments;
-    };
+	struct RenderPassData
+	{
+		std::unique_ptr<RenderPass> renderPass{ nullptr };
+		std::vector<Subpass> subpasses;
+		std::vector<VkAttachmentReference2> inputAttachments;
+		std::vector<VkAttachmentReference2> colorAttachments;
+		std::vector<VkAttachmentReference2> resolveAttachments;
+		std::vector<VkAttachmentReference2> depthStencilAttachments;
+		std::vector<uint32_t> preserveAttachments;
+	};
 
-    RenderPassData mainRenderPass;
-    RenderPassData postRenderPass;
+	RenderPassData mainRenderPass;
+	RenderPassData postRenderPass;
 
-    std::unique_ptr<DescriptorSetLayout> globalDescriptorSetLayout{ nullptr };
-    std::unique_ptr<DescriptorSetLayout> objectDescriptorSetLayout{ nullptr };
-    std::unique_ptr<DescriptorSetLayout> textureDescriptorSetLayout{ nullptr };
-    std::unique_ptr<DescriptorSetLayout> postProcessingDescriptorSetLayout{ nullptr };
-    std::unique_ptr<DescriptorSetLayout> taaDescriptorSetLayout{ nullptr };
-    std::unique_ptr<DescriptorSetLayout> particleComputeDescriptorSetLayout{ nullptr };
-    std::unique_ptr<DescriptorSetLayout> gltfMaterialSamplersDescriptorSetLayout{ nullptr };
-    std::unique_ptr<DescriptorSetLayout> gltfNodeDescriptorSetLayout{ nullptr };
-    std::unique_ptr<DescriptorSetLayout> gltfMaterialDescriptorSetLayout{ nullptr };
-    std::unique_ptr<DescriptorPool> descriptorPool;
-    std::unique_ptr<DescriptorPool> imguiPool;
+	std::unique_ptr<DescriptorSetLayout> globalDescriptorSetLayout{ nullptr };
+	std::unique_ptr<DescriptorSetLayout> objectDescriptorSetLayout{ nullptr };
+	std::unique_ptr<DescriptorSetLayout> textureDescriptorSetLayout{ nullptr };
+	std::unique_ptr<DescriptorSetLayout> postProcessingDescriptorSetLayout{ nullptr };
+	std::unique_ptr<DescriptorSetLayout> taaDescriptorSetLayout{ nullptr };
+	std::unique_ptr<DescriptorSetLayout> particleComputeDescriptorSetLayout{ nullptr };
+	std::unique_ptr<DescriptorSetLayout> gltfMaterialSamplersDescriptorSetLayout{ nullptr };
+	std::unique_ptr<DescriptorSetLayout> gltfNodeDescriptorSetLayout{ nullptr };
+	std::unique_ptr<DescriptorSetLayout> gltfMaterialDescriptorSetLayout{ nullptr };
+	std::unique_ptr<DescriptorPool> descriptorPool;
+	std::unique_ptr<DescriptorPool> imguiPool;
 
-    std::unique_ptr<ImageView> depthImageView{ nullptr };
-    std::unique_ptr<Sampler> textureSampler{ nullptr };
+	std::unique_ptr<ImageView> depthImageView{ nullptr };
+	std::unique_ptr<Sampler> textureSampler{ nullptr };
 
-    std::unique_ptr<SemaphorePool> semaphorePool;
-    std::unique_ptr<FencePool> fencePool;
-    std::vector<VkFence> imagesInFlight;
+	std::unique_ptr<SemaphorePool> semaphorePool;
+	std::unique_ptr<FencePool> fencePool;
+	std::vector<VkFence> imagesInFlight;
 
-    std::unique_ptr<CameraController> cameraController;
-    std::unique_ptr<Timer> drawingTimer;
+	std::unique_ptr<CameraController> cameraController;
+	std::unique_ptr<Timer> drawingTimer;
 
-    std::array<glm::vec2, taaDepth> haltonSequence;
+	std::array<glm::vec2, taaDepth> haltonSequence;
 
-    struct FrameData
-    {
-        std::array<std::unique_ptr<Framebuffer>, maxFramesInFlight> offscreenFramebuffers;
-        std::array<std::unique_ptr<Framebuffer>, maxFramesInFlight> postProcessFramebuffers;
+	struct FrameData
+	{
+		std::array<std::unique_ptr<Framebuffer>, maxFramesInFlight> offscreenFramebuffers;
+		std::array<std::unique_ptr<Framebuffer>, maxFramesInFlight> postProcessFramebuffers;
 
-        std::array<VkSemaphore, maxFramesInFlight> imageAvailableSemaphores;
-        std::array<VkSemaphore, maxFramesInFlight> offscreenRenderingFinishedSemaphores;
-        std::array<VkSemaphore, maxFramesInFlight> postProcessRenderingFinishedSemaphores;
-        std::array<VkSemaphore, maxFramesInFlight> outputImageCopyFinishedSemaphores;
-        std::array<VkSemaphore, maxFramesInFlight> computeParticlesFinishedSemaphores;
-        std::array<VkFence, maxFramesInFlight> inFlightFences;
+		std::array<VkSemaphore, maxFramesInFlight> imageAvailableSemaphores;
+		std::array<VkSemaphore, maxFramesInFlight> offscreenRenderingFinishedSemaphores;
+		std::array<VkSemaphore, maxFramesInFlight> postProcessRenderingFinishedSemaphores;
+		std::array<VkSemaphore, maxFramesInFlight> outputImageCopyFinishedSemaphores;
+		std::array<VkSemaphore, maxFramesInFlight> computeParticlesFinishedSemaphores;
+		std::array<VkFence, maxFramesInFlight> inFlightFences;
 
-        std::array<std::unique_ptr<CommandPool>, maxFramesInFlight> commandPools;
-        std::array<std::array<std::shared_ptr<CommandBuffer>, commandBufferCountForFrame>, maxFramesInFlight> commandBuffers;
-    } frameData;
+		std::array<std::unique_ptr<CommandPool>, maxFramesInFlight> commandPools;
+		std::array<std::array<std::shared_ptr<CommandBuffer>, commandBufferCountForFrame>, maxFramesInFlight> commandBuffers;
+	} frameData;
 
-    // Clear values
-    std::vector<VkClearValue> offscreenFramebufferClearValues;
-    std::vector<VkClearValue> postProcessFramebufferClearValues;
-    
-    // Buffers
-    std::unique_ptr<Buffer> lightBuffer;
-    std::unique_ptr<Buffer> cameraBuffer;
-    std::unique_ptr<Buffer> previousFrameCameraBuffer;
-    std::unique_ptr<Buffer> objectBuffer;
-    std::unique_ptr<Buffer> previousFrameObjectBuffer;
-    std::unique_ptr<Buffer> particleBuffer;
-    std::unique_ptr<Buffer> gltfMaterialsBuffer;
+	// Clear values
+	std::vector<VkClearValue> offscreenFramebufferClearValues;
+	std::vector<VkClearValue> postProcessFramebufferClearValues;
 
-    // TAA related textures
-    std::unique_ptr<ImageView> outputImageView;
-    std::unique_ptr<ImageView> copyOutputImageView;
-    std::unique_ptr<ImageView> historyImageView;
-    std::unique_ptr<ImageView> velocityImageView;
+	// Buffers
+	std::unique_ptr<Buffer> lightBuffer;
+	std::unique_ptr<Buffer> cameraBuffer;
+	std::unique_ptr<Buffer> previousFrameCameraBuffer;
+	std::unique_ptr<Buffer> objectBuffer;
+	std::unique_ptr<Buffer> previousFrameObjectBuffer;
+	std::unique_ptr<Buffer> particleBuffer;
+	std::unique_ptr<Buffer> gltfMaterialsBuffer;
 
-    // Descriptor sets
-    std::unique_ptr<DescriptorSet> globalDescriptorSet;
-    std::unique_ptr<DescriptorSet> objectDescriptorSet;
-    std::unique_ptr<DescriptorSet> postProcessingDescriptorSet;
-    std::unique_ptr<DescriptorSet> taaDescriptorSet;
-    std::unique_ptr<DescriptorSet> particleComputeDescriptorSet;
-    std::unique_ptr<DescriptorSet> textureDescriptorSet; // This is currently only read by shaders
-    std::unique_ptr<DescriptorSet> raytracingDescriptorSet;
-    std::unique_ptr<DescriptorSet> gltfMaterialDescriptorSet;
+	// TAA related textures
+	std::unique_ptr<ImageView> outputImageView;
+	std::unique_ptr<ImageView> copyOutputImageView;
+	std::unique_ptr<ImageView> historyImageView;
+	std::unique_ptr<ImageView> velocityImageView;
 
-    size_t currentFrame{ 0 };
+	// Descriptor sets
+	std::unique_ptr<DescriptorSet> globalDescriptorSet;
+	std::unique_ptr<DescriptorSet> objectDescriptorSet;
+	std::unique_ptr<DescriptorSet> postProcessingDescriptorSet;
+	std::unique_ptr<DescriptorSet> taaDescriptorSet;
+	std::unique_ptr<DescriptorSet> particleComputeDescriptorSet;
+	std::unique_ptr<DescriptorSet> textureDescriptorSet; // This is currently only read by shaders
+	std::unique_ptr<DescriptorSet> raytracingDescriptorSet;
+	std::unique_ptr<DescriptorSet> gltfMaterialDescriptorSet;
 
-    // Currently unused; used when MULTI_THREAD is defined
-    std::mutex bufferMutex;
-    std::mutex commandPoolMutex;
-    std::condition_variable commandPoolCv;
-    std::vector<std::unique_ptr<CommandPool>> initCommandPools;
-    std::queue<uint8_t> initCommandPoolIds;
+	size_t currentFrame{ 0 };
 
-    struct Pipelines
-    {
-        PipelineData pbr;
-        PipelineData offscreen;
-        PipelineData postProcess;
-        PipelineData computeModelAnimation;
-        PipelineData computeParticleCalculate;
-        PipelineData computeParticleIntegrate;
-        PipelineData rayTracing;
-    } pipelines;
+	// Currently unused; used when MULTI_THREAD is defined
+	std::mutex bufferMutex;
+	std::mutex commandPoolMutex;
+	std::condition_variable commandPoolCv;
+	std::vector<std::unique_ptr<CommandPool>> initCommandPools;
+	std::queue<uint8_t> initCommandPoolIds;
 
-    std::vector<GltfModelRenderingData> gltfModelsToRender;
-    std::vector<ObjModelRenderingData> objModelsToRender;
-    std::vector<std::unique_ptr<ImageView>> textureImageViews;
-    std::vector<ObjInstance> objInstances;
-    std::vector<LightData> sceneLights;
+	struct Pipelines
+	{
+		PipelineData pbr;
+		PipelineData offscreen;
+		PipelineData postProcess;
+		PipelineData computeModelAnimation;
+		PipelineData computeParticleCalculate;
+		PipelineData computeParticleIntegrate;
+		PipelineData rayTracing;
+	} pipelines;
 
-    uint32_t animationIndex = 0;
-    float animationTimer = 0.0f;
+	std::vector<GltfModelRenderingData> gltfModelsToRender;
+	std::vector<ObjModelRenderingData> objModelsToRender;
+	std::vector<std::unique_ptr<ImageView>> textureImageViews;
+	std::vector<ObjInstance> objInstances;
+	std::vector<LightData> sceneLights;
 
-    bool haveLightsUpdated{ false };
+	uint32_t animationIndex = 0;
+	float animationTimer = 0.0f;
 
-    VkDeviceSize particleBufferSize{ 0 };
-    std::vector<Particle> allParticleData;
+	bool haveLightsUpdated{ false };
 
-    // Subroutines
-    void drawImGuiInterface();
-    void animateInstances();
-    void animateWithCompute();
-    void computeParticles();
-    void renderNode(vulkr::gltf::Node *node);
-    void dataUpdatePerFrame();
-    void rasterize();
-    void rasterizeGltf();
-    void postProcess();
-    void cleanupSwapchain();
-    void createInstance();
-    void createSurface();
-    void createDevice();
-    void createSwapchain();
-    void createImageResourcesForFrames();
-    void createMainRenderPass();
-    void createPostRenderPass();
-    void createDescriptorSetLayouts();
-    void createMainRasterizationPipeline();
-    void createPbrRasterizationPipeline();
-    void createPostProcessingPipeline();
-    void createModelAnimationComputePipeline();
-    void createParticleCalculateComputePipeline();
-    void createParticleIntegrateComputePipeline();
-    void createFramebuffers();
-    void createCommandPools();
-    void createCommandBuffers();
-    void copyBufferToImage(const Buffer &srcBuffer, const Image &dstImage, uint32_t width, uint32_t height);
-    void createDepthResources();
-    std::unique_ptr<Image> createTextureImage(const std::string &filename); // Reads a texture file and populate the texture image with the contents
-    void createTextureSampler();
-    void loadTextureImages(const std::vector<std::string> &textureFiles);
-    void copyBufferToBuffer(const Buffer &srcBuffer, const Buffer &dstBuffer, VkDeviceSize size);
-    void createVertexBuffer(ObjModelRenderingData &objModelRenderingData, const ObjLoader &objLoader);
-    void createIndexBuffer(ObjModelRenderingData &objModelRenderingData, const ObjLoader &objLoader);
-    void createMaterialBuffer(ObjModelRenderingData &objModelRenderingData, const ObjLoader &objLoader);
-    void createMaterialBuffer(GltfModelRenderingData &gltfModelRenderingData);
-    void createMaterialIndicesBuffer(ObjModelRenderingData &objModelRenderingData, const ObjLoader &objLoader);
-    void createUniformBuffers();
-    void createSSBOs();
-    void prepareParticleData();
-    void createDescriptorPool();
-    void createDescriptorSets();
-    void setupNodeDescriptorSet(vulkr::gltf::Node *node);
-    void createSceneLights();
-    void loadGltfModel(const std::string &gltfFilePath);
-    void loadObjModel(const std::string &objFilePath);
-    void createInstance(const std::string &objFilePath, glm::mat4 transform);
-    void loadModels();
-    uint64_t getObjModelIndex(const std::string &name);
-    void createScene();
-    void createSemaphoreAndFencePools();
-    void setupSynchronizationObjects();
-    void setupTimer();
-    void initializeHaltonSequenceArray();
-    void setupCamera();
-    void initializeImGui();
-    void resetFrameSinceViewChange();
-    void initializeBufferData();
+	VkDeviceSize particleBufferSize{ 0 };
+	std::vector<Particle> allParticleData;
 
-    // TODO: These methods to allow command pool access for multiple threads are not in use at the moment and will need to be used when expanding multi threading capabilities
-    uint8_t getInitCommandPoolId();
-    void returnInitCommandPool(uint8_t commandPoolId);
+	// Subroutines
+	void drawImGuiInterface();
+	void animateInstances();
+	void animateWithCompute();
+	void computeParticles();
+	void renderNode(vulkr::gltf::Node *node);
+	void dataUpdatePerFrame();
+	void rasterize();
+	void rasterizeGltf();
+	void postProcess();
+	void cleanupSwapchain();
+	void createInstance();
+	void createSurface();
+	void createDevice();
+	void createSwapchain();
+	void createImageResourcesForFrames();
+	void createMainRenderPass();
+	void createPostRenderPass();
+	void createDescriptorSetLayouts();
+	void createMainRasterizationPipeline();
+	void createPbrRasterizationPipeline();
+	void createPostProcessingPipeline();
+	void createModelAnimationComputePipeline();
+	void createParticleCalculateComputePipeline();
+	void createParticleIntegrateComputePipeline();
+	void createFramebuffers();
+	void createCommandPools();
+	void createCommandBuffers();
+	void copyBufferToImage(const Buffer &srcBuffer, const Image &dstImage, uint32_t width, uint32_t height);
+	void createDepthResources();
+	std::unique_ptr<Image> createTextureImage(const std::string &filename); // Reads a texture file and populate the texture image with the contents
+	void createTextureSampler();
+	void loadTextureImages(const std::vector<std::string> &textureFiles);
+	void copyBufferToBuffer(const Buffer &srcBuffer, const Buffer &dstBuffer, VkDeviceSize size);
+	void createVertexBuffer(ObjModelRenderingData &objModelRenderingData, const ObjLoader &objLoader);
+	void createIndexBuffer(ObjModelRenderingData &objModelRenderingData, const ObjLoader &objLoader);
+	void createMaterialBuffer(ObjModelRenderingData &objModelRenderingData, const ObjLoader &objLoader);
+	void createMaterialBuffer(GltfModelRenderingData &gltfModelRenderingData);
+	void createMaterialIndicesBuffer(ObjModelRenderingData &objModelRenderingData, const ObjLoader &objLoader);
+	void createUniformBuffers();
+	void createSSBOs();
+	void prepareParticleData();
+	void createDescriptorPool();
+	void createDescriptorSets();
+	void setupNodeDescriptorSet(vulkr::gltf::Node *node);
+	void createSceneLights();
+	void loadGltfModel(const std::string &gltfFilePath);
+	void loadObjModel(const std::string &objFilePath);
+	void createInstance(const std::string &objFilePath, glm::mat4 transform);
+	void loadModels();
+	uint64_t getObjModelIndex(const std::string &name);
+	void createScene();
+	void createSemaphoreAndFencePools();
+	void setupSynchronizationObjects();
+	void setupTimer();
+	void initializeHaltonSequenceArray();
+	void setupCamera();
+	void initializeImGui();
+	void resetFrameSinceViewChange();
+	void initializeBufferData();
 
-    // Raytracing member variables
-    std::vector<BlasEntry> m_blas; // Vector containing all the BLASes built in buildBlas (and referenced by the TLAS)
-    std::unique_ptr<Tlas> m_tlas; // Top-level acceleration structure
-    std::vector<VkAccelerationStructureInstanceKHR> m_accelerationStructureInstances;
-    std::unique_ptr<Buffer> m_instBuffer; // Instance buffer containing the matrices and BLAS ids
+	// TODO: These methods to allow command pool access for multiple threads are not in use at the moment and will need to be used when expanding multi threading capabilities
+	uint8_t getInitCommandPoolId();
+	void returnInitCommandPool(uint8_t commandPoolId);
 
-    std::unique_ptr<DescriptorPool> m_rtDescPool;
-    std::unique_ptr<DescriptorSetLayout> m_rtDescSetLayout;
+	// Raytracing member variables
+	std::vector<BlasEntry> m_blas; // Vector containing all the BLASes built in buildBlas (and referenced by the TLAS)
+	std::unique_ptr<Tlas> m_tlas; // Top-level acceleration structure
+	std::vector<VkAccelerationStructureInstanceKHR> m_accelerationStructureInstances;
+	std::unique_ptr<Buffer> m_instBuffer; // Instance buffer containing the matrices and BLAS ids
 
-    VkBuildAccelerationStructureFlagsKHR m_buildAccelerationStructureFlags = 0;
-    const VkBufferUsageFlags m_rayTracingBufferUsageFlags = VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+	std::unique_ptr<DescriptorPool> m_rtDescPool;
+	std::unique_ptr<DescriptorSetLayout> m_rtDescSetLayout;
 
-    std::unique_ptr<Buffer> m_rtSBTBuffer; // The raytracing shader binding table
+	VkBuildAccelerationStructureFlagsKHR m_buildAccelerationStructureFlags = 0;
+	const VkBufferUsageFlags m_rayTracingBufferUsageFlags = VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
 
-    // Raytracing helpers
-    VkDeviceAddress getBlasDeviceAddress(uint64_t blasId);
-    BlasInput objectToVkGeometryKHR(size_t objModelIndex);
-    std::unique_ptr<AccelerationStructure> createAccelerationStructure(VkAccelerationStructureCreateInfoKHR &accelerationStructureInfo);
+	std::unique_ptr<Buffer> m_rtSBTBuffer; // The raytracing shader binding table
 
-    // Raytracing core subroutines
-    void buildBlas();
-    void buildTlas(bool update);
+	// Raytracing helpers
+	VkDeviceAddress getBlasDeviceAddress(uint64_t blasId);
+	BlasInput objectToVkGeometryKHR(size_t objModelIndex);
+	std::unique_ptr<AccelerationStructure> createAccelerationStructure(VkAccelerationStructureCreateInfoKHR &accelerationStructureInfo);
 
-    void createRaytracingDescriptorPool();
-    void createRaytracingDescriptorLayout();
-    void createRaytracingDescriptorSets();
+	// Raytracing core subroutines
+	void buildBlas();
+	void buildTlas(bool update);
 
-    void updateRaytracingDescriptorSet();
-    void createRaytracingPipeline();
-    void createRaytracingShaderBindingTable(); // https://www.willusher.io/graphics/2019/11/20/the-sbt-three-ways is a great resource on how the SBT works and how we should be organizing our shaders into primary and occlusion hit groups
+	void createRaytracingDescriptorPool();
+	void createRaytracingDescriptorLayout();
+	void createRaytracingDescriptorSets();
 
-    void raytrace();
+	void updateRaytracingDescriptorSet();
+	void createRaytracingPipeline();
+	void createRaytracingShaderBindingTable(); // https://www.willusher.io/graphics/2019/11/20/the-sbt-three-ways is a great resource on how the SBT works and how we should be organizing our shaders into primary and occlusion hit groups
+
+	void raytrace();
 }; // class VulkrApp
 
 } // namespace vulkr

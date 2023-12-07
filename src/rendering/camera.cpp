@@ -25,8 +25,9 @@
 namespace vulkr
 {
 
-Camera::Camera(int32_t viewportWidth, int32_t viewportHeight) : viewport{glm::vec2(viewportWidth, viewportHeight)}
-{}
+Camera::Camera(int32_t viewportWidth, int32_t viewportHeight) : viewport{ glm::vec2(viewportWidth, viewportHeight) }
+{
+}
 
 glm::vec2 Camera::getViewport() const
 {
@@ -79,7 +80,7 @@ glm::mat4 Camera::getView() const
 }
 
 glm::vec3 Camera::getViewDirection() const
-{ 
+{
 	return -glm::transpose(view)[2];
 }
 

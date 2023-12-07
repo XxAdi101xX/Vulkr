@@ -30,13 +30,13 @@ namespace vulkr
 
 DescriptorPool::DescriptorPool(Device &device, std::vector<VkDescriptorPoolSize> &poolSizes, uint32_t maxSets, VkDescriptorPoolCreateFlags flags) : device{ device }
 {
-    VkDescriptorPoolCreateInfo poolInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
-    poolInfo.poolSizeCount = to_u32(poolSizes.size());
-    poolInfo.pPoolSizes = poolSizes.data();
-    poolInfo.maxSets = maxSets;
-    poolInfo.flags = flags;
+	VkDescriptorPoolCreateInfo poolInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
+	poolInfo.poolSizeCount = to_u32(poolSizes.size());
+	poolInfo.pPoolSizes = poolSizes.data();
+	poolInfo.maxSets = maxSets;
+	poolInfo.flags = flags;
 
-    VK_CHECK(vkCreateDescriptorPool(device.getHandle(), &poolInfo, nullptr, &handle));
+	VK_CHECK(vkCreateDescriptorPool(device.getHandle(), &poolInfo, nullptr, &handle));
 }
 
 DescriptorPool::~DescriptorPool()
@@ -46,7 +46,7 @@ DescriptorPool::~DescriptorPool()
 
 VkDescriptorPool DescriptorPool::getHandle() const
 {
-    return handle;
+	return handle;
 }
 
 } // namespace vulkr

@@ -93,7 +93,7 @@ void cursorPositionCallback(GLFWwindow *window, double xPos, double yPos)
 			MouseAction::Move,
 			xPos,
 			yPos
-		});
+			});
 	}
 }
 
@@ -114,7 +114,7 @@ void mouseButtonCallback(GLFWwindow *window, int button, int action, int /*mods*
 		mouseAction = mouseActionIt->second;
 	}
 
-	if (Window *windowClassHandle = reinterpret_cast<Window*>(glfwGetWindowUserPointer(window)))
+	if (Window *windowClassHandle = reinterpret_cast<Window *>(glfwGetWindowUserPointer(window)))
 	{
 		const Platform &platform = windowClassHandle->getPlatform();
 		double xPos, yPos;
@@ -125,7 +125,7 @@ void mouseButtonCallback(GLFWwindow *window, int button, int action, int /*mods*
 			mouseAction,
 			xPos,
 			yPos
-		});
+			});
 	}
 }
 
@@ -142,7 +142,7 @@ void scrollCallback(GLFWwindow *window, double xoffset, double yoffset)
 			mouseAction,
 			xoffset,
 			yoffset
-		});
+			});
 	}
 }
 
@@ -160,7 +160,8 @@ Window::Window(Platform &platform, const std::string &applicationName) : platfor
 	glfwWindowHint(GLFW_RESIZABLE, GL_FALSE);
 
 	handle = glfwCreateWindow(WIDTH, HEIGHT, applicationName.c_str(), nullptr, nullptr);
-	if (handle == VK_NULL_HANDLE) {
+	if (handle == VK_NULL_HANDLE)
+	{
 		LOGEANDABORT("glfwCreateWindow has failed to create a window");
 	}
 
@@ -192,7 +193,8 @@ Window::~Window()
 
 void Window::createSurface(VkInstance instance)
 {
-	if (surface != VK_NULL_HANDLE) {
+	if (surface != VK_NULL_HANDLE)
+	{
 		LOGEANDABORT("createSurface was called more than once")
 	}
 	this->instance = instance;

@@ -24,7 +24,7 @@
 
 #include "vulkan_common.h"
 
-/* Set the object name for a specified object type; used for easier debugging */
+ /* Set the object name for a specified object type; used for easier debugging */
 void setDebugUtilsObjectName(VkDevice device, const uint64_t object, const std::string &name, VkObjectType t);
 
 /* Overloading the setDebugUtilsObjectName to pass in the VkObjectType based on the object type passed in */

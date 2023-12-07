@@ -55,22 +55,22 @@ void setDebugUtilsObjectName(VkDevice device, VkAccelerationStructureKHR object,
 void debugUtilBeginLabel(VkCommandBuffer commandBuffer, const std::string &label)
 {
 #ifdef VULKR_DEBUG
-    VkDebugUtilsLabelEXT debugUtilsLabel{ VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT, nullptr, label.c_str(), {1.0f, 1.0f, 1.0f, 1.0f} };
-    vkCmdBeginDebugUtilsLabelEXT(commandBuffer, &debugUtilsLabel);
+	VkDebugUtilsLabelEXT debugUtilsLabel{ VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT, nullptr, label.c_str(), {1.0f, 1.0f, 1.0f, 1.0f} };
+	vkCmdBeginDebugUtilsLabelEXT(commandBuffer, &debugUtilsLabel);
 #endif
 }
 
 void debugUtilEndLabel(VkCommandBuffer commandBuffer)
 {
 #ifdef VULKR_DEBUG
-    vkCmdEndDebugUtilsLabelEXT(commandBuffer);
+	vkCmdEndDebugUtilsLabelEXT(commandBuffer);
 #endif
 }
 
 void debugUtilInsertLabel(VkCommandBuffer commandBuffer, const std::string &label)
 {
 #ifdef VULKR_DEBUG
-    VkDebugUtilsLabelEXT debugUtilsLabel{ VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT, nullptr, label.c_str(), {1.0f, 1.0f, 1.0f, 1.0f} };
-    vkCmdInsertDebugUtilsLabelEXT(commandBuffer, &debugUtilsLabel);
+	VkDebugUtilsLabelEXT debugUtilsLabel{ VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT, nullptr, label.c_str(), {1.0f, 1.0f, 1.0f, 1.0f} };
+	vkCmdInsertDebugUtilsLabelEXT(commandBuffer, &debugUtilsLabel);
 #endif
 }

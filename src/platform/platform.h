@@ -27,7 +27,8 @@
 #include "window.h"
 #include "application.h"
 
-namespace vulkr {
+namespace vulkr
+{
 
 class InputEvent;
 

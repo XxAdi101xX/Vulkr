@@ -33,7 +33,7 @@ class Queue;
 class Device
 {
 public:
-	Device(std::unique_ptr<PhysicalDevice> &&physicalDevice, VkSurfaceKHR surface, const std::vector<const char*> requestedExtensions = {});
+	Device(std::unique_ptr<PhysicalDevice> &&physicalDevice, VkSurfaceKHR surface, const std::vector<const char *> requestedExtensions = {});
 	~Device();
 
 	Device(const Device &) = delete;
@@ -67,7 +67,7 @@ public:
 private:
 	/* The logical device handle */
 	VkDevice handle{ VK_NULL_HANDLE };
-	
+
 	/* The gpu used */
 	std::unique_ptr<PhysicalDevice> physicalDevice;
 
@@ -75,7 +75,7 @@ private:
 	std::vector<VkExtensionProperties> deviceExtensions;
 
 	/* The extensions that we specifically want to use */
-	std::vector<const char*> enabledExtensions;
+	std::vector<const char *> enabledExtensions;
 
 	/* All the queues available on our gpu */
 	std::vector<std::vector<Queue>> queues;
@@ -84,7 +84,7 @@ private:
 	bool isExtensionSupported(const char *extension) const;
 
 	/* Check if an extension is enabled */
-	bool isExtensionEnabled(const char* extension) const;
+	bool isExtensionEnabled(const char *extension) const;
 
 	/* The memory allocator */
 	VmaAllocator memoryAllocator{ VK_NULL_HANDLE };

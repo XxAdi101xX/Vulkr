@@ -50,7 +50,7 @@ private:
 	std::shared_ptr<Camera> camera;
 	MouseInput activeMouseInput{ MouseInput::None };
 	glm::vec2 lastMousePosition{ glm::vec2(0.0f) };
-	
+
 	void handleMouseButtonClick(const MouseInputEvent &mouseInputEvent);
 	void handleMouseScroll(const MouseInputEvent &mouseInputEvent);
 	void handleCursorPositionChange(const MouseInputEvent &mouseInputEvent);

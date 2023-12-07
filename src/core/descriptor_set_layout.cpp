@@ -30,7 +30,7 @@ namespace vulkr
 
 DescriptorSetLayout::DescriptorSetLayout(Device &device, const std::vector<VkDescriptorSetLayoutBinding> bindings) :
 	device{ device },
-	bindings{ std::move(bindings)}
+	bindings{ std::move(bindings) }
 {
 	VkDescriptorSetLayoutCreateInfo descriptorSetLayoutInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
 	descriptorSetLayoutInfo.bindingCount = to_u32(this->bindings.size());

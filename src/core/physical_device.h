@@ -34,7 +34,7 @@ class Instance;
 class PhysicalDevice
 {
 public:
-	PhysicalDevice(Instance& instance, VkPhysicalDevice physicalDevice);
+	PhysicalDevice(Instance &instance, VkPhysicalDevice physicalDevice);
 	~PhysicalDevice() = default;
 
 	PhysicalDevice(const PhysicalDevice &) = delete;
@@ -65,7 +65,7 @@ public:
 
 	/* Get the acceleration structure properties for the physical device */
 	const VkPhysicalDeviceAccelerationStructurePropertiesKHR &getAccelerationStructureProperties() const;
-	
+
 	/* Get the acceleration structure features for the physical device */
 	const VkPhysicalDeviceAccelerationStructureFeaturesKHR &getAccelerationStructureFeatures() const;
 
@@ -104,7 +104,7 @@ private:
 
 	/* The GPU properties */
 	VkPhysicalDeviceProperties properties;
-	
+
 	/* The GPU ray tracing pipeline properties */
 	VkPhysicalDeviceRayTracingPipelinePropertiesKHR  rayTracingPipelineProperties{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_PROPERTIES_KHR };
 
@@ -113,7 +113,7 @@ private:
 
 	/* The GPU acceleration structure properties */
 	VkPhysicalDeviceAccelerationStructurePropertiesKHR accelerationStructureProperties{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR };
-	
+
 	/* The GPU acceleration structure features */
 	VkPhysicalDeviceAccelerationStructureFeaturesKHR accelerationStructureFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR };
 
