@@ -142,7 +142,7 @@ void main()
             }
         }
 
-        outputColor += vec3(lightIntensity * attenuation * (diffuse + specular));
+        outputColor += vec3(lightIntensity * lightBuffer.lights[lightIndex].color * attenuation * (diffuse + specular));
     }
 
     payload.hitValue = outputColor;

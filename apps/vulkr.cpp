@@ -822,15 +822,15 @@ void VulkrApp::drawImGuiInterface()
 				if (ImGui::CollapsingHeader(oss.str().c_str()))
 				{
 					oss.str(""); oss << "Point" << "##" << lightIndex;
-					changed |= ImGui::RadioButton(oss.str().c_str(), &sceneLights[lightIndex].lightType, 0);
+					changed |= ImGui::RadioButton(oss.str().c_str(), &sceneLights[lightIndex].type, 0);
 					ImGui::SameLine();
 					oss.str(""); oss << "Directional" << "##" << lightIndex;
-					changed |= ImGui::RadioButton(oss.str().c_str(), &sceneLights[lightIndex].lightType, 1);
+					changed |= ImGui::RadioButton(oss.str().c_str(), &sceneLights[lightIndex].type, 1);
 
 					oss.str(""); oss << "Position" << "##" << lightIndex;
-					changed |= ImGui::SliderFloat3(oss.str().c_str(), &(sceneLights[lightIndex].lightPosition.x), -50.f, 50.f);
+					changed |= ImGui::SliderFloat3(oss.str().c_str(), &(sceneLights[lightIndex].position.x), -50.f, 50.f);
 					oss.str(""); oss << "Intensity" << "##" << lightIndex;
-					changed |= ImGui::SliderFloat(oss.str().c_str(), &sceneLights[lightIndex].lightIntensity, 0.f, 250.f);
+					changed |= ImGui::SliderFloat(oss.str().c_str(), &sceneLights[lightIndex].intensity, 0.f, 250.f);
 				}
 			}
 
@@ -3397,7 +3397,8 @@ void VulkrApp::createSceneLights()
 {
 	LightData l1;
 	LightData l2;
-	l2.lightPosition = glm::vec3(10.0f, 5.0f, -20.0f);
+	l2.position = glm::vec3(2.5f, 3.5f, -3.0f);
+	l2.color = glm::vec3(1.0f, 1.0f, 0.0f);
 	sceneLights.emplace_back(std::move(l1));
 	sceneLights.emplace_back(std::move(l2));
 

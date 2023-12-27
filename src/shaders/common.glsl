@@ -44,6 +44,7 @@ struct LightData
 {
     vec3 lightPosition;
     float lightIntensity;
+    vec3 color;
     int lightType; // 0: point, 1: directional (infinite)
 };
 

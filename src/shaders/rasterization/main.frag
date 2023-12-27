@@ -85,7 +85,7 @@ void main() {
         vec3 specular = computeSpecular(mat, viewDir, L, N);
 
         // Result
-        outputValue += vec3(lightIntensity * (diffuse + specular));
+        outputValue += vec3(lightIntensity * lightBuffer.lights[lightIndex].color * (diffuse + specular));
     }
     outColor = vec4(outputValue, 1);
     outColorCopy = vec4(outputValue, 1);

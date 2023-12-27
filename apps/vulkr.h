@@ -162,9 +162,10 @@ struct Particle
 
 struct LightData
 {
-	alignas(16) glm::vec3 lightPosition{ 10.0f, 4.3f, 7.1f };
-	alignas(4) float lightIntensity{ 140.0f };
-	alignas(4) int lightType{ 0 }; // 0: point, 1: directional (infinite)
+	glm::vec3 position{ 10.0f, 4.3f, 7.1f };
+	float intensity{ 140.0f };
+	glm::vec3 color{ 1.0f, 1.0f, 1.0f };
+	int type{ 0 }; // 0: point, 1: directional (infinite)
 	// TODO: to support area lights, look into vector irradiance (Real time rendering page 379) where you can integrate over the various light vectors that an area light emits and convert it into a directional light source  without introducing any errors
 };
 
