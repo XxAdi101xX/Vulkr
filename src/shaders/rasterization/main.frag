@@ -59,17 +59,23 @@ void main() {
     float lightIntensity;
     for (int lightIndex = 0; lightIndex < pushConstant.lightCount; ++lightIndex)
     {
-        lightIntensity = lightBuffer.lights[lightIndex].lightIntensity;
-        if (lightBuffer.lights[lightIndex].lightType == 0)
+        lightIntensity = lightBuffer.lights[lightIndex].intensity;
+        if (lightBuffer.lights[lightIndex].type == 0)
         {
-            vec3  lDir     = lightBuffer.lights[lightIndex].lightPosition - worldPos;
-            float d        = length(lDir);
-            lightIntensity = lightBuffer.lights[lightIndex].lightIntensity / (d * d);
-            L              = normalize(lDir);
+            vec3  lightDir     = lightBuffer.lights[lightIndex].position - worldPos;
+            float d        = length(lightDir);
+            lightIntensity = lightBuffer.lights[lightIndex].intensity / (d * d);
+            L              = normalize(lightDir);
         }
-        else
-        {
-            L = normalize(lightBuffer.lights[lightIndex].lightPosition - vec3(0));
+        else if (lightBuffer.lights[lightIndex].type == 1)
+        {   
+            vec3 lightDir = vec3(
+		        sin(radians(lightBuffer.lights[lightIndex].rotation.x)) * cos(radians(lightBuffer.lights[lightIndex].rotation.y)),
+		        sin(radians(lightBuffer.lights[lightIndex].rotation.y)),
+		        cos(radians(lightBuffer.lights[lightIndex].rotation.x)) * cos(radians(lightBuffer.lights[lightIndex].rotation.y))
+	        );
+            L = normalize(lightDir);
+            lightIntensity *= 0.01;
         }
 
         // Diffuse

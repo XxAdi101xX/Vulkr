@@ -42,10 +42,12 @@ struct Particle
 
 struct LightData
 {
-    vec3 lightPosition;
-    float lightIntensity;
+    vec3 position; // used for point light calculation
+    float intensity;
     vec3 color;
-    int lightType; // 0: point, 1: directional (infinite)
+    int type; // 0: point, 1: directional (infinite)
+    vec2 rotation; // Used for directional lights; represents horizontal (azimuth) and vertical (elevation) rotation
+    vec2 blank; // padding
 };
 
 vec3 computeDiffuse(WaveFrontMaterial mat, vec3 lightDir, vec3 normal)

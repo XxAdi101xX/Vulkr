@@ -75,19 +75,25 @@ void main()
     for (int lightIndex = 0; lightIndex < pushConstant.lightCount; ++lightIndex)
     {
     
-        lightIntensity = lightBuffer.lights[lightIndex].lightIntensity;
+        lightIntensity = lightBuffer.lights[lightIndex].intensity;
 
         // Point light
-        if (lightBuffer.lights[lightIndex].lightType == 0)
+        if (lightBuffer.lights[lightIndex].type == 0)
         {
-            vec3 lDir      = lightBuffer.lights[lightIndex].lightPosition - worldPos;
-            lightDistance  = length(lDir);
-            lightIntensity = lightBuffer.lights[lightIndex].lightIntensity / (lightDistance * lightDistance);
-            L              = normalize(lDir);
+            vec3 lightDir  = lightBuffer.lights[lightIndex].position - worldPos;
+            lightDistance  = length(lightDir);
+            lightIntensity = lightBuffer.lights[lightIndex].intensity / (lightDistance * lightDistance);
+            L              = normalize(lightDir);
         }
-        else // Directional light
+        else if (lightBuffer.lights[lightIndex].type == 1) // Directional light
         {
-            L = normalize(lightBuffer.lights[lightIndex].lightPosition - vec3(0));
+            vec3 lightDir = vec3(
+		        sin(radians(lightBuffer.lights[lightIndex].rotation.x)) * cos(radians(lightBuffer.lights[lightIndex].rotation.y)),
+		        sin(radians(lightBuffer.lights[lightIndex].rotation.y)),
+		        cos(radians(lightBuffer.lights[lightIndex].rotation.x)) * cos(radians(lightBuffer.lights[lightIndex].rotation.y))
+	        );
+            L = normalize(lightDir);
+            lightIntensity *= 0.01;
         }
 
 

@@ -162,10 +162,12 @@ struct Particle
 
 struct LightData
 {
-	glm::vec3 position{ 10.0f, 4.3f, 7.1f };
-	float intensity{ 140.0f };
+	glm::vec3 position{ 10.0f, 4.3f, 7.1f }; // Used for point lights
+	float intensity{ 35.0f };
 	glm::vec3 color{ 1.0f, 1.0f, 1.0f };
 	int type{ 0 }; // 0: point, 1: directional (infinite)
+	glm::vec2 rotation{ 75.0f, 40.0f }; // Used for directional lights; represents horizontal (azimuth) and vertical (elevation) rotation
+	glm::vec2 blank{ 0.0, 0.0 }; // padding
 	// TODO: to support area lights, look into vector irradiance (Real time rendering page 379) where you can integrate over the various light vectors that an area light emits and convert it into a directional light source  without introducing any errors
 };
 
@@ -212,6 +214,7 @@ struct GltfPushConstant
 {
 	glm::vec3 cameraPos;
 	int materialIndex{ 0 };
+	int lightCount{ 0 };
 } gltfPushConstant;
 
 /* CPU only structs */

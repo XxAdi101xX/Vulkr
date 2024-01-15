@@ -831,6 +831,8 @@ void VulkrApp::drawImGuiInterface()
 					changed |= ImGui::SliderFloat3(oss.str().c_str(), &(sceneLights[lightIndex].position.x), -50.f, 50.f);
 					oss.str(""); oss << "Intensity" << "##" << lightIndex;
 					changed |= ImGui::SliderFloat(oss.str().c_str(), &sceneLights[lightIndex].intensity, 0.f, 250.f);
+					oss.str(""); oss << "Rotation" << "##" << lightIndex;
+					changed |= ImGui::SliderFloat2(oss.str().c_str(), &(sceneLights[lightIndex].rotation.x), 0.0f, 360.0f);
 				}
 			}
 
@@ -1032,6 +1034,7 @@ void VulkrApp::renderNode(vulkr::gltf::Node *node)
 			// Pass material index for this primitive using a push constant, the shader uses this to index into the material buffer
 			gltfPushConstant.cameraPos = cameraController->getCamera()->getPosition();
 			gltfPushConstant.materialIndex = primitive->material.index;
+			gltfPushConstant.lightCount = static_cast<int>(sceneLights.size());;
 
 			vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GltfPushConstant), &gltfPushConstant);
 
@@ -3396,9 +3399,11 @@ void VulkrApp::createInstance(const std::string &objFilePath, glm::mat4 transfor
 void VulkrApp::createSceneLights()
 {
 	LightData l1;
+	l1.rotation = glm::vec2(75.0f, 40.0f);
 	LightData l2;
 	l2.position = glm::vec3(2.5f, 3.5f, -3.0f);
 	l2.color = glm::vec3(1.0f, 1.0f, 0.0f);
+	l2.rotation = glm::vec2(160.0f, 40.0f);
 	sceneLights.emplace_back(std::move(l1));
 	sceneLights.emplace_back(std::move(l2));
 
