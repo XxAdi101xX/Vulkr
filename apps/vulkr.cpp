@@ -286,7 +286,7 @@ void VulkrApp::prepare()
 	createDescriptorPool();
 	createDescriptorSets();
 	setupCamera();
-	createScene();
+	createSceneInstances();
 	createSceneLights();
 
 #ifndef RENDERDOC_DEBUG
@@ -420,7 +420,7 @@ void VulkrApp::update()
 		vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame][0]->getHandle(), &dependencyInfo);
 
 		frameData.commandBuffers[currentFrame][0]->beginRenderPass(*mainRenderPass.renderPass, *(frameData.offscreenFramebuffers[currentFrame]), swapchain->getProperties().imageExtent, offscreenFramebufferClearValues, VK_SUBPASS_CONTENTS_INLINE);
-		rasterize();
+		rasterizeObj();
 		rasterizeGltf();
 		frameData.commandBuffers[currentFrame][0]->endRenderPass();
 	}
@@ -740,7 +740,7 @@ void VulkrApp::recreateSwapchain()
 #ifndef RENDERDOC_DEBUG
 	updateRaytracingDescriptorSet();
 #endif
-	createScene();
+	createSceneInstances();
 
 	imagesInFlight.resize(swapchain->getImages().size(), VK_NULL_HANDLE);
 }
@@ -1179,7 +1179,7 @@ void VulkrApp::dataUpdatePerFrame()
 
 // TODO: as opposed to doing slot based binding of descriptor sets which leads to multiple vkCmdBindDescriptorSets calls per drawcall, you can use
 // frequency based descriptor sets and use dynamicOffsetCount: see https://zeux.io/2020/02/27/writing-an-efficient-vulkan-renderer/, or just bindless decriptors altogether
-void VulkrApp::rasterize()
+void VulkrApp::rasterizeObj()
 {
 	debugUtilBeginLabel(frameData.commandBuffers[currentFrame][0]->getHandle(), "Rasterize");
 
@@ -3372,7 +3372,7 @@ void VulkrApp::loadGltfModel(const std::string &gltfFilePath)
 	gltfModelsToRender.push_back(std::move(gltfModelRenderingData));
 }
 
-void VulkrApp::createInstance(const std::string &objFilePath, glm::mat4 transform)
+void VulkrApp::createObjInstance(const std::string &objFilePath, glm::mat4 transform)
 {
 	uint64_t objModelIndex = getObjModelIndex(objFilePath);
 	ObjModelRenderingData &objModelRenderingData = objModelsToRender[objModelIndex];
@@ -3407,65 +3407,79 @@ void VulkrApp::createSceneLights()
 	sceneLights.emplace_back(std::move(l1));
 	sceneLights.emplace_back(std::move(l2));
 
+	if (sceneLights.size() > maxLightCount)
+	{
+		LOGEANDABORT("Lights in the scene exceed the maxLightCount of {}", maxLightCount);
+	}
+
 	rasterizationPushConstant.lightCount = static_cast<int>(sceneLights.size());
 	raytracingPushConstant.lightCount = static_cast<int>(sceneLights.size());
 }
 
 void VulkrApp::loadModels()
 {
-	const std::array<std::string, 5> modelFiles{
+	const std::array<std::string, 4> objModelFiles{
 		"plane.obj",
 		"Medieval_building.obj",
 		"wuson.obj",
-		"cube.obj",
-		"DamagedHelmet.gltf"
+		"cube.obj"
 		//"monkey_smooth.obj",
 		//"lost_empire.obj",
 	};
 
-	// Validate that models are only to be loaded in once
-	std::set<std::string> existingModels;
-	for (int i = 0; i < modelFiles.size(); ++i)
-	{
-		if (existingModels.count(modelFiles[i]) != 0)
-		{
-			LOGEANDABORT("Duplicate models can not be loaded!");
-		}
-		existingModels.insert(modelFiles[i]);
-	}
+	const std::array<std::string, 1> gltfModelFiles{
+		"DamagedHelmet.gltf"
+		//"kitchen_room_interior.glb" // TODO gltf binary files are not working for some reason, need to investigate
+	};
 
-#ifdef MULTI_THREAD
-	std::vector<std::thread> modelLoadThreads;
-#endif
-	for (const std::string &modelFile : modelFiles)
+	// Load obj files
+	std::set<std::string> existingModels;
+	for (const std::string &objModelFile : objModelFiles)
 	{
-#ifdef MULTI_THREAD
-		modelLoadThreads.push_back(std::thread(&VulkrApp::loadModel, this, modelFile));
-#else
-		std::string filePath = defaultModelFilePath + modelFile;
+		std::string filePath = defaultModelFilePath + objModelFile;
 		std::ifstream file(filePath);
 		if (!file.good())
 		{
-			LOGE("{} does not exist!", modelFile);
+			LOGE("{} does not exist!", objModelFile);
 			std::abort();
 		}
 
-		if (modelFile.find(".obj") != std::string::npos)
+		if (existingModels.count(objModelFile) != 0)
 		{
-			loadObjModel(filePath);
-		}
-		else if (modelFile.find(".gltf") != std::string::npos)
-		{
-			loadGltfModel(filePath);
+			LOGW("Duplicate obj models can not be loaded!");
 		}
 		else
 		{
-			LOGEANDABORT("Unknown model file type!")
+			existingModels.insert(objModelFile);
+			loadObjModel(filePath);
 		}
-#endif
+	}
+
+	// Load gltf files
+	existingModels.clear();
+	for (const std::string &gltfModelFile : gltfModelFiles)
+	{
+		std::string filePath = defaultModelFilePath + gltfModelFile;
+		std::ifstream file(filePath);
+		if (!file.good())
+		{
+			LOGE("{} does not exist!", gltfModelFile);
+			std::abort();
+		}
+
+		if (existingModels.count(gltfModelFile) != 0)
+		{
+			LOGW("Duplicate gltf models can not be loaded!");
+		}
+		else
+		{
+			existingModels.insert(gltfModelFile);
+			loadGltfModel(filePath);
+		}
 	}
 
 #ifdef MULTI_THREAD
+	// TODO: we need to set up separate threads to load the obj and gltf files above (eg. modelLoadThreads.push_back(std::thread(&VulkrApp::loadModel, this, modelFile)) and then run threads.join 
 	for (auto &threads : modelLoadThreads)
 	{
 		threads.join();
@@ -3473,7 +3487,7 @@ void VulkrApp::loadModels()
 #endif
 }
 
-void VulkrApp::createScene()
+void VulkrApp::createSceneInstances()
 {
 	if (maxInstanceCount > device->getPhysicalDevice().getAccelerationStructureProperties().maxInstanceCount)
 	{
@@ -3481,26 +3495,26 @@ void VulkrApp::createScene()
 	}
 
 	// The sphere instance index is hardcoded in the animate.comp file, so when you add or remove an instance, that must be updated
-	createInstance(defaultModelFilePath + "plane.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(0, 0, 0)));
-	createInstance(defaultModelFilePath + "Medieval_building.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ 5, 0,0 }));
+	createObjInstance(defaultModelFilePath + "plane.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(0, 0, 0)));
+	createObjInstance(defaultModelFilePath + "Medieval_building.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ 5, 0,0 }));
 	// All wuson instances are assumed to be one after another for the transformation matrix calculations
-	createInstance(defaultModelFilePath + "wuson.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 3)));
-	createInstance(defaultModelFilePath + "wuson.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 7)));
-	createInstance(defaultModelFilePath + "wuson.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 10)));
-	createInstance(defaultModelFilePath + "Medieval_building.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ 15, 0,0 }));
-	//createInstance(defaultModelFilePath +"monkey_smooth.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 3)));
-	//createInstance(defaultModelFilePath +"lost_empire.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ 5,-10,0 }));
+	createObjInstance(defaultModelFilePath + "wuson.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 3)));
+	createObjInstance(defaultModelFilePath + "wuson.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 7)));
+	createObjInstance(defaultModelFilePath + "wuson.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 10)));
+	createObjInstance(defaultModelFilePath + "Medieval_building.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ 15, 0,0 }));
+	//createObjInstance(defaultModelFilePath +"monkey_smooth.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 3)));
+	//createObjInstance(defaultModelFilePath +"lost_empire.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ 5,-10,0 }));
 
 	// ALl particle instances are assumed to be grouped together
 	computeParticlesPushConstant.startingIndex = static_cast<int>(objInstances.size());
 	for (int i = 0; i < computeParticlesPushConstant.particleCount; ++i)
 	{
-		createInstance(defaultModelFilePath + "cube.obj", glm::translate(glm::scale(glm::mat4{ 1.0 }, glm::vec3(0.2f, 0.2f, 0.2f)), glm::vec3(allParticleData[i].position.xyz)));
+		createObjInstance(defaultModelFilePath + "cube.obj", glm::translate(glm::scale(glm::mat4{ 1.0 }, glm::vec3(0.2f, 0.2f, 0.2f)), glm::vec3(allParticleData[i].position.xyz)));
 	}
 
 	if (objInstances.size() > maxInstanceCount)
 	{
-		LOGEANDABORT("There are more instances than maxInstanceCount. You need to increase this value to support more instances");
+		LOGEANDABORT("There are more obj instances than maxInstanceCount. You need to increase this value to support more instances");
 	}
 }
 

@@ -14,7 +14,7 @@
 
 #include "../common.glsl"
 
-layout(constant_id = 0) const uint maxLightCount = 10000;
+layout(constant_id = 0) const uint maxLightCount = 100;
 
 layout (location = 0) in vec3 inWorldPos;
 layout (location = 1) in vec3 inNormal;

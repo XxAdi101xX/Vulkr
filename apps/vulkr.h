@@ -487,7 +487,7 @@ private:
 	void computeParticles();
 	void renderNode(vulkr::gltf::Node *node);
 	void dataUpdatePerFrame();
-	void rasterize();
+	void rasterizeObj();
 	void rasterizeGltf();
 	void postProcess();
 	void cleanupSwapchain();
@@ -528,10 +528,10 @@ private:
 	void createSceneLights();
 	void loadGltfModel(const std::string &gltfFilePath);
 	void loadObjModel(const std::string &objFilePath);
-	void createInstance(const std::string &objFilePath, glm::mat4 transform);
+	void createObjInstance(const std::string &objFilePath, glm::mat4 transform);
 	void loadModels();
 	uint64_t getObjModelIndex(const std::string &name);
-	void createScene();
+	void createSceneInstances();
 	void createSemaphoreAndFencePools();
 	void setupSynchronizationObjects();
 	void setupTimer();
