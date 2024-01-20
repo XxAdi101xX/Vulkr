@@ -857,7 +857,7 @@ void VulkrApp::animateInstances()
 {
 	const uint64_t startingIndex{ 2 };
 	const int64_t wusonInstanceCount{
-		std::count_if(objInstances.begin(), objInstances.end(), [this](ObjInstance i) { return i.objIndex == getObjModelIndex(defaultModelFilePath + "wuson.obj"); })
+		std::count_if(objInstances.begin(), objInstances.end(), [this](ObjInstance i) { return i.objIndex == getObjModelIndex(defaultObjModelFilePath + "wuson.obj"); })
 	};
 	if (wusonInstanceCount == 0)
 	{
@@ -891,7 +891,7 @@ void VulkrApp::animateInstances()
 void VulkrApp::animateWithCompute()
 {
 	// TODO: we might require a buffer memory barrier similar to the code in the other compute workflows
-	const uint64_t wusonModelIndex{ getObjModelIndex(defaultModelFilePath + "wuson.obj") };
+	const uint64_t wusonModelIndex{ getObjModelIndex(defaultObjModelFilePath + "wuson.obj") };
 
 	computePushConstant.indexCount = objModelsToRender[wusonModelIndex].indicesCount;
 	computePushConstant.time = std::chrono::duration<float, std::chrono::seconds::period>(drawingTimer->elapsed()).count();
@@ -3399,9 +3399,10 @@ void VulkrApp::createObjInstance(const std::string &objFilePath, glm::mat4 trans
 void VulkrApp::createSceneLights()
 {
 	LightData l1;
+	l1.position = glm::vec3(-1.5f, 4.0f, 0.0f);
 	l1.rotation = glm::vec2(75.0f, 40.0f);
 	LightData l2;
-	l2.position = glm::vec3(2.5f, 3.5f, -3.0f);
+	l2.position = glm::vec3(11.5f, 3.5f, 1.5f);
 	l2.color = glm::vec3(1.0f, 1.0f, 0.0f);
 	l2.rotation = glm::vec2(160.0f, 40.0f);
 	sceneLights.emplace_back(std::move(l1));
@@ -3427,16 +3428,18 @@ void VulkrApp::loadModels()
 		//"lost_empire.obj",
 	};
 
+	// TODO: some glTF files (maybe with skinning and rigging?) are deformed, this needs to be investigated
 	const std::array<std::string, 1> gltfModelFiles{
-		"DamagedHelmet.gltf"
-		//"kitchen_room_interior.glb" // TODO gltf binary files are not working for some reason, need to investigate
+		//"DamagedHelmet.gltf"
+		//"CesiumMan.glb",
+		"ClearcoatWicker.glb"
 	};
 
 	// Load obj files
 	std::set<std::string> existingModels;
 	for (const std::string &objModelFile : objModelFiles)
 	{
-		std::string filePath = defaultModelFilePath + objModelFile;
+		std::string filePath = defaultObjModelFilePath + objModelFile;
 		std::ifstream file(filePath);
 		if (!file.good())
 		{
@@ -3459,7 +3462,7 @@ void VulkrApp::loadModels()
 	existingModels.clear();
 	for (const std::string &gltfModelFile : gltfModelFiles)
 	{
-		std::string filePath = defaultModelFilePath + gltfModelFile;
+		std::string filePath = defaultGltfModelFilePath + gltfModelFile;
 		std::ifstream file(filePath);
 		if (!file.good())
 		{
@@ -3495,21 +3498,21 @@ void VulkrApp::createSceneInstances()
 	}
 
 	// The sphere instance index is hardcoded in the animate.comp file, so when you add or remove an instance, that must be updated
-	createObjInstance(defaultModelFilePath + "plane.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(0, 0, 0)));
-	createObjInstance(defaultModelFilePath + "Medieval_building.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ 5, 0,0 }));
+	createObjInstance(defaultObjModelFilePath + "plane.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(0, 0, 0)));
+	createObjInstance(defaultObjModelFilePath + "Medieval_building.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ 5, 0,0 }));
 	// All wuson instances are assumed to be one after another for the transformation matrix calculations
-	createObjInstance(defaultModelFilePath + "wuson.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 3)));
-	createObjInstance(defaultModelFilePath + "wuson.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 7)));
-	createObjInstance(defaultModelFilePath + "wuson.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 10)));
-	createObjInstance(defaultModelFilePath + "Medieval_building.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ 15, 0,0 }));
-	//createObjInstance(defaultModelFilePath +"monkey_smooth.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 3)));
-	//createObjInstance(defaultModelFilePath +"lost_empire.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ 5,-10,0 }));
+	createObjInstance(defaultObjModelFilePath + "wuson.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 3)));
+	createObjInstance(defaultObjModelFilePath + "wuson.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 7)));
+	createObjInstance(defaultObjModelFilePath + "wuson.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 10)));
+	createObjInstance(defaultObjModelFilePath + "Medieval_building.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ 15, 0,0 }));
+	//createObjInstance(defaultObjModelFilePath +"monkey_smooth.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 3)));
+	//createObjInstance(defaultObjModelFilePath +"lost_empire.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ 5,-10,0 }));
 
 	// ALl particle instances are assumed to be grouped together
 	computeParticlesPushConstant.startingIndex = static_cast<int>(objInstances.size());
 	for (int i = 0; i < computeParticlesPushConstant.particleCount; ++i)
 	{
-		createObjInstance(defaultModelFilePath + "cube.obj", glm::translate(glm::scale(glm::mat4{ 1.0 }, glm::vec3(0.2f, 0.2f, 0.2f)), glm::vec3(allParticleData[i].position.xyz)));
+		createObjInstance(defaultObjModelFilePath + "cube.obj", glm::translate(glm::scale(glm::mat4{ 1.0 }, glm::vec3(0.2f, 0.2f, 0.2f)), glm::vec3(allParticleData[i].position.xyz)));
 	}
 
 	if (objInstances.size() > maxInstanceCount)

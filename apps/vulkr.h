@@ -111,7 +111,8 @@ constexpr std::array<glm::vec3, 6> attractors = {
 	glm::vec3(0.0f, -8.0f, 0.0f),
 };
 
-const std::string defaultModelFilePath = "../../assets/models/";
+const std::string defaultObjModelFilePath = "../../assets/obj_models/";
+const std::string defaultGltfModelFilePath = "../../assets/gltf_models/";
 
 // #define MULTI_THREAD // TODO: enabling multi-threaded loading tentatively works with rasterization but fails for the raytracing pipeline during the buildTlas second call; still a WIP
 bool raytracingEnabled{ false }; // Flag to enable ray tracing vs rasterization
