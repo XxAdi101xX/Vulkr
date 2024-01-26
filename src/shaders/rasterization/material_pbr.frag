@@ -75,28 +75,9 @@ layout (set = 1, binding = 3) uniform sampler2D aoMap;
 layout (set = 1, binding = 4) uniform sampler2D emissiveMap;
 
 // Properties
-
-struct ShaderMaterial {
-	vec4 baseColorFactor;
-	vec4 emissiveFactor;
-	vec4 diffuseFactor;
-	vec4 specularFactor;
-	float workflow;
-	int baseColorTextureSet;
-	int physicalDescriptorTextureSet;
-	int normalTextureSet;	
-	int occlusionTextureSet;
-	int emissiveTextureSet;
-	float metallicFactor;	
-	float roughnessFactor;	
-	float alphaMask;	
-	float alphaMaskCutoff;
-	float emissiveStrength;
-};
-
 layout(std430, set = 3, binding = 0) buffer SSBO
 {
-   ShaderMaterial materials[ ];
+   GltfMaterial materials[ ];
 };
 
 layout (push_constant) uniform PushConstants {
@@ -169,7 +150,7 @@ vec4 tonemap(vec4 color)
 
 // Find the normal for this fragment, pulling either from a predefined normal map
 // or from the interpolated mesh normal and tangent attributes.
-vec3 getNormal(ShaderMaterial material)
+vec3 getNormal(GltfMaterial material)
 {
 	// Perturb normal, see http://www.thetenthplanet.de/archives/1180
 	vec3 tangentNormal = texture(normalMap, material.normalTextureSet == 0 ? inUV0 : inUV1).xyz * 2.0 - 1.0;
@@ -267,7 +248,7 @@ float convertMetallic(vec3 diffuse, vec3 specular, float maxSpecular) {
 
 void main()
 {
-	ShaderMaterial material = materials[pushConstants.materialIndex];
+	GltfMaterial material = materials[pushConstants.materialIndex];
 
 	float perceptualRoughness;
 	float metallic;

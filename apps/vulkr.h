@@ -125,6 +125,17 @@ struct CameraData
 	alignas(16) glm::mat4 proj;
 };
 
+struct LightData
+{
+	glm::vec3 position{ 10.0f, 4.3f, 7.1f }; // Used for point lights
+	float intensity{ 35.0f };
+	glm::vec3 color{ 1.0f, 1.0f, 1.0f };
+	int type{ 0 }; // 0: point, 1: directional (infinite)
+	glm::vec2 rotation{ 75.0f, 40.0f }; // Used for directional lights; represents horizontal (azimuth) and vertical (elevation) rotation
+	glm::vec2 blank{ 0.0, 0.0 }; // padding
+	// TODO: to support area lights, look into vector irradiance (Real time rendering page 379) where you can integrate over the various light vectors that an area light emits and convert it into a directional light source  without introducing any errors
+};
+
 struct ObjInstance
 {
 	alignas(16) glm::mat4 transform;
@@ -161,15 +172,23 @@ struct Particle
 	alignas(16) glm::vec4 velocity; // xyz = velocity, w = gradient texture position
 };
 
-struct LightData
+struct alignas(16) GltfMaterial
 {
-	glm::vec3 position{ 10.0f, 4.3f, 7.1f }; // Used for point lights
-	float intensity{ 35.0f };
-	glm::vec3 color{ 1.0f, 1.0f, 1.0f };
-	int type{ 0 }; // 0: point, 1: directional (infinite)
-	glm::vec2 rotation{ 75.0f, 40.0f }; // Used for directional lights; represents horizontal (azimuth) and vertical (elevation) rotation
-	glm::vec2 blank{ 0.0, 0.0 }; // padding
-	// TODO: to support area lights, look into vector irradiance (Real time rendering page 379) where you can integrate over the various light vectors that an area light emits and convert it into a directional light source  without introducing any errors
+	glm::vec4 baseColorFactor;
+	glm::vec4 emissiveFactor;
+	glm::vec4 diffuseFactor;
+	glm::vec4 specularFactor;
+	float workflow;
+	int colorTextureSet;
+	int PhysicalDescriptorTextureSet;
+	int normalTextureSet;
+	int occlusionTextureSet;
+	int emissiveTextureSet;
+	float metallicFactor;
+	float roughnessFactor;
+	float alphaMask;
+	float alphaMaskCutoff;
+	float emissiveStrength;
 };
 
 // Push constants; note that any modifications to push constants must be matched in the shaders and offsets must be set appropriately including when multiple push constants are defined for different stages (see layout(offset = 16))
@@ -221,7 +240,6 @@ struct GltfPushConstant
 /* CPU only structs */
 
 // Holds all of the necessary rendering data to display a .obj file model
-// TODO rename this to ObjModelRenderingData
 struct ObjModelRenderingData
 {
 	std::string objFilePath;
@@ -234,33 +252,21 @@ struct ObjModelRenderingData
 	std::unique_ptr<Buffer> materialsIndexBuffer;
 };
 
+struct GltfInstance
+{
+	alignas(16) glm::mat4 transform;
+	alignas(8) uint64_t modelIndex;
+	alignas(8) uint64_t blank; // padding; not required??
+};
+
 enum PBRWorkflows { PBR_WORKFLOW_METALLIC_ROUGHNESS = 0, PBR_WORKFLOW_SPECULAR_GLOSINESS = 1 };
 
 // Holds all of the necessary rendering data to display a .gltf file model
 struct GltfModelRenderingData
 {
+	std::string filePath;
 	gltf::Model gltfModel;
 	std::unique_ptr<Buffer> materialsBuffer;
-};
-
-// TODO should this be moved out of the CPU only section
-struct alignas(16) GltfMaterial
-{
-	glm::vec4 baseColorFactor;
-	glm::vec4 emissiveFactor;
-	glm::vec4 diffuseFactor;
-	glm::vec4 specularFactor;
-	float workflow;
-	int colorTextureSet;
-	int PhysicalDescriptorTextureSet;
-	int normalTextureSet;
-	int occlusionTextureSet;
-	int emissiveTextureSet;
-	float metallicFactor;
-	float roughnessFactor;
-	float alphaMask;
-	float alphaMaskCutoff;
-	float emissiveStrength;
 };
 
 struct PipelineData
@@ -426,8 +432,8 @@ private:
 	std::unique_ptr<Buffer> lightBuffer;
 	std::unique_ptr<Buffer> cameraBuffer;
 	std::unique_ptr<Buffer> previousFrameCameraBuffer;
-	std::unique_ptr<Buffer> objectBuffer;
-	std::unique_ptr<Buffer> previousFrameObjectBuffer;
+	std::unique_ptr<Buffer> objInstanceBuffer;
+	std::unique_ptr<Buffer> previousFrameObjInstanceBuffer;
 	std::unique_ptr<Buffer> particleBuffer;
 	std::unique_ptr<Buffer> gltfMaterialsBuffer;
 
@@ -449,7 +455,7 @@ private:
 
 	size_t currentFrame{ 0 };
 
-	// Currently unused; used when MULTI_THREAD is defined
+	// TODO: Currently unused; used when MULTI_THREAD is defined
 	std::mutex bufferMutex;
 	std::mutex commandPoolMutex;
 	std::condition_variable commandPoolCv;
@@ -467,10 +473,11 @@ private:
 		PipelineData rayTracing;
 	} pipelines;
 
-	std::vector<GltfModelRenderingData> gltfModelsToRender;
-	std::vector<ObjModelRenderingData> objModelsToRender;
+	std::vector<GltfModelRenderingData> gltfModelRenderingDataList;
+	std::vector<ObjModelRenderingData> objModelRenderingDataList;
 	std::vector<std::unique_ptr<ImageView>> textureImageViews;
 	std::vector<ObjInstance> objInstances;
+	std::vector<GltfInstance> gltfInstances;
 	std::vector<LightData> sceneLights;
 
 	uint32_t animationIndex = 0;
@@ -530,8 +537,10 @@ private:
 	void loadGltfModel(const std::string &gltfFilePath);
 	void loadObjModel(const std::string &objFilePath);
 	void createObjInstance(const std::string &objFilePath, glm::mat4 transform);
+	void createGltfInstance(const std::string &gltfFilePath, glm::mat4 transform);
 	void loadModels();
 	uint64_t getObjModelIndex(const std::string &name);
+	uint64_t getGltfModelIndex(const std::string &name);
 	void createSceneInstances();
 	void createSemaphoreAndFencePools();
 	void setupSynchronizationObjects();
