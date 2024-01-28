@@ -5,7 +5,12 @@
  * Note that this file has been modified to integrate into the Vulkr engine, but the core logic remains the same and is covered under the license above.
  */
 
-#version 450
+#version 460
+
+#extension GL_GOOGLE_include_directive : enable
+
+#include "../common.glsl"
+#define MAX_NUM_JOINTS 128
 
 layout (location = 0) in vec3 inPos;
 layout (location = 1) in vec3 inNormal;
@@ -20,11 +25,12 @@ layout(set = 0, binding = 0) uniform CurrentFrameCameraBuffer {
     mat4 view;
     mat4 proj;
 } currentFrameCameraBuffer;
-// TODO add the model matrix in set 1?
 
-#define MAX_NUM_JOINTS 128
+layout(std140, set = 1, binding = 1) readonly buffer CurrentFrameGltfInstanceBuffer {
+	GltfInstance gltfInstances[];
+} currentFrameGltfInstanceBuffer;
 
-layout (set = 2, binding = 0) uniform UBONode {
+layout (set = 3, binding = 0) uniform UBONode {
 	mat4 matrix;
 	mat4 jointMatrix[MAX_NUM_JOINTS];
 	float jointCount;
@@ -38,8 +44,7 @@ layout (location = 4) out vec4 outColor0;
 
 void main() 
 {
-	mat4 modelMatrix = mat4(1.0); // TODO model should be imported
-	modelMatrix[3][1] = 5.0;
+	mat4 modelMatrix = currentFrameGltfInstanceBuffer.gltfInstances[gl_BaseInstance].transform;
 
 	outColor0 = inColor0;
 

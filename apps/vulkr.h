@@ -93,7 +93,8 @@ namespace vulkr
 constexpr uint32_t maxFramesInFlight{ 2u }; // Explanation on this how we got this number: https://software.intel.com/content/www/us/en/develop/articles/practical-approach-to-vulkan-part-1.html
 constexpr uint32_t commandBufferCountForFrame{ 3u };
 constexpr uint32_t taaDepth{ 128u };
-constexpr uint32_t maxInstanceCount{ 10000u };
+constexpr uint32_t maxObjInstanceCount{ 1000u };
+constexpr uint32_t maxGltfInstanceCount{ 100u };
 constexpr uint32_t maxLightCount{ 100u };
 
 #ifdef VULKR_DEBUG
@@ -164,6 +165,13 @@ struct ObjInstance
 	{
 		return !(*this == other);
 	}
+};
+
+struct GltfInstance
+{
+	alignas(16) glm::mat4 transform;
+	alignas(8) uint64_t modelIndex;
+	alignas(8) uint64_t blank; // padding; not required??
 };
 
 struct Particle
@@ -250,13 +258,6 @@ struct ObjModelRenderingData
 	std::unique_ptr<Buffer> indexBuffer;
 	std::unique_ptr<Buffer> materialsBuffer;
 	std::unique_ptr<Buffer> materialsIndexBuffer;
-};
-
-struct GltfInstance
-{
-	alignas(16) glm::mat4 transform;
-	alignas(8) uint64_t modelIndex;
-	alignas(8) uint64_t blank; // padding; not required??
 };
 
 enum PBRWorkflows { PBR_WORKFLOW_METALLIC_ROUGHNESS = 0, PBR_WORKFLOW_SPECULAR_GLOSINESS = 1 };
@@ -432,6 +433,7 @@ private:
 	std::unique_ptr<Buffer> lightBuffer;
 	std::unique_ptr<Buffer> cameraBuffer;
 	std::unique_ptr<Buffer> previousFrameCameraBuffer;
+	std::unique_ptr<Buffer> gltfInstanceBuffer;
 	std::unique_ptr<Buffer> objInstanceBuffer;
 	std::unique_ptr<Buffer> previousFrameObjInstanceBuffer;
 	std::unique_ptr<Buffer> particleBuffer;
@@ -493,7 +495,7 @@ private:
 	void animateInstances();
 	void animateWithCompute();
 	void computeParticles();
-	void renderNode(vulkr::gltf::Node *node);
+	void renderNode(vulkr::gltf::Node *node, uint32_t instanceIndex);
 	void dataUpdatePerFrame();
 	void rasterizeObj();
 	void rasterizeGltf();

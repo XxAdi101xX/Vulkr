@@ -9,7 +9,7 @@
 // See https://github.com/KhronosGroup/glTF-WebGL-PBR
 // Supports both metallic roughness and specular glossiness inputs
 
-#version 450
+#version 460
 #extension GL_GOOGLE_include_directive : require
 
 #include "../common.glsl"
@@ -68,14 +68,14 @@ layout (set = 0, binding = 4) uniform sampler2D samplerBRDFLUT;
 
 // Textures
 
-layout (set = 1, binding = 0) uniform sampler2D colorMap;
-layout (set = 1, binding = 1) uniform sampler2D physicalDescriptorMap;
-layout (set = 1, binding = 2) uniform sampler2D normalMap;
-layout (set = 1, binding = 3) uniform sampler2D aoMap;
-layout (set = 1, binding = 4) uniform sampler2D emissiveMap;
+layout (set = 2, binding = 0) uniform sampler2D colorMap;
+layout (set = 2, binding = 1) uniform sampler2D physicalDescriptorMap;
+layout (set = 2, binding = 2) uniform sampler2D normalMap;
+layout (set = 2, binding = 3) uniform sampler2D aoMap;
+layout (set = 2, binding = 4) uniform sampler2D emissiveMap;
 
 // Properties
-layout(std430, set = 3, binding = 0) buffer SSBO
+layout(std430, set = 4, binding = 0) buffer SSBO
 {
    GltfMaterial materials[ ];
 };

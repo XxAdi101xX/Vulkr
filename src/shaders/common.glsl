@@ -20,6 +20,13 @@ struct ObjInstance
     uint64_t materialIndices; // BufferDeviceAddress
 };
 
+struct GltfInstance
+{
+	mat4 transform;           // Model transform
+    uint64_t modelIndex;      // Object model index
+    uint64_t blank;
+};
+
 struct WaveFrontMaterial
 {
     vec3  ambient;

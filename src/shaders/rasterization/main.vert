@@ -24,18 +24,18 @@ layout(set = 0, binding = 0) uniform CurrentFrameCameraBuffer {
     mat4 proj;
 } currentFrameCameraBuffer;
 
-layout(std140, set = 1, binding = 0) readonly buffer CurrentFrameObjectBuffer {
-	ObjInstance objects[];
-} currentFrameObjectBuffer;
+layout(std140, set = 1, binding = 0) readonly buffer CurrentFrameObjInstanceBuffer {
+	ObjInstance objInstances[];
+} currentFrameObjInstanceBuffer;
 
 layout(set = 3, binding = 0) uniform PreviousFrameCameraBuffer {
     mat4 view;
     mat4 proj;
 } previousFrameCameraBuffer;
 
-layout(std140, set = 3, binding = 1) readonly buffer PreviousFrameObjectBuffer {
-	ObjInstance objects[];
-} previousFrameObjectBuffer;
+layout(std140, set = 3, binding = 1) readonly buffer PreviousFrameObjInstanceBuffer {
+	ObjInstance objInstances[];
+} previousFrameObjInstanceBuffer;
 
 layout(push_constant) uniform TaaPushConstant
 {
@@ -45,8 +45,8 @@ layout(push_constant) uniform TaaPushConstant
 } pushConstant;
 
 void main() {
-    mat4 currentFrameModelMatrix = currentFrameObjectBuffer.objects[gl_BaseInstance].transform;
-    mat4 previousFrameModelMatrix = previousFrameObjectBuffer.objects[gl_BaseInstance].transform;
+    mat4 currentFrameModelMatrix = currentFrameObjInstanceBuffer.objInstances[gl_BaseInstance].transform;
+    mat4 previousFrameModelMatrix = previousFrameObjInstanceBuffer.objInstances[gl_BaseInstance].transform;
     vec3 origin = vec3(inverse(currentFrameCameraBuffer.view) * vec4(0, 0, 0, 1));
     
     // Setting pixel shader inputs

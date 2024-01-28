@@ -170,6 +170,7 @@ void VulkrApp::cleanupSwapchain()
 	lightBuffer.reset();
 	cameraBuffer.reset();
 	previousFrameCameraBuffer.reset();
+	gltfInstanceBuffer.reset();
 	objInstanceBuffer.reset();
 	previousFrameObjInstanceBuffer.reset();
 	particleBuffer.reset();
@@ -378,7 +379,7 @@ void VulkrApp::update()
 
 	if (raytracingEnabled)
 	{
-		// Add memory barrier to ensure that the particleIntegrate computer shader has finished writing to the currentFrameObjectBuffer
+		// Add memory barrier to ensure that the particleIntegrate computer shader has finished writing to the currentFrameObjInstanceBuffer
 		VkMemoryBarrier2 memoryBarrier{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
 		memoryBarrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
 		memoryBarrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
@@ -401,7 +402,7 @@ void VulkrApp::update()
 	}
 	else
 	{
-		// Add memory barrier to ensure that the particleIntegrate computer shader has finished writing to the currentFrameObjectBuffer
+		// Add memory barrier to ensure that the particleIntegrate computer shader has finished writing to the currentFrameObjInstanceBuffer
 		VkMemoryBarrier2 memoryBarrier{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
 		memoryBarrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
 		memoryBarrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
@@ -589,7 +590,7 @@ void VulkrApp::update()
 	VkBufferCopy objectBufferCopyRegion{};
 	objectBufferCopyRegion.srcOffset = 0ull;
 	objectBufferCopyRegion.dstOffset = 0ull;
-	objectBufferCopyRegion.size = sizeof(ObjInstance) * maxInstanceCount;
+	objectBufferCopyRegion.size = sizeof(ObjInstance) * maxObjInstanceCount;
 	vkCmdCopyBuffer(frameData.commandBuffers[currentFrame][2]->getHandle(), objInstanceBuffer->getHandle(), previousFrameObjInstanceBuffer->getHandle(), 1, &objectBufferCopyRegion);
 
 	// Transition the history image and output image back to the general layout
@@ -995,53 +996,36 @@ void VulkrApp::computeParticles()
 	}
 }
 
-void VulkrApp::renderNode(vulkr::gltf::Node *node)
+void VulkrApp::renderNode(vulkr::gltf::Node *node, uint32_t instanceIndex)
 {
 	if (node->mesh)
 	{
 		// Render mesh primitives
 		for (vulkr::gltf::Primitive *primitive : node->mesh->primitives)
 		{
-			std::string pipelineName = "pbr";
-			// TODO cleanup these comments
-			//std::string pipelineVariant = "";
-
-			//if (primitive->material.unlit) {
-			//    // KHR_materials_unlit
-			//    pipelineName = "unlit";
-			//};
-
-			//const VkPipeline pipeline = pipelines[pipelineName + pipelineVariant];
 			PipelineData &pipelineData = pipelines.pbr;
-
-			// This was moved out of the function
-			//if (pipeline != boundPipeline) {
-			//    vkCmdBindPipeline(commandBuffers[cbIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-			//    boundPipeline = pipeline;
-			//}
-
-			vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineData.pipeline->getHandle());
-
-			const std::vector<VkDescriptorSet> descriptorsets =
+			const std::vector<VkDescriptorSet> descriptorSets =
 			{
-				//descriptorSets[cbIndex].scene,
 				globalDescriptorSet->getHandle(),
+				objectDescriptorSet->getHandle(),
 				primitive->material.descriptorSet,
 				node->mesh->uniformBuffer.descriptorSet,
 				gltfMaterialDescriptorSet->getHandle()
 			};
-			vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipelineState->getPipelineLayout().getHandle(), 0, static_cast<uint32_t>(descriptorsets.size()), descriptorsets.data(), 0, NULL);
+
+			vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineData.pipeline->getHandle());
+			vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipelineState->getPipelineLayout().getHandle(), 0, static_cast<uint32_t>(descriptorSets.size()), descriptorSets.data(), 0, NULL);
 
 			// Pass material index for this primitive using a push constant, the shader uses this to index into the material buffer
 			gltfPushConstant.cameraPos = cameraController->getCamera()->getPosition();
 			gltfPushConstant.materialIndex = primitive->material.index;
-			gltfPushConstant.lightCount = static_cast<int>(sceneLights.size());;
+			gltfPushConstant.lightCount = static_cast<int>(sceneLights.size());
 
 			vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GltfPushConstant), &gltfPushConstant);
 
 			if (primitive->hasIndices)
 			{
-				vkCmdDrawIndexed(frameData.commandBuffers[currentFrame][0]->getHandle(), primitive->indexCount, 1, primitive->firstIndex, 0, 0);
+				vkCmdDrawIndexed(frameData.commandBuffers[currentFrame][0]->getHandle(), primitive->indexCount, 1u, primitive->firstIndex, 0, instanceIndex);
 			}
 			else
 			{
@@ -1052,13 +1036,12 @@ void VulkrApp::renderNode(vulkr::gltf::Node *node)
 
 	for (auto child : node->children)
 	{
-		renderNode(child);
+		renderNode(child, instanceIndex);
 	}
 }
 
 void VulkrApp::rasterizeGltf()
 {
-
 	uint64_t lastModelIndex{ 0ull };
 	for (uint32_t index = 0u; index < gltfInstances.size(); index++)
 	{
@@ -1080,9 +1063,7 @@ void VulkrApp::rasterizeGltf()
 			lastModelIndex = gltfInstances[index].modelIndex;
 		}
 
-		// TODO check if we also want to render by visibility
-		//boundPipeline = VK_NULL_HANDLE;
-
+		// TODO: render by visibility
 		//// Opaque primitives first
 		//for (auto node : model.nodes) {
 		//    renderNode(node, i, vkglTF::Material::ALPHAMODE_OPAQUE);
@@ -1099,46 +1080,52 @@ void VulkrApp::rasterizeGltf()
 
 		for (auto node : model.nodes)
 		{
-			renderNode(node);
+			renderNode(node, index);
 		}
 	}
-
 }
 
 void VulkrApp::initializeBufferData()
 {
-	for (uint32_t frame = 0u; frame < maxFramesInFlight; ++frame)
+	// Update the camera buffer
+	CameraData cameraData{};
+	cameraData.view = cameraController->getCamera()->getView();
+	cameraData.proj = cameraController->getCamera()->getProjection();
+
+	void *mappedData = cameraBuffer->map();
+	memcpy(mappedData, &cameraData, sizeof(cameraData));
+	cameraBuffer->unmap();
+
+	// Update the light buffer
+	mappedData = lightBuffer->map();
+	memcpy(mappedData, sceneLights.data(), sizeof(LightData) * sceneLights.size());
+	lightBuffer->unmap();
+
+	// Update the obj instance buffer
+	mappedData = objInstanceBuffer->map();
+	ObjInstance *objInstanceSSBO = static_cast<ObjInstance *>(mappedData);
+	for (int instanceIndex = 0; instanceIndex < objInstances.size(); instanceIndex++)
 	{
-		// Update the camera buffer
-		CameraData cameraData{};
-		cameraData.view = cameraController->getCamera()->getView();
-		cameraData.proj = cameraController->getCamera()->getProjection();
-
-		void *mappedData = cameraBuffer->map();
-		memcpy(mappedData, &cameraData, sizeof(cameraData));
-		cameraBuffer->unmap();
-
-		// Update the light buffer
-		mappedData = lightBuffer->map();
-		memcpy(mappedData, sceneLights.data(), sizeof(LightData) * sceneLights.size());
-		lightBuffer->unmap();
-
-		// Update the object buffer
-		mappedData = objInstanceBuffer->map();
-		ObjInstance *objectSSBO = static_cast<ObjInstance *>(mappedData);
-		for (int instanceIndex = 0; instanceIndex < objInstances.size(); instanceIndex++)
-		{
-			objectSSBO[instanceIndex].transform = objInstances[instanceIndex].transform;
-			objectSSBO[instanceIndex].transformIT = objInstances[instanceIndex].transformIT;
-			objectSSBO[instanceIndex].objIndex = objInstances[instanceIndex].objIndex;
-			objectSSBO[instanceIndex].textureOffset = objInstances[instanceIndex].textureOffset;
-			objectSSBO[instanceIndex].vertices = objInstances[instanceIndex].vertices;
-			objectSSBO[instanceIndex].indices = objInstances[instanceIndex].indices;
-			objectSSBO[instanceIndex].materials = objInstances[instanceIndex].materials;
-			objectSSBO[instanceIndex].materialIndices = objInstances[instanceIndex].materialIndices;
-		}
-		objInstanceBuffer->unmap();
+		objInstanceSSBO[instanceIndex].transform = objInstances[instanceIndex].transform;
+		objInstanceSSBO[instanceIndex].transformIT = objInstances[instanceIndex].transformIT;
+		objInstanceSSBO[instanceIndex].objIndex = objInstances[instanceIndex].objIndex;
+		objInstanceSSBO[instanceIndex].textureOffset = objInstances[instanceIndex].textureOffset;
+		objInstanceSSBO[instanceIndex].vertices = objInstances[instanceIndex].vertices;
+		objInstanceSSBO[instanceIndex].indices = objInstances[instanceIndex].indices;
+		objInstanceSSBO[instanceIndex].materials = objInstances[instanceIndex].materials;
+		objInstanceSSBO[instanceIndex].materialIndices = objInstances[instanceIndex].materialIndices;
 	}
+	objInstanceBuffer->unmap();
+
+	// Update the gltf instance buffer
+	mappedData = gltfInstanceBuffer->map();
+	GltfInstance *gtlfInstanceSSBO = static_cast<GltfInstance *>(mappedData);
+	for (int instanceIndex = 0; instanceIndex < gltfInstances.size(); instanceIndex++)
+	{
+		gtlfInstanceSSBO[instanceIndex].transform = gltfInstances[instanceIndex].transform;
+		gtlfInstanceSSBO[instanceIndex].modelIndex = gltfInstances[instanceIndex].modelIndex;
+	}
+	gltfInstanceBuffer->unmap();
 }
 
 void VulkrApp::dataUpdatePerFrame()
@@ -1604,14 +1591,21 @@ void VulkrApp::createDescriptorSetLayouts()
 	globalDescriptorSetLayout = std::make_unique<DescriptorSetLayout>(*device, globalDescriptorSetLayoutBindings);
 
 	// Object descriptor set layout
-	VkDescriptorSetLayoutBinding objectBufferLayoutBinding{};
-	objectBufferLayoutBinding.binding = 0u;
-	objectBufferLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-	objectBufferLayoutBinding.descriptorCount = 1u;
-	objectBufferLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT;
-	objectBufferLayoutBinding.pImmutableSamplers = nullptr;
+	VkDescriptorSetLayoutBinding objInstanceBufferLayoutBinding{};
+	objInstanceBufferLayoutBinding.binding = 0u;
+	objInstanceBufferLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+	objInstanceBufferLayoutBinding.descriptorCount = 1u;
+	objInstanceBufferLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT;
+	objInstanceBufferLayoutBinding.pImmutableSamplers = nullptr;
 
-	std::vector<VkDescriptorSetLayoutBinding> objectDescriptorSetLayoutBindings{ objectBufferLayoutBinding };
+	VkDescriptorSetLayoutBinding gltfInstanceBufferLayoutBinding{};
+	gltfInstanceBufferLayoutBinding.binding = 1u;
+	gltfInstanceBufferLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+	gltfInstanceBufferLayoutBinding.descriptorCount = 1u;
+	gltfInstanceBufferLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT;
+	gltfInstanceBufferLayoutBinding.pImmutableSamplers = nullptr;
+
+	std::vector<VkDescriptorSetLayoutBinding> objectDescriptorSetLayoutBindings{ objInstanceBufferLayoutBinding, gltfInstanceBufferLayoutBinding };
 	objectDescriptorSetLayout = std::make_unique<DescriptorSetLayout>(*device, objectDescriptorSetLayoutBindings);
 
 	// Post processing descriptor set layout
@@ -1621,12 +1615,12 @@ void VulkrApp::createDescriptorSetLayouts()
 	currentFrameCameraBufferLayoutBindingForPost.descriptorCount = 1u;
 	currentFrameCameraBufferLayoutBindingForPost.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
 	currentFrameCameraBufferLayoutBindingForPost.pImmutableSamplers = nullptr;
-	VkDescriptorSetLayoutBinding currentFrameObjectBufferLayoutBindingForPost{};
-	currentFrameObjectBufferLayoutBindingForPost.binding = 1u;
-	currentFrameObjectBufferLayoutBindingForPost.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-	currentFrameObjectBufferLayoutBindingForPost.descriptorCount = 1u;
-	currentFrameObjectBufferLayoutBindingForPost.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-	currentFrameObjectBufferLayoutBindingForPost.pImmutableSamplers = nullptr;
+	VkDescriptorSetLayoutBinding currentFrameObjInstanceBufferLayoutBindingForPost{};
+	currentFrameObjInstanceBufferLayoutBindingForPost.binding = 1u;
+	currentFrameObjInstanceBufferLayoutBindingForPost.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+	currentFrameObjInstanceBufferLayoutBindingForPost.descriptorCount = 1u;
+	currentFrameObjInstanceBufferLayoutBindingForPost.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+	currentFrameObjInstanceBufferLayoutBindingForPost.pImmutableSamplers = nullptr;
 	VkDescriptorSetLayoutBinding historyImageLayoutBindingForPost{};
 	historyImageLayoutBindingForPost.binding = 2u;
 	historyImageLayoutBindingForPost.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
@@ -1648,7 +1642,7 @@ void VulkrApp::createDescriptorSetLayouts()
 
 	std::vector<VkDescriptorSetLayoutBinding> postProcessingDescriptorSetLayoutBindings{
 		currentFrameCameraBufferLayoutBindingForPost,
-		currentFrameObjectBufferLayoutBindingForPost,
+		currentFrameObjInstanceBufferLayoutBindingForPost,
 		historyImageLayoutBindingForPost,
 		velocityImageLayoutBindingForPost,
 		copyOutputImageLayoutBindingForPost
@@ -2016,6 +2010,7 @@ void VulkrApp::createPbrRasterizationPipeline()
 
 	std::vector<VkDescriptorSetLayout> descriptorSetLayoutHandles{
 		globalDescriptorSetLayout->getHandle(),
+		objectDescriptorSetLayout->getHandle(),
 		gltfMaterialSamplersDescriptorSetLayout->getHandle(),
 		gltfNodeDescriptorSetLayout->getHandle(),
 		gltfMaterialDescriptorSetLayout->getHandle()
@@ -2831,23 +2826,30 @@ void VulkrApp::createUniformBuffers()
 
 void VulkrApp::createSSBOs()
 {
-	VkDeviceSize bufferSize{ sizeof(ObjInstance) * maxInstanceCount };
-
 	VkBufferCreateInfo bufferInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
-	bufferInfo.size = bufferSize;
+	bufferInfo.size = sizeof(ObjInstance) * maxObjInstanceCount;
 	bufferInfo.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
 	bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
 	VmaAllocationCreateInfo memoryInfo{};
 	memoryInfo.usage = VMA_MEMORY_USAGE_CPU_TO_GPU; // TODO: we should use staging buffers instead
 
+	// Create obj instance buffer
 	objInstanceBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
 	setDebugUtilsObjectName(device->getHandle(), objInstanceBuffer->getHandle(), "objInstanceBuffer");
 
+	// Create previous frame obj instance buffer
 	bufferInfo.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-
 	previousFrameObjInstanceBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
 	setDebugUtilsObjectName(device->getHandle(), previousFrameObjInstanceBuffer->getHandle(), "previousFrameObjInstanceBuffer");
+
+	// Create gltf instance buffer
+	bufferInfo.size = sizeof(GltfInstance) * maxGltfInstanceCount;
+	bufferInfo.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+	bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+	gltfInstanceBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
+	setDebugUtilsObjectName(device->getHandle(), gltfInstanceBuffer->getHandle(), "gltfInstanceBuffer");
 }
 
 // Setup and fill the compute shader storage buffers containing the particles
@@ -2969,25 +2971,32 @@ void VulkrApp::createDescriptorSets()
 	writeGlobalDescriptorSet.pTexelBufferView = nullptr;
 
 	// Object Instance Descriptor Set
-	VkDescriptorSetAllocateInfo objectDescriptorSetAllocateInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
-	objectDescriptorSetAllocateInfo.descriptorPool = descriptorPool->getHandle();
-	objectDescriptorSetAllocateInfo.descriptorSetCount = 1;
-	objectDescriptorSetAllocateInfo.pSetLayouts = &objectDescriptorSetLayout->getHandle();
-	objectDescriptorSet = std::make_unique<DescriptorSet>(*device, objectDescriptorSetAllocateInfo);
+	VkDescriptorSetAllocateInfo objectInstanceDescriptorSetAllocateInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+	objectInstanceDescriptorSetAllocateInfo.descriptorPool = descriptorPool->getHandle();
+	objectInstanceDescriptorSetAllocateInfo.descriptorSetCount = 1;
+	objectInstanceDescriptorSetAllocateInfo.pSetLayouts = &objectDescriptorSetLayout->getHandle();
+	objectDescriptorSet = std::make_unique<DescriptorSet>(*device, objectInstanceDescriptorSetAllocateInfo);
 	setDebugUtilsObjectName(device->getHandle(), objectDescriptorSet->getHandle(), "objectDescriptorSet");
 
 	VkDescriptorBufferInfo currentFrameObjInstanceBufferInfo{};
 	currentFrameObjInstanceBufferInfo.buffer = objInstanceBuffer->getHandle();
 	currentFrameObjInstanceBufferInfo.offset = 0;
-	currentFrameObjInstanceBufferInfo.range = sizeof(ObjInstance) * maxInstanceCount;
+	currentFrameObjInstanceBufferInfo.range = sizeof(ObjInstance) * maxObjInstanceCount;
+
+	VkDescriptorBufferInfo currentFrameGltfInstanceBufferInfo{};
+	currentFrameGltfInstanceBufferInfo.buffer = gltfInstanceBuffer->getHandle();
+	currentFrameGltfInstanceBufferInfo.offset = 0;
+	currentFrameGltfInstanceBufferInfo.range = sizeof(GltfInstance) * maxGltfInstanceCount;
+
+	std::array<VkDescriptorBufferInfo, 2> objectInstanceStorageBufferInfos{ currentFrameObjInstanceBufferInfo, currentFrameGltfInstanceBufferInfo };
 
 	VkWriteDescriptorSet writeObjectDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
 	writeObjectDescriptorSet.dstSet = objectDescriptorSet->getHandle();
 	writeObjectDescriptorSet.dstBinding = 0;
 	writeObjectDescriptorSet.dstArrayElement = 0;
 	writeObjectDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-	writeObjectDescriptorSet.descriptorCount = 1;
-	writeObjectDescriptorSet.pBufferInfo = &currentFrameObjInstanceBufferInfo;
+	writeObjectDescriptorSet.descriptorCount = objectInstanceStorageBufferInfos.size();
+	writeObjectDescriptorSet.pBufferInfo = objectInstanceStorageBufferInfos.data();
 	writeObjectDescriptorSet.pImageInfo = nullptr;
 	writeObjectDescriptorSet.pTexelBufferView = nullptr;
 
@@ -3077,7 +3086,7 @@ void VulkrApp::createDescriptorSets()
 	VkDescriptorBufferInfo previousFrameObjInstanceBufferInfo{};
 	previousFrameObjInstanceBufferInfo.buffer = previousFrameObjInstanceBuffer->getHandle();
 	previousFrameObjInstanceBufferInfo.offset = 0;
-	previousFrameObjInstanceBufferInfo.range = sizeof(ObjInstance) * maxInstanceCount;
+	previousFrameObjInstanceBufferInfo.range = sizeof(ObjInstance) * maxObjInstanceCount;
 	std::array<VkDescriptorBufferInfo, 1> taaStorageImageInfos{ previousFrameObjInstanceBufferInfo };
 
 	VkWriteDescriptorSet writeTaaStorageBufferDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
@@ -3426,7 +3435,7 @@ void VulkrApp::createSceneLights()
 	l1.rotation = glm::vec2(75.0f, 40.0f);
 	LightData l2;
 	l2.position = glm::vec3(11.5f, 3.5f, 1.5f);
-	l2.color = glm::vec3(1.0f, 1.0f, 0.0f);
+	l2.color = glm::vec3(1.0f, 0.2f, 0.0f);
 	l2.rotation = glm::vec2(160.0f, 40.0f);
 	sceneLights.emplace_back(std::move(l1));
 	sceneLights.emplace_back(std::move(l2));
@@ -3515,10 +3524,12 @@ void VulkrApp::loadModels()
 
 void VulkrApp::createSceneInstances()
 {
-	if (maxInstanceCount > device->getPhysicalDevice().getAccelerationStructureProperties().maxInstanceCount)
+	if (maxObjInstanceCount + maxGltfInstanceCount > device->getPhysicalDevice().getAccelerationStructureProperties().maxInstanceCount)
 	{
 		LOGEANDABORT("Max instance count is above the limit supported by the GPU");
 	}
+
+	// Specify obj instances
 
 	// The sphere instance index is hardcoded in the animate.comp file, so when you add or remove an instance, that must be updated
 	createObjInstance(defaultObjModelFilePath + "plane.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(0, 0, 0)));
@@ -3538,12 +3549,19 @@ void VulkrApp::createSceneInstances()
 		createObjInstance(defaultObjModelFilePath + "cube.obj", glm::translate(glm::scale(glm::mat4{ 1.0 }, glm::vec3(0.2f, 0.2f, 0.2f)), glm::vec3(allParticleData[i].position.xyz)));
 	}
 
-	if (objInstances.size() > maxInstanceCount)
+	if (objInstances.size() > maxObjInstanceCount)
 	{
-		LOGEANDABORT("There are more obj instances than maxInstanceCount. You need to increase this value to support more instances");
+		LOGEANDABORT("There are more obj instances than maxObjInstanceCount. You need to increase this value to support more instances");
 	}
 
-	createGltfInstance(defaultGltfModelFilePath + "ClearcoatWicker.glb", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ 15, 0,0 }));
+	// Specify gltf instances
+	createGltfInstance(defaultGltfModelFilePath + "ClearcoatWicker.glb", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ 1, 0, 1 }));
+	createGltfInstance(defaultGltfModelFilePath + "ClearcoatWicker.glb", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ 1, 3, 0 }));
+
+	if (gltfInstances.size() > maxGltfInstanceCount)
+	{
+		LOGEANDABORT("There are more gltf instances than maxGltfInstanceCount. You need to increase this value to support more instances");
+	}
 }
 
 uint64_t VulkrApp::getObjModelIndex(const std::string &name)

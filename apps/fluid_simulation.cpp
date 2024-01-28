@@ -213,7 +213,7 @@ void FluidSimulation::update()
 	// Compute shader invocations
 	computeFluidSimulation();
 
-	// Add memory barrier to ensure that the particleIntegrate computer shader has finished writing to the currentFrameObjectBuffer
+	// Add memory barrier to ensure that the particleIntegrate computer shader has finished writing to the currentFrameObjInstanceBuffer
 	VkMemoryBarrier2 memoryBarrier{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
 	memoryBarrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
 	memoryBarrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
