@@ -64,22 +64,22 @@ public:
 	/* Gets the size of the buffer */
 	VkDeviceSize getSize() const;
 
-	// TODO: take a look at these functions again to see if they're useful
 	/**
 		* Copies byte data into the buffer
 		* @param data The data to copy from
-		* @param size The amount of bytes to copy
+		* @param dataSize The amount of bytes to copy
 		* @param offset The offset to start the copying into the mapped data
 		*/
-	void update(const uint8_t *data, size_t size, size_t offset = 0);
+	void update(const uint8_t *data, size_t dataSize, size_t offset = 0);
+	// TODO: add update method that takes a pointer to a generic array of type T
 
 	/**
 		* Converts any non byte data into bytes and then updates the buffer
 		* @param data The data to copy from
-		* @param size The amount of bytes to copy
+		* @param dataSize The amount of bytes to copy
 		* @param offset The offset to start the copying into the mapped data
 		*/
-	void update(void *data, size_t size, size_t offset = 0);
+	void update(void *data, size_t dataSize, size_t offset = 0);
 
 	/**
 		* Copies a vector of bytes into the buffer
@@ -115,7 +115,7 @@ private:
 
 	// Whether the buffer has been mapped with vmaMapMemory
 	bool mapped{ false };
-	void *mappedData{ nullptr };
+	uint8_t *mappedData{ nullptr };
 };
 
 } // namespace vulkr

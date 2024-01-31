@@ -162,9 +162,7 @@ void Texture::fromglTfImage(tinygltf::Image &gltfimage, TextureSampler textureSa
 
 	std::unique_ptr<Buffer> stagingBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
 
-	void *mappedData = stagingBuffer->map();
-	memcpy(mappedData, buffer, bufferSize);
-	stagingBuffer->unmap();
+	stagingBuffer->update(buffer, bufferSize);
 
 	VkImageCreateInfo imageCreateInfo{};
 	imageCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -451,11 +449,9 @@ Mesh::Mesh(vulkr::Device *device, glm::mat4 matrix)
 
 	VmaAllocationCreateInfo memoryInfo{};
 	memoryInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
-	uniformBuffer.buffer = std::make_unique<vulkr::Buffer>(*device, bufferInfo, memoryInfo);
 
-	void *mappedData = uniformBuffer.buffer->map();
-	memcpy(mappedData, &uniformBlock, static_cast<size_t>(bufferSize));
-	uniformBuffer.buffer->unmap();
+	uniformBuffer.buffer = std::make_unique<vulkr::Buffer>(*device, bufferInfo, memoryInfo);
+	uniformBuffer.buffer->update(&uniformBlock, bufferSize);
 
 	uniformBuffer.descriptor = { uniformBuffer.buffer->getHandle(), 0, sizeof(uniformBlock) };
 };
@@ -513,11 +509,11 @@ void Node::update()
 				mesh->uniformBlock.jointMatrix[i] = jointMat;
 			}
 			mesh->uniformBlock.jointcount = (float)numJoints;
-			memcpy(mesh->uniformBuffer.buffer->map(), &mesh->uniformBlock, sizeof(mesh->uniformBlock));
+			mesh->uniformBuffer.buffer->update(&mesh->uniformBlock, sizeof(mesh->uniformBlock));
 		}
 		else
 		{
-			memcpy(mesh->uniformBuffer.buffer->map(), &m, sizeof(glm::mat4));
+			mesh->uniformBuffer.buffer->update(&m, sizeof(m));
 		}
 	}
 
@@ -1329,9 +1325,8 @@ void Model::loadFromFile(std::string filename, vulkr::Device *device, vulkr::Com
 		memoryInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
 
 		vertexStagingBuffer = std::make_unique<vulkr::Buffer>(*device, bufferInfo, memoryInfo);
-		void *mappedData = vertexStagingBuffer->map();
-		memcpy(mappedData, loaderInfo.vertexBuffer, vertexBufferSize);
-		vertexStagingBuffer->unmap();
+		vertexStagingBuffer->update(loaderInfo.vertexBuffer, vertexBufferSize);
+
 
 		// Index data
 		if (indexBufferSize > 0)
@@ -1339,9 +1334,7 @@ void Model::loadFromFile(std::string filename, vulkr::Device *device, vulkr::Com
 			bufferInfo.size = indexBufferSize;
 			// all other bufferInfo variables are the same as the ones for the vertex buffer creation
 			indexStagingBuffer = std::make_unique<vulkr::Buffer>(*device, bufferInfo, memoryInfo);
-			void *mappedData = indexStagingBuffer->map();
-			memcpy(mappedData, loaderInfo.indexBuffer, indexBufferSize);
-			indexStagingBuffer->unmap();
+			indexStagingBuffer->update(loaderInfo.indexBuffer, indexBufferSize);
 		}
 	}
 

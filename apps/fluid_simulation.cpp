@@ -1369,11 +1369,10 @@ std::unique_ptr<Image> FluidSimulation::createTextureImageWithInitialValue(uint3
 	std::unique_ptr<Buffer> stagingBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
 
 	// Initialize the texture with the initial values
-	const float initalValue = 0.0f;
-	void *mappedData = stagingBuffer->map();
+	const float initalValue = 0.1f;
+
 	std::vector<float> initialTextureData(imageSize, initalValue);
-	memcpy(mappedData, initialTextureData.data(), static_cast<size_t>(imageSize));
-	stagingBuffer->unmap();
+	stagingBuffer->update(initialTextureData.data(), initialTextureData.size(), 0u);
 
 	// Create the texture image
 	VkExtent3D extent{ texWidth, texHeight, 1u };

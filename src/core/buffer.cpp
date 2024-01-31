@@ -69,6 +69,10 @@ Buffer::~Buffer()
 	{
 		vmaDestroyBuffer(device.getMemoryAllocator(), handle, allocation);
 	}
+	else
+	{
+		LOGW("The buffer or allocation is already null before it was destructed")
+	}
 }
 
 const Device &Buffer::getDevice() const
@@ -128,26 +132,25 @@ void Buffer::update(const std::vector<uint8_t> &data, size_t offset)
 	update(data.data(), data.size(), offset);
 }
 
-void Buffer::update(void *data, size_t size, size_t offset)
+void Buffer::update(void *data, size_t dataSize, size_t offset)
 {
-	update(reinterpret_cast<const uint8_t *>(data), size, offset);
+	update(reinterpret_cast<const uint8_t *>(data), dataSize, offset);
 }
 
-void Buffer::update(const uint8_t *data, const size_t size, const size_t offset)
+void Buffer::update(const uint8_t *data, const size_t dataSize, const size_t offset)
 {
-	// TODO fix this
-	//if (persistent)
-	//{
-	//	std::copy(data, data + size, mappedData + offset);
-	//	flush();
-	//}
-	//else
-	//{
-	//	map();
-	//	std::copy(data, data + size, mappedData + offset);
-	//	flush();
-	//	unmap();
-	//}
+	if (persistent)
+	{
+		std::copy(data, data + dataSize, mappedData + offset);
+		flush();
+	}
+	else
+	{
+		map();
+		std::copy(data, data + dataSize, mappedData + offset);
+		flush();
+		unmap();
+	}
 }
 
 } // namespace vulkr

@@ -888,6 +888,7 @@ void VulkrApp::animateInstances()
 		objectSSBO[i].transformIT = objInstances[i].transformIT;
 	}
 	objInstanceBuffer->unmap();
+	objInstanceBuffer->flush();
 }
 
 void VulkrApp::animateWithCompute()
@@ -1092,17 +1093,13 @@ void VulkrApp::initializeBufferData()
 	cameraData.view = cameraController->getCamera()->getView();
 	cameraData.proj = cameraController->getCamera()->getProjection();
 
-	void *mappedData = cameraBuffer->map();
-	memcpy(mappedData, &cameraData, sizeof(cameraData));
-	cameraBuffer->unmap();
+	cameraBuffer->update(&cameraData, sizeof(CameraData));
 
 	// Update the light buffer
-	mappedData = lightBuffer->map();
-	memcpy(mappedData, sceneLights.data(), sizeof(LightData) * sceneLights.size());
-	lightBuffer->unmap();
+	lightBuffer->update(sceneLights.data(), sizeof(LightData) * sceneLights.size());
 
 	// Update the obj instance buffer
-	mappedData = objInstanceBuffer->map();
+	void *mappedData = objInstanceBuffer->map();
 	ObjInstance *objInstanceSSBO = static_cast<ObjInstance *>(mappedData);
 	for (int instanceIndex = 0; instanceIndex < objInstances.size(); instanceIndex++)
 	{
@@ -1116,6 +1113,7 @@ void VulkrApp::initializeBufferData()
 		objInstanceSSBO[instanceIndex].materialIndices = objInstances[instanceIndex].materialIndices;
 	}
 	objInstanceBuffer->unmap();
+	objInstanceBuffer->flush();
 
 	// Update the gltf instance buffer
 	mappedData = gltfInstanceBuffer->map();
@@ -1126,6 +1124,7 @@ void VulkrApp::initializeBufferData()
 		gtlfInstanceSSBO[instanceIndex].modelIndex = gltfInstances[instanceIndex].modelIndex;
 	}
 	gltfInstanceBuffer->unmap();
+	gltfInstanceBuffer->flush();
 }
 
 void VulkrApp::dataUpdatePerFrame()
@@ -1140,17 +1139,13 @@ void VulkrApp::dataUpdatePerFrame()
 		cameraData.view = cameraController->getCamera()->getView();
 		cameraData.proj = cameraController->getCamera()->getProjection();
 
-		void *mappedData = cameraBuffer->map();
-		memcpy(mappedData, &cameraData, sizeof(cameraData));
-		cameraBuffer->unmap();
+		cameraBuffer->update(&cameraData, sizeof(CameraData));
 	}
 
 	if (haveLightsUpdated)
 	{
 		// Update the light buffer
-		void *mappedData = lightBuffer->map();
-		memcpy(mappedData, sceneLights.data(), sizeof(LightData) * sceneLights.size());
-		lightBuffer->unmap();
+		lightBuffer->update(sceneLights.data(), sizeof(LightData) * sceneLights.size());
 
 		haveLightsUpdated = false;
 	}
@@ -2450,10 +2445,7 @@ std::unique_ptr<Image> VulkrApp::createTextureImage(const std::string &filename)
 	memoryInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
 
 	std::unique_ptr<Buffer> stagingBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
-
-	void *mappedData = stagingBuffer->map();
-	memcpy(mappedData, pixels, static_cast<size_t>(imageSize));
-	stagingBuffer->unmap();
+	stagingBuffer->update(pixels, static_cast<size_t>(imageSize));
 
 	stbi_image_free(pixels);
 
@@ -2679,6 +2671,8 @@ void VulkrApp::createIndexBuffer(ObjModelRenderingData &objModelRenderingData, c
 	void *mappedData = stagingBuffer->map();
 	memcpy(mappedData, objLoader.indices.data(), static_cast<size_t>(bufferSize));
 	stagingBuffer->unmap();
+	stagingBuffer->flush();
+	
 	copyBufferToBuffer(*stagingBuffer, *(objModelRenderingData.indexBuffer), bufferSize);
 }
 
@@ -2704,6 +2698,7 @@ void VulkrApp::createMaterialBuffer(ObjModelRenderingData &objModelRenderingData
 	void *mappedData = stagingBuffer->map();
 	memcpy(mappedData, objLoader.materials.data(), static_cast<size_t>(bufferSize));
 	stagingBuffer->unmap();
+	stagingBuffer->flush();
 	copyBufferToBuffer(*stagingBuffer, *(objModelRenderingData.materialsBuffer), bufferSize);
 }
 
@@ -2771,6 +2766,7 @@ void VulkrApp::createMaterialBuffer(GltfModelRenderingData &gltfModelRenderingDa
 	void *mappedData = stagingBuffer->map();
 	memcpy(mappedData, gltfMaterials.data(), static_cast<size_t>(bufferSize));
 	stagingBuffer->unmap();
+	stagingBuffer->flush();
 	copyBufferToBuffer(*stagingBuffer, *(gltfModelRenderingData.materialsBuffer), bufferSize);
 }
 
@@ -2796,6 +2792,7 @@ void VulkrApp::createMaterialIndicesBuffer(ObjModelRenderingData &objModelRender
 	void *mappedData = stagingBuffer->map();
 	memcpy(mappedData, objLoader.materialIndices.data(), static_cast<size_t>(bufferSize));
 	stagingBuffer->unmap();
+	stagingBuffer->flush();
 	copyBufferToBuffer(*stagingBuffer, *(objModelRenderingData.materialsIndexBuffer), bufferSize);
 }
 
@@ -2914,6 +2911,7 @@ void VulkrApp::prepareParticleData()
 	void *mappedData = stagingBuffer->map();
 	memcpy(mappedData, allParticleData.data(), static_cast<size_t>(particleBufferSize));
 	stagingBuffer->unmap();
+	stagingBuffer->flush();
 
 	// SSBO won't be changed on the host after upload so copy to device local memory
 	particleBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
@@ -3393,8 +3391,9 @@ void VulkrApp::loadGltfModel(const std::string &gltfFilePath)
 	gltfModelRenderingDataList.push_back(std::move(gltfModelRenderingData));
 }
 
-void VulkrApp::createObjInstance(const std::string &objFilePath, glm::mat4 transform)
+void VulkrApp::createObjInstance(const std::string &objFileName, glm::mat4 transform)
 {
+	const std::string objFilePath = defaultObjModelFilePath + objFileName;
 	uint64_t objModelIndex = getObjModelIndex(objFilePath);
 	ObjModelRenderingData &objModelRenderingData = objModelRenderingDataList[objModelIndex];
 
@@ -3417,8 +3416,9 @@ void VulkrApp::createObjInstance(const std::string &objFilePath, glm::mat4 trans
 	objInstances.push_back(std::move(instance));
 }
 
-void VulkrApp::createGltfInstance(const std::string &gltfFilePath, glm::mat4 transform)
+void VulkrApp::createGltfInstance(const std::string &gltfFileName, glm::mat4 transform)
 {
+	const std::string gltfFilePath = defaultGltfModelFilePath + gltfFileName;
 	uint64_t gltfModelIndex = getGltfModelIndex(gltfFilePath);
 
 	GltfInstance instance;
@@ -3431,7 +3431,7 @@ void VulkrApp::createGltfInstance(const std::string &gltfFilePath, glm::mat4 tra
 void VulkrApp::createSceneLights()
 {
 	LightData l1;
-	l1.position = glm::vec3(-1.5f, 4.0f, 0.0f);
+	l1.position = glm::vec3(-2.9f, 4.0f, 0.0f);
 	l1.rotation = glm::vec2(75.0f, 40.0f);
 	LightData l2;
 	l2.position = glm::vec3(11.5f, 3.5f, 1.5f);
@@ -3461,9 +3461,9 @@ void VulkrApp::loadModels()
 	};
 
 	// TODO: some glTF files (maybe with skinning and rigging?) are deformed, this needs to be investigated
-	const std::array<std::string, 1> gltfModelFiles{
-		//"DamagedHelmet.gltf"
-		//"CesiumMan.glb",
+	const std::array<std::string, 3> gltfModelFiles{
+		"DamagedHelmet.gltf",
+		"CesiumMan.glb",
 		"ClearcoatWicker.glb"
 	};
 
@@ -3532,21 +3532,21 @@ void VulkrApp::createSceneInstances()
 	// Specify obj instances
 
 	// The sphere instance index is hardcoded in the animate.comp file, so when you add or remove an instance, that must be updated
-	createObjInstance(defaultObjModelFilePath + "plane.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(0, 0, 0)));
-	createObjInstance(defaultObjModelFilePath + "Medieval_building.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ 5, 0,0 }));
+	createObjInstance("plane.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(0, 0, 0)));
+	createObjInstance("Medieval_building.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ 5, 0,0 }));
 	// All wuson instances are assumed to be one after another for the transformation matrix calculations
-	createObjInstance(defaultObjModelFilePath + "wuson.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 3)));
-	createObjInstance(defaultObjModelFilePath + "wuson.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 7)));
-	createObjInstance(defaultObjModelFilePath + "wuson.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 10)));
-	createObjInstance(defaultObjModelFilePath + "Medieval_building.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ 15, 0,0 }));
-	//createObjInstance(defaultObjModelFilePath +"monkey_smooth.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 3)));
-	//createObjInstance(defaultObjModelFilePath +"lost_empire.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ 5,-10,0 }));
+	createObjInstance("wuson.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 3)));
+	createObjInstance("wuson.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 7)));
+	createObjInstance("wuson.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 10)));
+	createObjInstance("Medieval_building.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ 15, 0,0 }));
+	//createObjInstance("monkey_smooth.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 3)));
+	//createObjInstance(lost_empire.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ 5,-10,0 }));
 
 	// ALl particle instances are assumed to be grouped together
 	computeParticlesPushConstant.startingIndex = static_cast<int>(objInstances.size());
 	for (int i = 0; i < computeParticlesPushConstant.particleCount; ++i)
 	{
-		createObjInstance(defaultObjModelFilePath + "cube.obj", glm::translate(glm::scale(glm::mat4{ 1.0 }, glm::vec3(0.2f, 0.2f, 0.2f)), glm::vec3(allParticleData[i].position.xyz)));
+		createObjInstance("cube.obj", glm::translate(glm::scale(glm::mat4{ 1.0 }, glm::vec3(0.2f, 0.2f, 0.2f)), glm::vec3(allParticleData[i].position.xyz)));
 	}
 
 	if (objInstances.size() > maxObjInstanceCount)
@@ -3555,8 +3555,9 @@ void VulkrApp::createSceneInstances()
 	}
 
 	// Specify gltf instances
-	createGltfInstance(defaultGltfModelFilePath + "ClearcoatWicker.glb", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ 1, 0, 1 }));
-	createGltfInstance(defaultGltfModelFilePath + "ClearcoatWicker.glb", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ 1, 3, 0 }));
+	createGltfInstance("ClearcoatWicker.glb", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ 1, 0, 1 }));
+	createGltfInstance("ClearcoatWicker.glb", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ 1, 3, 0 }));
+	createGltfInstance("DamagedHelmet.gltf", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ -2, 3, 0 }));
 
 	if (gltfInstances.size() > maxGltfInstanceCount)
 	{
@@ -4139,6 +4140,7 @@ void VulkrApp::buildTlas(bool update)
 			m_accelerationStructureInstances[i].transform = toTransformMatrixKHR(objectSSBO[i].transform);
 		}
 		objInstanceBuffer->unmap();
+		objInstanceBuffer->flush();
 	}
 	else
 	{
@@ -4191,6 +4193,7 @@ void VulkrApp::buildTlas(bool update)
 	void *mappedData = stagingBuffer->map();
 	memcpy(mappedData, m_accelerationStructureInstances.data(), static_cast<size_t>(bufferSize));
 	stagingBuffer->unmap();
+	stagingBuffer->flush();
 	copyBufferToBuffer(*stagingBuffer, *m_instBuffer, bufferSize);
 	setDebugUtilsObjectName(device->getHandle(), m_instBuffer->getHandle(), "Instance Buffer");
 	VkBufferDeviceAddressInfo bufferDeviceAddressInfo{ VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO };
@@ -4540,6 +4543,8 @@ void VulkrApp::createRaytracingShaderBindingTable()
 		pData += groupSizeAligned;
 	}
 	stagingBuffer->unmap();
+	stagingBuffer->flush();
+
 	copyBufferToBuffer(*stagingBuffer, *m_rtSBTBuffer, sbtSize);
 }
 
