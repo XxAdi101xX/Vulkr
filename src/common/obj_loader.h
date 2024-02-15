@@ -30,13 +30,17 @@
 
 #include <glm/gtx/hash.hpp> // requires GLM_ENABLE_EXPERIMENTAL
 
- /* Obj vertex structure */
+ /* Obj vertex structure; used in shader so needs to follow alignment rules */
 struct VertexObj
 {
 	glm::vec3 position;
+	int padding1;
 	glm::vec3 normal;
+	int padding2;
 	glm::vec3 color;
+	int padding3;
 	glm::vec2 textureCoordinate;
+	glm::vec2 padding4;
 
 	bool operator==(const VertexObj &other) const
 	{
@@ -58,19 +62,19 @@ template <> struct hash<VertexObj>
 };
 } // namespace std
 
-/* Obj material structure */
+/* Obj material structure; used in shader so needs to follow alignment rules */
 struct MaterialObj
 {
 	glm::vec3 ambient = glm::vec3(0.1f, 0.1f, 0.1f);
-	glm::vec3 diffuse = glm::vec3(0.7f, 0.7f, 0.7f);
-	glm::vec3 specular = glm::vec3(1.0f, 1.0f, 1.0f);
-	glm::vec3 transmittance = glm::vec3(0.0f, 0.0f, 0.0f);
-	glm::vec3 emission = glm::vec3(0.0f, 0.0f, 0.10);
 	float shininess = 0.f;
+	glm::vec3 diffuse = glm::vec3(0.7f, 0.7f, 0.7f);
 	float ior = 1.0f;	   // index of refraction
+	glm::vec3 specular = glm::vec3(1.0f, 1.0f, 1.0f);
 	float dissolve = 1.0f; // 1 == opaque; 0 == fully transparent
-	// illumination model (see http://www.fileformat.info/format/material/)
+	glm::vec3 transmittance = glm::vec3(0.0f, 0.0f, 0.0f);
 	int illum = 0;
+	glm::vec3 emission = glm::vec3(0.0f, 0.0f, 0.10);
+	// illumination model (see http://www.fileformat.info/format/material/)
 	int textureID = -1;
 };
 

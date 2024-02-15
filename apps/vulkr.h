@@ -100,7 +100,7 @@ constexpr uint32_t maxLightCount{ 100u };
 #ifdef VULKR_DEBUG
 constexpr uint32_t particlesPerAttractor{ 64u };
 #else
-constexpr uint32_t particlesPerAttractor{ 1024u };
+constexpr uint32_t particlesPerAttractor{ 128u };
 #endif
 
 constexpr std::array<glm::vec3, 6> attractors = {

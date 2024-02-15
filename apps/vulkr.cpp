@@ -533,18 +533,6 @@ void VulkrApp::update()
 	transitionSwapchainLayoutBarrier.image = swapchain->getImages()[swapchainImageIndex]->getHandle();
 	transitionSwapchainLayoutBarrier.subresourceRange = subresourceRange;
 
-	VkDependencyInfo dependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
-	dependencyInfo.pNext = nullptr;
-	dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-	dependencyInfo.memoryBarrierCount = 0u;
-	dependencyInfo.pMemoryBarriers = nullptr;
-	dependencyInfo.bufferMemoryBarrierCount = 0u;
-	dependencyInfo.pBufferMemoryBarriers = nullptr;
-	dependencyInfo.imageMemoryBarrierCount = 1u;
-	dependencyInfo.pImageMemoryBarriers = &transitionSwapchainLayoutBarrier;
-
-	vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame][2]->getHandle(), &dependencyInfo);
-
 	// Prepare the historyImage as a transfer destination
 	VkImageMemoryBarrier2 transitionHistoryImageLayoutBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
 	transitionHistoryImageLayoutBarrier.pNext = nullptr;
@@ -559,17 +547,19 @@ void VulkrApp::update()
 	transitionHistoryImageLayoutBarrier.image = historyImageView->getImage()->getHandle();
 	transitionHistoryImageLayoutBarrier.subresourceRange = subresourceRange;
 
+	std::array<VkImageMemoryBarrier2, 2> transitionImageBarriersForWrites{ transitionSwapchainLayoutBarrier, transitionHistoryImageLayoutBarrier };
+	VkDependencyInfo dependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
 	dependencyInfo.pNext = nullptr;
 	dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
 	dependencyInfo.memoryBarrierCount = 0u;
 	dependencyInfo.pMemoryBarriers = nullptr;
 	dependencyInfo.bufferMemoryBarrierCount = 0u;
 	dependencyInfo.pBufferMemoryBarriers = nullptr;
-	dependencyInfo.imageMemoryBarrierCount = 1u;
-	dependencyInfo.pImageMemoryBarriers = &transitionHistoryImageLayoutBarrier;
+	dependencyInfo.imageMemoryBarrierCount = transitionImageBarriersForWrites.size();
+	dependencyInfo.pImageMemoryBarriers = transitionImageBarriersForWrites.data();
 
-	vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame][2]->getHandle(), &dependencyInfo);
 	// Note that the layout of the outputImage has been transitioned from VK_IMAGE_LAYOUT_GENERAL to VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL as defined in the postProcessingRenderPass configuration
+	vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame][2]->getHandle(), &dependencyInfo);
 
 	VkImageCopy outputImageCopyRegion{};
 	outputImageCopyRegion.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u };
@@ -577,8 +567,12 @@ void VulkrApp::update()
 	outputImageCopyRegion.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u };
 	outputImageCopyRegion.dstOffset = { 0, 0, 0 };
 	outputImageCopyRegion.extent = { swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, 1u };
+
 	// Copy output image to swapchain image and history image (note that they can execute in any order due to lack of barriers)
 	vkCmdCopyImage(frameData.commandBuffers[currentFrame][2]->getHandle(), outputImageView->getImage()->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swapchain->getImages()[swapchainImageIndex]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &outputImageCopyRegion);
+
+	// TODO: There is a WRITE AFTER READ hazard with history buffer since the imageLoad in postProcess.frag could happen while it's being written to (from double buffering). Tbh we shouldn't even be conducting a copy on the CPU side,
+	// we should be able to write directly to the history buffer in the fragment shader
 	vkCmdCopyImage(frameData.commandBuffers[currentFrame][2]->getHandle(), outputImageView->getImage()->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, historyImageView->getImage()->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &outputImageCopyRegion);
 
 	VkBufferCopy cameraBufferCopyRegion{};
@@ -606,31 +600,6 @@ void VulkrApp::update()
 	transitionHistoryImageLayoutBarrier.image = historyImageView->getImage()->getHandle();
 	transitionHistoryImageLayoutBarrier.subresourceRange = subresourceRange;
 
-	VkImageMemoryBarrier2 transitionOutputImageLayoutBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
-	transitionOutputImageLayoutBarrier.pNext = nullptr;
-	transitionOutputImageLayoutBarrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT; // Wait on transfer to finish
-	transitionOutputImageLayoutBarrier.srcAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
-	transitionOutputImageLayoutBarrier.dstStageMask = VK_PIPELINE_STAGE_2_NONE;
-	transitionOutputImageLayoutBarrier.dstAccessMask = VK_ACCESS_2_NONE;
-	transitionOutputImageLayoutBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-	transitionOutputImageLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-	transitionOutputImageLayoutBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	transitionOutputImageLayoutBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	transitionOutputImageLayoutBarrier.image = outputImageView->getImage()->getHandle();
-	transitionOutputImageLayoutBarrier.subresourceRange = subresourceRange;
-
-	std::array<VkImageMemoryBarrier2, 2> transitionImageBarriers{ transitionHistoryImageLayoutBarrier, transitionOutputImageLayoutBarrier };
-	dependencyInfo.pNext = nullptr;
-	dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-	dependencyInfo.memoryBarrierCount = 0u;
-	dependencyInfo.pMemoryBarriers = nullptr;
-	dependencyInfo.bufferMemoryBarrierCount = 0u;
-	dependencyInfo.pBufferMemoryBarriers = nullptr;
-	dependencyInfo.imageMemoryBarrierCount = to_u32(transitionImageBarriers.size());
-	dependencyInfo.pImageMemoryBarriers = transitionImageBarriers.data();
-
-	vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame][2]->getHandle(), &dependencyInfo);
-
 	// Transition the current swapchain image back for presentation
 	transitionSwapchainLayoutBarrier.pNext = nullptr;
 	transitionSwapchainLayoutBarrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT; // Wait for transfer to finish
@@ -644,14 +613,29 @@ void VulkrApp::update()
 	transitionSwapchainLayoutBarrier.image = swapchain->getImages()[swapchainImageIndex]->getHandle();
 	transitionSwapchainLayoutBarrier.subresourceRange = subresourceRange;
 
+	// Transition the output image and output image back to the general layout
+	VkImageMemoryBarrier2 transitionOutputImageLayoutBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+	transitionOutputImageLayoutBarrier.pNext = nullptr;
+	transitionOutputImageLayoutBarrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT; // Wait on transfer to finish
+	transitionOutputImageLayoutBarrier.srcAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+	transitionOutputImageLayoutBarrier.dstStageMask = VK_PIPELINE_STAGE_2_NONE;
+	transitionOutputImageLayoutBarrier.dstAccessMask = VK_ACCESS_2_NONE;
+	transitionOutputImageLayoutBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+	transitionOutputImageLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+	transitionOutputImageLayoutBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	transitionOutputImageLayoutBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	transitionOutputImageLayoutBarrier.image = outputImageView->getImage()->getHandle();
+	transitionOutputImageLayoutBarrier.subresourceRange = subresourceRange;
+
+	std::array<VkImageMemoryBarrier2, 3> transitionImageBarriers{ transitionHistoryImageLayoutBarrier, transitionSwapchainLayoutBarrier, transitionOutputImageLayoutBarrier };
 	dependencyInfo.pNext = nullptr;
 	dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
 	dependencyInfo.memoryBarrierCount = 0u;
 	dependencyInfo.pMemoryBarriers = nullptr;
 	dependencyInfo.bufferMemoryBarrierCount = 0u;
 	dependencyInfo.pBufferMemoryBarriers = nullptr;
-	dependencyInfo.imageMemoryBarrierCount = 1u;
-	dependencyInfo.pImageMemoryBarriers = &transitionSwapchainLayoutBarrier;
+	dependencyInfo.imageMemoryBarrierCount = to_u32(transitionImageBarriers.size());
+	dependencyInfo.pImageMemoryBarriers = transitionImageBarriers.data();
 
 	vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame][2]->getHandle(), &dependencyInfo);
 
@@ -1022,7 +1006,7 @@ void VulkrApp::renderNode(vulkr::gltf::Node *node, uint32_t instanceIndex)
 			gltfPushConstant.materialIndex = primitive->material.index;
 			gltfPushConstant.lightCount = static_cast<int>(sceneLights.size());
 
-			vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GltfPushConstant), &gltfPushConstant);
+			vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0u, sizeof(GltfPushConstant), &gltfPushConstant);
 
 			if (primitive->hasIndices)
 			{
@@ -1311,6 +1295,7 @@ void VulkrApp::createSurface()
 void VulkrApp::createDevice()
 {
 	VkPhysicalDeviceFeatures deviceFeatures{};
+	deviceFeatures.fragmentStoresAndAtomics = VK_TRUE;
 	deviceFeatures.geometryShader = VK_TRUE;
 	deviceFeatures.samplerAnisotropy = VK_TRUE;
 	deviceFeatures.shaderInt64 = VK_TRUE;
@@ -3461,10 +3446,12 @@ void VulkrApp::loadModels()
 	};
 
 	// TODO: some glTF files (maybe with skinning and rigging?) are deformed, this needs to be investigated
-	const std::array<std::string, 3> gltfModelFiles{
+	const std::array<std::string, 5> gltfModelFiles{
 		"DamagedHelmet.gltf",
 		"CesiumMan.glb",
-		"ClearcoatWicker.glb"
+		"ClearcoatWicker.glb",
+		"MosquitoInAmber.glb",
+		"WaterBottle.glb"
 	};
 
 	// Load obj files
@@ -3558,6 +3545,8 @@ void VulkrApp::createSceneInstances()
 	createGltfInstance("ClearcoatWicker.glb", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ 1, 0, 1 }));
 	createGltfInstance("ClearcoatWicker.glb", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ 1, 3, 0 }));
 	createGltfInstance("DamagedHelmet.gltf", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ -2, 3, 0 }));
+	createGltfInstance("MosquitoInAmber.glb", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ -4, 3, 0 }));
+	createGltfInstance("WaterBottle.glb", glm::translate(glm::scale(glm::mat4{ 1.0 }, glm::vec3(4.0)), glm::vec3{ -2, 2, 0 }));
 
 	if (gltfInstances.size() > maxGltfInstanceCount)
 	{

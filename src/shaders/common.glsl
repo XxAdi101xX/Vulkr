@@ -3,9 +3,13 @@
 struct Vertex
 {
     vec3 position;
+    int padding1;
     vec3 normal;
+    int padding2;
     vec3 color;
+    int padding3;
     vec2 textureCoordinate;
+    vec2 padding4;
 };
 
 struct ObjInstance
@@ -30,14 +34,14 @@ struct GltfInstance
 struct WaveFrontMaterial
 {
     vec3  ambient;
-    vec3  diffuse;
-    vec3  specular;
-    vec3  transmittance;
-    vec3  emission;
     float shininess;
+    vec3  diffuse;
     float ior;       // index of refraction
+    vec3  specular;
     float dissolve;  // 1 == opaque; 0 == fully transparent
+    vec3  transmittance;
     int   illum;     // illumination model (see http://www.fileformat.info/format/material/)
+    vec3  emission;
     int   textureId;
 };
 
