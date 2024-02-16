@@ -17,7 +17,7 @@ layout(location = 0) rayPayloadInEXT RayPayload payload;
 layout(location = 1) rayPayloadEXT bool isShadowed;
 
 layout(buffer_reference, scalar) buffer Vertices { Vertex v[]; }; // Positions of an object
-layout(buffer_reference, scalar) buffer Indices { ivec3 i[]; }; // Triangle indices
+layout(buffer_reference, scalar) buffer Indices { int i[]; }; // Triangle indices
 layout(buffer_reference, scalar) buffer Materials {WaveFrontMaterial m[]; }; // Array of all materials on an object
 layout(buffer_reference, scalar) buffer MaterialIndices {int i[]; }; // Material ID for each triangle
 
@@ -45,13 +45,10 @@ void main()
     Materials materials = Materials(objResource.materials);
     MaterialIndices matIndices = MaterialIndices(objResource.materialIndices);
   
-    // Indices of the triangle
-    ivec3 ind = indices.i[gl_PrimitiveID];
-  
     // Vertex of the triangle
-    Vertex v0 = vertices.v[ind.x];
-    Vertex v1 = vertices.v[ind.y];
-    Vertex v2 = vertices.v[ind.z];
+    Vertex v0 = vertices.v[indices.i[gl_PrimitiveID * 3]];
+    Vertex v1 = vertices.v[indices.i[gl_PrimitiveID * 3 + 1]];
+    Vertex v2 = vertices.v[indices.i[gl_PrimitiveID * 3 + 2]];
 
     // The hitpoint's barycentric coordinates
     const vec3 barycentrics = vec3(1.0 - attribs.x - attribs.y, attribs.x, attribs.y);
