@@ -30,7 +30,9 @@
 
 #include "logger.h"
 
-#define VULKR_DEBUG /* Enable the validation layers and all debugging messages */
+#ifdef _DEBUG // Visual Studio defines this for debug builds and NDEBUG for non-debug builds
+	#define VULKR_DEBUG /* Enable the validation layers and all debugging messages */
+#endif
 
  //#define RENDERDOC_DEBUG /* Disable extensions unsupported by RenderDoc (like raytracing) in order to use it to debug this application */
 
