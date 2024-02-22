@@ -522,8 +522,8 @@ void VulkrApp::update()
 	// Prepare the current swapchain as a transfer destination
 	VkImageMemoryBarrier2 transitionSwapchainLayoutBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
 	transitionSwapchainLayoutBarrier.pNext = nullptr;
-	transitionSwapchainLayoutBarrier.srcStageMask = VK_PIPELINE_STAGE_2_NONE; // We have a semaphore that synchronizes the post processing pass with all of the things happening on frameData.commandBuffers[currentFrame][2]->getHandle()
-	transitionSwapchainLayoutBarrier.srcAccessMask = VK_ACCESS_2_NONE;
+	transitionSwapchainLayoutBarrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT; // Wait for all reads during and before transfers before we write to it during the transfer phase
+	transitionSwapchainLayoutBarrier.srcAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
 	transitionSwapchainLayoutBarrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
 	transitionSwapchainLayoutBarrier.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
 	transitionSwapchainLayoutBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -536,8 +536,8 @@ void VulkrApp::update()
 	// Prepare the historyImage as a transfer destination
 	VkImageMemoryBarrier2 transitionHistoryImageLayoutBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
 	transitionHistoryImageLayoutBarrier.pNext = nullptr;
-	transitionHistoryImageLayoutBarrier.srcStageMask = VK_PIPELINE_STAGE_2_NONE; // We have a semaphore that synchronizes the post processing pass with all of the things happening on frameData.commandBuffers[currentFrame][2]->getHandle() hence no other required
-	transitionHistoryImageLayoutBarrier.srcAccessMask = VK_ACCESS_2_NONE;
+	transitionHistoryImageLayoutBarrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT; // Wait for all reads during and before transfers before we write to it during the transfer phase
+	transitionHistoryImageLayoutBarrier.srcAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
 	transitionHistoryImageLayoutBarrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
 	transitionHistoryImageLayoutBarrier.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
 	transitionHistoryImageLayoutBarrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
@@ -547,7 +547,21 @@ void VulkrApp::update()
 	transitionHistoryImageLayoutBarrier.image = historyImageView->getImage()->getHandle();
 	transitionHistoryImageLayoutBarrier.subresourceRange = subresourceRange;
 
-	std::array<VkImageMemoryBarrier2, 2> transitionImageBarriersForWrites{ transitionSwapchainLayoutBarrier, transitionHistoryImageLayoutBarrier };
+	// Note that the layout of the outputImage has already been transitioned from VK_IMAGE_LAYOUT_GENERAL to VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL as defined in the postProcessingRenderPass configuration, but we need the barrier for synchronization
+	VkImageMemoryBarrier2 outputImageLayoutBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+	outputImageLayoutBarrier.pNext = nullptr;
+	outputImageLayoutBarrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT; // Wait for all writes during and before transfers before we read from it during the transfer phase
+	outputImageLayoutBarrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+	outputImageLayoutBarrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+	outputImageLayoutBarrier.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+	outputImageLayoutBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	outputImageLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+	outputImageLayoutBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	outputImageLayoutBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	outputImageLayoutBarrier.image = outputImageView->getImage()->getHandle();
+	outputImageLayoutBarrier.subresourceRange = subresourceRange;
+
+	std::array<VkImageMemoryBarrier2, 3> transitionImageBarriersForWrites{ transitionSwapchainLayoutBarrier, transitionHistoryImageLayoutBarrier, outputImageLayoutBarrier };
 	VkDependencyInfo dependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
 	dependencyInfo.pNext = nullptr;
 	dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
@@ -558,7 +572,6 @@ void VulkrApp::update()
 	dependencyInfo.imageMemoryBarrierCount = transitionImageBarriersForWrites.size();
 	dependencyInfo.pImageMemoryBarriers = transitionImageBarriersForWrites.data();
 
-	// Note that the layout of the outputImage has been transitioned from VK_IMAGE_LAYOUT_GENERAL to VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL as defined in the postProcessingRenderPass configuration
 	vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame][2]->getHandle(), &dependencyInfo);
 
 	VkImageCopy outputImageCopyRegion{};
@@ -571,8 +584,6 @@ void VulkrApp::update()
 	// Copy output image to swapchain image and history image (note that they can execute in any order due to lack of barriers)
 	vkCmdCopyImage(frameData.commandBuffers[currentFrame][2]->getHandle(), outputImageView->getImage()->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swapchain->getImages()[swapchainImageIndex]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &outputImageCopyRegion);
 
-	// TODO: There is a WRITE AFTER READ hazard with history buffer since the imageLoad in postProcess.frag could happen while it's being written to (from double buffering). Tbh we shouldn't even be conducting a copy on the CPU side,
-	// we should be able to write directly to the history buffer in the fragment shader
 	vkCmdCopyImage(frameData.commandBuffers[currentFrame][2]->getHandle(), outputImageView->getImage()->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, historyImageView->getImage()->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &outputImageCopyRegion);
 
 	VkBufferCopy cameraBufferCopyRegion{};
@@ -604,7 +615,7 @@ void VulkrApp::update()
 	transitionSwapchainLayoutBarrier.pNext = nullptr;
 	transitionSwapchainLayoutBarrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT; // Wait for transfer to finish
 	transitionSwapchainLayoutBarrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-	transitionSwapchainLayoutBarrier.dstStageMask = VK_PIPELINE_STAGE_2_NONE;
+	transitionSwapchainLayoutBarrier.dstStageMask = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT; // There was a validation error when VK_PIPELINE_STAGE_2_NONE is used, might be a validation bug but this should be equivilant
 	transitionSwapchainLayoutBarrier.dstAccessMask = VK_ACCESS_2_NONE;
 	transitionSwapchainLayoutBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
 	transitionSwapchainLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
