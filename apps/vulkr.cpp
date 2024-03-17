@@ -1829,9 +1829,9 @@ void VulkrApp::createMainRasterizationPipeline()
 
 	std::vector<VkDescriptorSetLayout> descriptorSetLayoutHandles{
 		globalDescriptorSetLayout->getHandle(),
-			objectDescriptorSetLayout->getHandle(),
-			textureDescriptorSetLayout->getHandle(),
-			taaDescriptorSetLayout->getHandle()
+		objectDescriptorSetLayout->getHandle(),
+		textureDescriptorSetLayout->getHandle(),
+		taaDescriptorSetLayout->getHandle()
 	};
 
 	std::vector<VkPushConstantRange> pushConstantRangeHandles;
@@ -3457,12 +3457,13 @@ void VulkrApp::loadModels()
 	};
 
 	// TODO: some glTF files (maybe with skinning and rigging?) are deformed, this needs to be investigated
-	const std::array<std::string, 5> gltfModelFiles{
+	const std::array<std::string, 6> gltfModelFiles{
 		"DamagedHelmet.gltf",
 		"CesiumMan.glb",
 		"ClearcoatWicker.glb",
 		"MosquitoInAmber.glb",
-		"WaterBottle.glb"
+		"WaterBottle.glb",
+		"SciFiHelmet.gltf"
 	};
 
 	// Load obj files
@@ -3558,6 +3559,7 @@ void VulkrApp::createSceneInstances()
 	createGltfInstance("DamagedHelmet.gltf", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ -2, 3, 0 }));
 	createGltfInstance("MosquitoInAmber.glb", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ -4, 3, 0 }));
 	createGltfInstance("WaterBottle.glb", glm::translate(glm::scale(glm::mat4{ 1.0 }, glm::vec3(4.0)), glm::vec3{ -2, 2, 0 }));
+	createGltfInstance("SciFiHelmet.gltf", glm::translate(glm::scale(glm::mat4{ 1.0 }, glm::vec3(4.0)), glm::vec3{ -2, 1, 0 }));
 
 	if (gltfInstances.size() > maxGltfInstanceCount)
 	{

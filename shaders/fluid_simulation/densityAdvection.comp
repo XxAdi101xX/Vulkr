@@ -1,0 +1,84 @@
+/* Copyright (c) 2022 Adithya Venkatarao
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining
+ * a copy of this software and associated documentation files (the
+ * "Software"), to deal in the Software without restriction, including
+ * without limitation the rights to use, copy, modify, merge, publish,
+ * distribute, sublicense, and/or sell copies of the Software, and to
+ * permit persons to whom the Software is furnished to do so, subject to
+ * the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be
+ * included in all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+ * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+ * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+ * IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+ * CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+ * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+ * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
+
+#version 460
+//#extension GL_EXT_debug_printf : enable
+
+layout(constant_id = 0) const uint workGroupSize = 64u;
+layout(local_size_x_id = 0) in; // Maps to the constant_id = 0 specialization constant
+
+layout(set = 0, binding = 0) uniform sampler2D fluidVelocityInputTextureImage;
+// layout(set = 0, binding = 1) uniform sampler2D fluidVelocityDivergenceInputTextureImage;
+// layout(set = 0, binding = 2) uniform sampler2D fluidPressureInputTextureImage;
+layout(set = 0, binding = 3) uniform sampler2D fluidDensityInputTextureImage;
+layout(set = 1, binding = 0, rgba32f) uniform writeonly image2D fluidSimulationOutputTextureImage;
+
+layout(push_constant) uniform FluidSimulationPushConstant
+{
+	vec2 gridSize;
+	float gridScale;
+	float timestep;
+	vec3 splatForce;
+	float splatRadius;
+	vec2 splatPosition;
+	float dissipation;
+	int blank; // padding
+} pushConstant;
+
+
+vec2 bilerp(sampler2D tex, vec2 p)
+{
+    vec4 ij;
+    ij.xy = floor(p - 0.5f) + 0.5f;
+    ij.zw = ij.xy + 1.0f;
+
+	vec4 uv = ij / pushConstant.gridSize.xyxy;
+	vec2 tex11 = texture(tex, uv.xy).xy;
+	vec2 tex21 = texture(tex, uv.zy).xy;
+	vec2 tex12 = texture(tex, uv.xw).xy;
+	vec2 tex22 = texture(tex, uv.zw).xy;
+
+	vec2 t = p - ij.xy;
+
+	return mix(mix(tex11, tex21, t.x), mix(tex12, tex22, t.x), t.y);
+}
+
+void main() 
+{
+	uint globalInvocationId = gl_GlobalInvocationID.x;
+	if (globalInvocationId >= pushConstant.gridSize.x * pushConstant.gridSize.y) return;
+
+	ivec2 imageIndex;
+	imageIndex.x = int(mod(globalInvocationId, pushConstant.gridSize.x));
+	imageIndex.y = int(globalInvocationId / pushConstant.gridSize.x);
+	vec2 screenSpaceCoords = imageIndex + 0.5f;
+	vec2 uv = screenSpaceCoords / pushConstant.gridSize;
+
+	float scale = 1.0f / pushConstant.gridScale;
+	vec2 pos = screenSpaceCoords - pushConstant.timestep * scale * texture(fluidVelocityInputTextureImage, uv).xy;
+
+	// Advect the fluid density
+	vec4 advectedDensity = vec4(bilerp(fluidDensityInputTextureImage, pos), 0.0f, 1.0f);
+	imageStore(fluidSimulationOutputTextureImage, imageIndex, advectedDensity);
+
+	//imageStore(fluidSimulationOutputTextureImage, imageIndex, vec4((sin(pushConstant.timestep* 10) + 1.0f) / 2.0f, 0.0f, 0.0f, 1.0f));
+}

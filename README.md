@@ -46,12 +46,20 @@ Vulkr
 |   |-- glTF models             # All glTF files (.gltf & .glb)
 |   |-- OBJ model               # All OBJ related files (.obj and .mtl)
 |   |-- textures                # Textures for both gltf and obj models (note that some glb files embed texture information)
-|-- src                         # Source files
+|-- shaders                     
+|   |-- fluid_simulation        # ALl shader related to the 2D fluid simulation app        
+|   |-- particle_system         # Shaders required to calculate and render particle positions       
+|   |-- rasterization           # Shaders for rasterization techniques eg. forward, deferred rendering  
+|   |-- ray_tracing				# Ray tracing related shaders
+|   |-- post_processing			# Shaders for all post processing techniques eg. TAA
+|   |-- common.glsl				# Contains common structs that need to be synced across CPU/GPU and are used in various shaders
+|   |-- random.glsl				# RNG helpers
+|   |-- build.bat				# The script to compile shaders into spirv. If you don't execute this after any shader changes, the spirv WILL NOT change
+|-- src                         
 |   |-- common                
 |   |-- core                  
 |   |-- platform              
-|   |-- rendering             
-|   |-- shaders               
+|   |-- rendering                            
 |-- third_party                 # All external dependencies
 |   |-- VulkanMemoryAllocator               
 |   |-- glfw           

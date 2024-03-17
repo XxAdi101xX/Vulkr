@@ -206,7 +206,7 @@ Device::~Device()
 		VkDeviceSize unusedBytes = stats.total.statistics.blockBytes - stats.total.statistics.allocationBytes;
 		if (unusedBytes > 0)
 		{
-			LOGE("Total vma memory leaked: {} bytes", unusedBytes);
+			LOGW("Total vma memory leaked: {} bytes. Note that this might not be due to Vulkr's usage; VMA should throw an error in debug mode if there is allocated memory that is unfreed", unusedBytes);
 		}
 #endif
 

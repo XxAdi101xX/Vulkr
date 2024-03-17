@@ -1,0 +1,63 @@
+/* Copyright (c) 2019-2020, Sascha Willems
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 the "License";
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * Note that this file has been modified to integrate into the Vulkr engine, but the core logic remains the same and is covered under the license above.
+ */
+
+#version 460
+#extension GL_EXT_debug_printf : enable
+#extension GL_GOOGLE_include_directive : enable
+
+#include "../common.glsl"
+
+// Binding 0 : Particle storage buffer
+layout(std140, set = 0, binding = 0) buffer Particles 
+{
+   Particle particles[];
+}; 
+layout(std140, set = 1, binding = 0) buffer ObjectBuffer {
+	ObjInstance objects[];
+} objectBuffer;
+
+layout(constant_id = 0) const uint workGroupSize = 64u;
+layout(local_size_x_id = 0) in;
+
+layout(push_constant) uniform ComputeParticlesPushConstant
+{
+	int startingIndex;
+    int particleCount;
+    float deltaTime;
+	int blank; // alignment
+} pushConstant;
+
+void main() 
+{
+	float TIME_FACTOR = 0.05;
+	uint globalInvocationId = gl_GlobalInvocationID.x;
+	vec4 position = particles[globalInvocationId].position;
+	vec4 velocity = particles[globalInvocationId].velocity;
+	vec4 positionDelta = pushConstant.deltaTime * TIME_FACTOR * velocity;
+	//debugPrintfEXT("velocity for index12: %1.7v4f", velocity);
+
+	mat4 translationMatrix = mat4(1.0);
+	translationMatrix[3][0] = positionDelta.x;
+	translationMatrix[3][1] = positionDelta.y;
+	translationMatrix[3][2] = positionDelta.z;
+	particles[globalInvocationId].position.xyz = position.xyz + translationMatrix[3].xyz;
+
+	objectBuffer.objects[pushConstant.startingIndex + globalInvocationId].transform = translationMatrix * objectBuffer.objects[pushConstant.startingIndex + globalInvocationId].transform;
+	objectBuffer.objects[pushConstant.startingIndex + globalInvocationId].transformIT = transpose(inverse(objectBuffer.objects[pushConstant.startingIndex + globalInvocationId].transform));
+}

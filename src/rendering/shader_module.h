@@ -46,7 +46,7 @@ public:
 
 private:
 	/* Path to the spv files */
-	const std::string spvFilePath = "../../src/shaders/spv/";
+	const std::string spvFilePath = "../../shaders/spv/";
 
 	/* The filename of the compiled spirv */
 	const std::string fileName;
