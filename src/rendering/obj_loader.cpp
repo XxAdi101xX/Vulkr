@@ -22,8 +22,8 @@
 
 #define TINYOBJLOADER_IMPLEMENTATION
 #include "obj_loader.h"
-#include "logger.h"
-#include "helpers.h"
+#include "common/logger.h"
+#include "common/helpers.h"
 
 namespace vulkr
 {

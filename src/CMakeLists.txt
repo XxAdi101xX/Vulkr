@@ -29,21 +29,13 @@ set(COMMON_FILES
     common/logger.h
     common/vulkan_common.h
     common/strings.h
-    common/fence_pool.h
-    common/semaphore_pool.h
     common/timer.h
-    common/obj_loader.h
     common/debug_util.h
-    common/gltf_loader.h
     # Source Files
     common/vulkan_common.cpp
     common/strings.cpp
-    common/fence_pool.cpp
-    common/semaphore_pool.cpp
     common/timer.cpp
-    common/obj_loader.cpp
     common/debug_util.cpp
-    common/gltf_loader.cpp
 )
 
 set(CORE_FILES
@@ -66,6 +58,8 @@ set(CORE_FILES
     core/descriptor_pool.h
     core/descriptor_set.h
     core/sampler.h
+    core/fence_pool.h
+    core/semaphore_pool.h
     # Source Files
     core/device.cpp
     core/instance.cpp
@@ -85,6 +79,8 @@ set(CORE_FILES
     core/descriptor_pool.cpp
     core/descriptor_set.cpp
     core/sampler.cpp
+    core/fence_pool.cpp
+    core/semaphore_pool.cpp
 )
 
 set(PLATFORM_FILES
@@ -107,12 +103,16 @@ set(RENDERING_FILES
     rendering/pipeline_state.h
     rendering/camera.h
     rendering/camera_controller.h
+    rendering/gltf_loader.h
+    rendering/obj_loader.h
     # Source Files
     rendering/subpass.cpp
     rendering/shader_module.cpp
     rendering/pipeline_state.cpp
     rendering/camera.cpp
     rendering/camera_controller.cpp
+    rendering/gltf_loader.cpp
+    rendering/obj_loader.cpp
 )
 
 source_group("common\\" FILES ${COMMON_FILES})

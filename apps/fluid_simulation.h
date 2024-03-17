@@ -26,8 +26,6 @@
 #include "common/vulkan_common.h"
 
 // Common files
-#include "common/semaphore_pool.h"
-#include "common/fence_pool.h"
 #include "common/helpers.h"
 #include "common/debug_util.h"
 
@@ -52,6 +50,8 @@
 #include "core/buffer.h"
 #include "core/image.h"
 #include "core/sampler.h"
+#include "core/semaphore_pool.h"
+#include "core/fence_pool.h"
 
 // Platform files
 #include "platform/application.h"

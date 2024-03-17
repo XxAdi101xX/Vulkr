@@ -16,7 +16,7 @@
 #include <fstream>
 #include <vector>
 
-#include "vulkan_common.h"
+#include "common/vulkan_common.h"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>

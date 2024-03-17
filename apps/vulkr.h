@@ -26,13 +26,9 @@
 #include "common/vulkan_common.h"
 
 // Common files
-#include "common/semaphore_pool.h"
-#include "common/fence_pool.h"
 #include "common/helpers.h"
 #include "common/timer.h"
-#include "common/obj_loader.h"
 #include "common/debug_util.h"
-#include "common/gltf_loader.h"
 
 // Core Files
 #include "core/instance.h"
@@ -56,10 +52,16 @@
 #include "core/buffer.h"
 #include "core/image.h"
 #include "core/sampler.h"
+#include "core/fence_pool.h"
+#include "core/semaphore_pool.h"
 
 // Platform files
 #include "platform/application.h"
 #include "platform/input_event.h"
+
+// Rendering
+#include "rendering/gltf_loader.h"
+#include "rendering/obj_loader.h"
 
 // GLM
 #include <glm/glm.hpp>
