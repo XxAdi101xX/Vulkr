@@ -56,10 +56,10 @@ Vulkr
 |   |-- random.glsl             # RNG helpers
 |   |-- build.bat               # The script to compile shaders into spirv. If you don't execute this after any shader changes, the spirv WILL NOT change
 |-- src                         
-|   |-- common					# Common utils and helpers are located here 
-|   |-- core					# Core Vulkan API classes
-|   |-- platform				# Everything related to setting up the platform (eg. windowing system, processing key and mouse inputs)
-|   |-- rendering				# All other rendering related classes
+|   |-- common                  # Common utils and helpers are located here 
+|   |-- core                    # Core Vulkan API classes
+|   |-- platform                # Everything related to setting up the platform (eg. windowing system, processing key and mouse inputs)
+|   |-- rendering               # All other rendering related classes
 |-- third_party                 # All external dependencies; details on each library mentioned in the dependencies section below
 ```
 ## Dependencies
