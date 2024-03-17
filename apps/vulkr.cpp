@@ -3414,7 +3414,10 @@ void VulkrApp::createObjInstance(const std::string &objFileName, glm::mat4 trans
 
 void VulkrApp::createGltfInstance(const std::string &gltfFileName, glm::mat4 transform)
 {
-	const std::string gltfFilePath = defaultGltfModelFilePath + gltfFileName;
+	// We assume gltf models are in a folder that matches the names of the .gltf or .glb file
+	std::size_t gltfModelFileNamePos = gltfFileName.find(".");
+	std::string gltfModelFileName = gltfFileName.substr(0, gltfModelFileNamePos);
+	const std::string gltfFilePath = defaultGltfModelFilePath + gltfModelFileName + "/" + gltfFileName;
 	uint64_t gltfModelIndex = getGltfModelIndex(gltfFilePath);
 
 	GltfInstance instance;
@@ -3493,7 +3496,10 @@ void VulkrApp::loadModels()
 	existingModels.clear();
 	for (const std::string &gltfModelFile : gltfModelFiles)
 	{
-		std::string filePath = defaultGltfModelFilePath + gltfModelFile;
+		// We assume gltf models are in a folder that matches the names of the .gltf or .glb file
+		std::size_t gltfModelFileNamePos = gltfModelFile.find(".");
+		std::string gltfModelFileName = gltfModelFile.substr(0, gltfModelFileNamePos);
+		std::string filePath = defaultGltfModelFilePath + gltfModelFileName + "/" + gltfModelFile;
 		std::ifstream file(filePath);
 		if (!file.good())
 		{
