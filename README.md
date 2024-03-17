@@ -50,25 +50,17 @@ Vulkr
 |   |-- fluid_simulation        # ALl shader related to the 2D fluid simulation app        
 |   |-- particle_system         # Shaders required to calculate and render particle positions       
 |   |-- rasterization           # Shaders for rasterization techniques eg. forward, deferred rendering  
-|   |-- ray_tracing				# Ray tracing related shaders
-|   |-- post_processing			# Shaders for all post processing techniques eg. TAA
-|   |-- common.glsl				# Contains common structs that need to be synced across CPU/GPU and are used in various shaders
-|   |-- random.glsl				# RNG helpers
-|   |-- build.bat				# The script to compile shaders into spirv. If you don't execute this after any shader changes, the spirv WILL NOT change
+|   |-- ray_tracing             # Ray tracing related shaders
+|   |-- post_processing         # Shaders for all post processing techniques eg. TAA
+|   |-- common.glsl             # Contains common structs that need to be synced across CPU/GPU and are used in various shaders
+|   |-- random.glsl             # RNG helpers
+|   |-- build.bat               # The script to compile shaders into spirv. If you don't execute this after any shader changes, the spirv WILL NOT change
 |-- src                         
-|   |-- common                
+|   |-- common                  
 |   |-- core                  
 |   |-- platform              
 |   |-- rendering                            
-|-- third_party                 # All external dependencies
-|   |-- VulkanMemoryAllocator               
-|   |-- glfw           
-|   |-- glm 
-|   |-- imgui            
-|   |-- spdlog 
-|   |-- tinygltf 
-|   |-- tinyobjloader 
-|   |-- volk
+|-- third_party                 # All external dependencies; details on each library mentioned in the dependencies section below
 ```
 ## Dependencies
 My goal with Vulkr is to create a sandbox engine where I could spend most of my time implement interesting graphics related features while focusing on the rendering specific code to accomplish the task correctly and in a peformant manner. As such, I've relied on a variety to amazing third party libraries to help me do all of the other things that are required for making a rendering engine but are not related to those core goals mentioned before.
@@ -90,3 +82,5 @@ Here are the rest of the external libraries used that are included as submodules
   
 ## Credits
 A special thanks to `Alexander Overvoorde's` [Vulkan Tutorial](https://vulkan-tutorial.com/) for providing a great introduction to Vulkan as a whole and providing the base knowledge required to get started on this project. Additionally, `Sascha Willems'` [Vulkan Demos](https://github.com/SaschaWillems/Vulkan), [Vulkan-glTF-PBR](https://github.com/SaschaWillems/Vulkan-glTF-PBR), [Vulkan Samples](https://github.com/KhronosGroup/Vulkan-Samples) provided by the `Khronos Group` and the [Vulkan Ray Tracing Samples](https://github.com/nvpro-samples/vk_raytracing_tutorial_KHR) provided by `NVIDIA` have played an instrumental role into providing guidance into best practices, techniques and code samples for implementing various features using Vulkan. The discord and reddit communities on Vulkan and Graphics Programming have been very helpful with answering many of the questions that I've gotten along the way!
+
+Much of the models and textures that I'm using are from KhronosGroup's [glTF-Sample-Asset repository](https://github.com/KhronosGroup/glTF-Sample-Assets) so please refer to the author credits and license agreements mentioned in that repository.
