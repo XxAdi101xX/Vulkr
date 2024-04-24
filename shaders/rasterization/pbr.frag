@@ -75,6 +75,10 @@ layout (push_constant) uniform PushConstants {
 } pushConstants;
 
 layout (location = 0) out vec4 outColor;
+// TODO populate and test ourColor and outVelocity!
+//layout(location = 1) out vec4 outColorCopy;
+//layout(location = 2) out vec4 outVelocity;
+
 
 // Encapsulate the various inputs used by the various functions in the shading equation
 // We store values in this struct to simplify the integration of alternative implementations

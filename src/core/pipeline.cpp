@@ -84,9 +84,9 @@ GraphicsPipeline::GraphicsPipeline(Device &device, GraphicsPipelineState &pipeli
 
 	VkPipelineVertexInputStateCreateInfo vertexInputState{ VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
 	vertexInputState.vertexAttributeDescriptionCount = to_u32(pipelineState.getVertexInputState().attributeDescriptions.size());
-	vertexInputState.pVertexAttributeDescriptions = pipelineState.getVertexInputState().attributeDescriptions.data();
+	vertexInputState.pVertexAttributeDescriptions = pipelineState.getVertexInputState().attributeDescriptions.empty() ? nullptr : pipelineState.getVertexInputState().attributeDescriptions.data();
 	vertexInputState.vertexBindingDescriptionCount = to_u32(pipelineState.getVertexInputState().bindingDescriptions.size());
-	vertexInputState.pVertexBindingDescriptions = pipelineState.getVertexInputState().bindingDescriptions.data();
+	vertexInputState.pVertexBindingDescriptions = pipelineState.getVertexInputState().bindingDescriptions.empty() ? nullptr : pipelineState.getVertexInputState().bindingDescriptions.data();
 
 	VkPipelineInputAssemblyStateCreateInfo inputAssemblyState{ VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO };
 	inputAssemblyState.topology = pipelineState.getInputAssemblyState().topology;
@@ -94,9 +94,9 @@ GraphicsPipeline::GraphicsPipeline(Device &device, GraphicsPipelineState &pipeli
 
 	VkPipelineViewportStateCreateInfo viewportState{ VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO };
 	viewportState.viewportCount = to_u32(pipelineState.getViewportState().viewports.size());
-	viewportState.pViewports = pipelineState.getViewportState().viewports.data();
+	viewportState.pViewports = pipelineState.getViewportState().viewports.empty() ? nullptr : pipelineState.getViewportState().viewports.data();
 	viewportState.scissorCount = to_u32(pipelineState.getViewportState().scissors.size());
-	viewportState.pScissors = pipelineState.getViewportState().scissors.data();
+	viewportState.pScissors = pipelineState.getViewportState().scissors.empty() ? nullptr : pipelineState.getViewportState().scissors.data();
 
 	VkPipelineRasterizationStateCreateInfo rasterizationState{ VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO };
 	rasterizationState.depthClampEnable = pipelineState.getRasterizationState().depthClampEnable;
@@ -145,19 +145,19 @@ GraphicsPipeline::GraphicsPipeline(Device &device, GraphicsPipelineState &pipeli
 	colorBlendState.logicOp = pipelineState.getColorBlendState().logicOp;
 	colorBlendState.attachmentCount = to_u32(pipelineState.getColorBlendState().attachments.size());
 	// This reinterpret_cast works because the structs are layed out the same way
-	colorBlendState.pAttachments = reinterpret_cast<const VkPipelineColorBlendAttachmentState *>(pipelineState.getColorBlendState().attachments.data());
+	colorBlendState.pAttachments = pipelineState.getColorBlendState().attachments.empty() ? nullptr : reinterpret_cast<const VkPipelineColorBlendAttachmentState *>(pipelineState.getColorBlendState().attachments.data());
 	colorBlendState.blendConstants[0] = pipelineState.getColorBlendState().blendConstants[0];
 	colorBlendState.blendConstants[1] = pipelineState.getColorBlendState().blendConstants[1];
 	colorBlendState.blendConstants[2] = pipelineState.getColorBlendState().blendConstants[2];
 	colorBlendState.blendConstants[3] = pipelineState.getColorBlendState().blendConstants[3];
 
 	VkPipelineDynamicStateCreateInfo dynamicState{ VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO };
-	dynamicState.pDynamicStates = pipelineState.getDyanmicStates().data();
+	dynamicState.pDynamicStates = pipelineState.getDyanmicStates().empty() ? nullptr : pipelineState.getDyanmicStates().data();
 	dynamicState.dynamicStateCount = to_u32(pipelineState.getDyanmicStates().size());
 
 	VkGraphicsPipelineCreateInfo graphicsPipeline{ VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO };
 	graphicsPipeline.stageCount = to_u32(shaderStageCreateInfos.size());
-	graphicsPipeline.pStages = shaderStageCreateInfos.data();
+	graphicsPipeline.pStages = shaderStageCreateInfos.empty() ? nullptr : shaderStageCreateInfos.data();
 	graphicsPipeline.pVertexInputState = &vertexInputState;
 	graphicsPipeline.pInputAssemblyState = &inputAssemblyState;
 	graphicsPipeline.pViewportState = &viewportState;

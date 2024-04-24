@@ -93,7 +93,14 @@ namespace vulkr
 {
 
 constexpr uint32_t maxFramesInFlight{ 2u }; // Explanation on this how we got this number: https://software.intel.com/content/www/us/en/develop/articles/practical-approach-to-vulkan-part-1.html
-constexpr uint32_t commandBufferCountForFrame{ 3u };
+
+/*
+ * Command buffer 1: Used for setup before core rendering loop; we ensure all the setup is done before we use it again for the compute/offscreen pass
+ * Command buffer 2: Used for the post processing
+ * Command buffer 3: Used for image transfers
+ * Command buffer 4: Used for geometry buffer pass 
+ */
+constexpr uint32_t commandBufferCountForFrame{ 4u };
 constexpr uint32_t taaDepth{ 128u };
 constexpr uint32_t maxObjInstanceCount{ 1000u };
 constexpr uint32_t maxGltfInstanceCount{ 100u };
@@ -118,7 +125,13 @@ const std::string defaultObjModelFilePath = "../../assets/obj_models/";
 const std::string defaultGltfModelFilePath = "../../assets/gltf_models/";
 
 // #define MULTI_THREAD // TODO: enabling multi-threaded loading tentatively works with rasterization but fails for the raytracing pipeline during the buildTlas second call; still a WIP
-bool raytracingEnabled{ false }; // Flag to enable ray tracing vs rasterization
+enum class RenderingTechnique
+{
+	FORWARD,
+	RAY_TRACING,
+	DEFERRED
+} activeRenderingTechnique;
+
 bool temporalAntiAliasingEnabled{ false }; // Flag to enable temporal anti-aliasing
 
 /* Structs shared across the GPU and CPU */
@@ -203,49 +216,60 @@ struct alignas(16) GltfMaterial
 
 // Push constants; note that any modifications to push constants must be matched in the shaders and offsets must be set appropriately including when multiple push constants are defined for different stages (see layout(offset = 16))
 // ensure push constants fall under the max size (128 bytes is the min size so we shouldn't expect more than this); be careful of implicit padding (eg. vec3 should always be followed by a 4 byte datatype if possible or else it might pad to 16 bytes)
-struct RasterizationPushConstant
+struct RasterizationPushConstants
 {
 	int lightCount{ 0 };
-} rasterizationPushConstant;
+} rasterizationPushConstants;
 
-struct RaytracingPushConstant
+struct RaytracingPushConstants
 {
 	int lightCount{ 0 };
 	int frameSinceViewChange{ -1 }; // TODO not used
-} raytracingPushConstant;
+} raytracingPushConstants;
 
-struct TaaPushConstant
+struct TaaPushConstants
 {
 	glm::vec2 jitter{ glm::vec2(0.0f) };
 	int frameSinceViewChange{ -1 };
 	int blank{ 0 }; // alignment
-} taaPushConstant;
+} taaPushConstants;
 
-struct PostProcessPushConstant
+struct PostProcessPushConstants
 {
 	glm::vec2 imageExtent;
-} postProcessPushConstant;
+} postProcessPushConstants;
 
-struct ComputePushConstant
+struct ComputePushConstants
 {
 	int indexCount;
 	float time;
-} computePushConstant;
+} computePushConstants;
 
-struct ComputeParticlesPushConstant
+struct ComputeParticlesPushConstants
 {
 	int startingIndex{ 0 };
 	int particleCount{ 0 };
 	float deltaTime{ 0.0f };
 	int blank{ 0 }; // alignment
-} computeParticlesPushConstant;
+} computeParticlesPushConstants;
 
-struct GltfPushConstant
+struct GltfPushConstants
 {
 	glm::vec3 cameraPos;
 	int materialIndex{ 0 };
 	int lightCount{ 0 };
-} gltfPushConstant;
+} gltfPushConstants;
+
+struct MrtGeometryBufferPushConstants
+{
+	int materialIndex{ 0 };
+} mrtGeometryBufferPushConstants;
+
+struct DeferredShadingPushConstants
+{
+	glm::vec3 cameraPos;
+	int lightCount{ 0 };
+} deferredShadingPushConstants;
 
 /* CPU only structs */
 
@@ -384,7 +408,12 @@ private:
 		std::vector<uint32_t> preserveAttachments;
 	};
 
+	// Forward rendering main render pass
 	RenderPassData mainRenderPass;
+	// Deferred rendering render passes
+	RenderPassData mrtGeometryBufferRenderPass;
+	RenderPassData deferredShadingRenderPass;
+	// Post processing render pass
 	RenderPassData postRenderPass;
 
 	std::unique_ptr<DescriptorSetLayout> globalDescriptorSetLayout{ nullptr };
@@ -396,6 +425,7 @@ private:
 	std::unique_ptr<DescriptorSetLayout> gltfMaterialSamplersDescriptorSetLayout{ nullptr };
 	std::unique_ptr<DescriptorSetLayout> gltfNodeDescriptorSetLayout{ nullptr };
 	std::unique_ptr<DescriptorSetLayout> gltfMaterialDescriptorSetLayout{ nullptr };
+	std::unique_ptr<DescriptorSetLayout> geometryBufferDescriptorSetLayout{ nullptr };
 	std::unique_ptr<DescriptorPool> descriptorPool;
 	std::unique_ptr<DescriptorPool> imguiPool;
 
@@ -415,6 +445,8 @@ private:
 	{
 		std::array<std::unique_ptr<Framebuffer>, maxFramesInFlight> offscreenFramebuffers;
 		std::array<std::unique_ptr<Framebuffer>, maxFramesInFlight> postProcessFramebuffers;
+		std::array<std::unique_ptr<Framebuffer>, maxFramesInFlight> geometryBufferFramebuffers;
+		std::array<std::unique_ptr<Framebuffer>, maxFramesInFlight> deferredShadingFramebuffers;
 
 		std::array<VkSemaphore, maxFramesInFlight> imageAvailableSemaphores;
 		std::array<VkSemaphore, maxFramesInFlight> offscreenRenderingFinishedSemaphores;
@@ -430,6 +462,8 @@ private:
 	// Clear values
 	std::vector<VkClearValue> offscreenFramebufferClearValues;
 	std::vector<VkClearValue> postProcessFramebufferClearValues;
+	std::vector<VkClearValue> geometryBufferFramebufferClearValues;
+	std::vector<VkClearValue> deferredShadingFramebufferClearValues;
 
 	// Buffers
 	std::unique_ptr<Buffer> lightBuffer;
@@ -447,6 +481,14 @@ private:
 	std::unique_ptr<ImageView> historyImageView;
 	std::unique_ptr<ImageView> velocityImageView;
 
+	// Deferred shading geometry buffers
+	std::unique_ptr<ImageView> positionImageView;
+	std::unique_ptr<ImageView> normalImageView;
+	std::unique_ptr<ImageView> uv0ImageView;
+	std::unique_ptr<ImageView> uv1ImageView;
+	std::unique_ptr<ImageView> color0ImageView;
+	std::unique_ptr<ImageView> materialIndexImageView;
+
 	// Descriptor sets
 	std::unique_ptr<DescriptorSet> globalDescriptorSet;
 	std::unique_ptr<DescriptorSet> objectDescriptorSet;
@@ -456,6 +498,7 @@ private:
 	std::unique_ptr<DescriptorSet> textureDescriptorSet; // This is currently only read by shaders
 	std::unique_ptr<DescriptorSet> raytracingDescriptorSet;
 	std::unique_ptr<DescriptorSet> gltfMaterialDescriptorSet;
+	std::unique_ptr<DescriptorSet> geometryBufferDescriptorSet; // Although this says geometry buffers, they're actually filled with ImageView rather than Buffer
 
 	size_t currentFrame{ 0 };
 
@@ -475,6 +518,8 @@ private:
 		PipelineData computeParticleCalculate;
 		PipelineData computeParticleIntegrate;
 		PipelineData rayTracing;
+		PipelineData mrtGeometryBuffer;
+		PipelineData deferredShading;
 	} pipelines;
 
 	std::vector<GltfModelRenderingData> gltfModelRenderingDataList;
@@ -497,10 +542,11 @@ private:
 	void animateInstances();
 	void animateWithCompute();
 	void computeParticles();
-	void renderNode(vulkr::gltf::Node *node, uint32_t instanceIndex);
+	void renderNode(PipelineData *pipelineData, vulkr::gltf::Node *node, uint32_t instanceIndex);
 	void dataUpdatePerFrame();
 	void rasterizeObj();
 	void rasterizeGltf();
+	void initiateDeferredRenderingPass();
 	void postProcess();
 	void cleanupSwapchain();
 	void createInstance();
@@ -510,9 +556,13 @@ private:
 	void createImageResourcesForFrames();
 	void createMainRenderPass();
 	void createPostRenderPass();
+	void createMrtGeometryBufferRenderPass();
+	void createDeferredShadingRenderPass();
 	void createDescriptorSetLayouts();
 	void createMainRasterizationPipeline();
 	void createPbrRasterizationPipeline();
+	void createMrtGeometryBufferPipeline();
+	void createDeferredShadingPipeline();
 	void createPostProcessingPipeline();
 	void createModelAnimationComputePipeline();
 	void createParticleCalculateComputePipeline();

@@ -59,6 +59,7 @@ VulkrApp::~VulkrApp()
 	gltfMaterialSamplersDescriptorSetLayout.reset();
 	gltfNodeDescriptorSetLayout.reset();
 	gltfMaterialDescriptorSetLayout.reset();
+	geometryBufferDescriptorSetLayout.reset();
 
 	for (auto &it : objModelRenderingDataList)
 	{
@@ -128,6 +129,8 @@ void VulkrApp::cleanupSwapchain()
 	{
 		frameData.offscreenFramebuffers[i].reset();
 		frameData.postProcessFramebuffers[i].reset();
+		frameData.geometryBufferFramebuffers[i].reset();
+		frameData.deferredShadingFramebuffers[i].reset();
 	}
 
 	// Pipelines
@@ -145,6 +148,10 @@ void VulkrApp::cleanupSwapchain()
 	pipelines.computeParticleIntegrate.pipelineState.reset();
 	pipelines.rayTracing.pipeline.reset();
 	pipelines.rayTracing.pipelineState.reset();
+	pipelines.mrtGeometryBuffer.pipeline.reset();
+	pipelines.mrtGeometryBuffer.pipelineState.reset();
+	pipelines.deferredShading.pipeline.reset();
+	pipelines.deferredShading.pipelineState.reset();
 
 	// Renderpasses
 	mainRenderPass.renderPass.reset();
@@ -154,6 +161,22 @@ void VulkrApp::cleanupSwapchain()
 	mainRenderPass.resolveAttachments.clear();
 	mainRenderPass.depthStencilAttachments.clear();
 	mainRenderPass.preserveAttachments.clear();
+
+	mrtGeometryBufferRenderPass.renderPass.reset();
+	mrtGeometryBufferRenderPass.subpasses.clear();
+	mrtGeometryBufferRenderPass.inputAttachments.clear();
+	mrtGeometryBufferRenderPass.colorAttachments.clear();
+	mrtGeometryBufferRenderPass.resolveAttachments.clear();
+	mrtGeometryBufferRenderPass.depthStencilAttachments.clear();
+	mrtGeometryBufferRenderPass.preserveAttachments.clear();
+
+	deferredShadingRenderPass.renderPass.reset();
+	deferredShadingRenderPass.subpasses.clear();
+	deferredShadingRenderPass.inputAttachments.clear();
+	deferredShadingRenderPass.colorAttachments.clear();
+	deferredShadingRenderPass.resolveAttachments.clear();
+	deferredShadingRenderPass.depthStencilAttachments.clear();
+	deferredShadingRenderPass.preserveAttachments.clear();
 
 	postRenderPass.renderPass.reset();
 	postRenderPass.subpasses.clear();
@@ -184,12 +207,19 @@ void VulkrApp::cleanupSwapchain()
 	// textureDescriptorSet.reset(); // Don't need to reset textureDescriptorSet this one up on recreate since the texture data is the same across different swapchain configurations
 	raytracingDescriptorSet.reset();
 	gltfMaterialDescriptorSet.reset();
+	geometryBufferDescriptorSet.reset();
 
 	// Textures
 	outputImageView.reset();
 	copyOutputImageView.reset();
 	historyImageView.reset();
 	velocityImageView.reset();
+	positionImageView.reset();
+	normalImageView.reset();
+	uv0ImageView.reset();
+	uv1ImageView.reset();
+	color0ImageView.reset();
+	materialIndexImageView.reset();
 
 	for (uint8_t i = 0; i < std::thread::hardware_concurrency(); ++i)
 	{
@@ -209,6 +239,9 @@ void VulkrApp::cleanupSwapchain()
 void VulkrApp::prepare()
 {
 	Application::prepare();
+
+	// Default to forward rendering
+	activeRenderingTechnique = RenderingTechnique::FORWARD;
 
 	setupTimer();
 	initializeHaltonSequenceArray();
@@ -266,6 +299,8 @@ void VulkrApp::prepare()
 	createDepthResources();
 	createMainRenderPass();
 	createPostRenderPass();
+	createMrtGeometryBufferRenderPass();
+	createDeferredShadingRenderPass();
 	createCommandPools();
 	createCommandBuffers();
 	createImageResourcesForFrames();
@@ -279,6 +314,8 @@ void VulkrApp::prepare()
 	//createModelAnimationComputePipeline();
 	createPostProcessingPipeline();
 	createPbrRasterizationPipeline();
+	createMrtGeometryBufferPipeline();
+	createDeferredShadingPipeline();
 	createTextureSampler();
 	createUniformBuffers();
 	createSSBOs();
@@ -343,14 +380,14 @@ void VulkrApp::update()
 	// Maintain the deltaTime for both frames in flight
 	if (currentFrame == 0)
 	{
-		computeParticlesPushConstant.deltaTime = static_cast<float>(drawingTimer->tick());
+		computeParticlesPushConstants.deltaTime = static_cast<float>(drawingTimer->tick());
 	}
 	drawImGuiInterface();
 	animateInstances();
 	dataUpdatePerFrame();
 
 #ifndef RENDERDOC_DEBUG
-	if (raytracingEnabled)
+	if (activeRenderingTechnique == RenderingTechnique::RAY_TRACING)
 	{
 		buildTlas(true);
 	}
@@ -359,25 +396,25 @@ void VulkrApp::update()
 	// TODO check if this jitter value is correct
 	if (temporalAntiAliasingEnabled)
 	{
-		taaPushConstant.jitter = haltonSequence[std::min(taaPushConstant.frameSinceViewChange, static_cast<int>(taaDepth - 1))];
-		taaPushConstant.jitter.x = (taaPushConstant.jitter.x / swapchain->getProperties().imageExtent.width) * 5.0f;
-		taaPushConstant.jitter.y = (taaPushConstant.jitter.y / swapchain->getProperties().imageExtent.height) * 5.0f;
+		taaPushConstants.jitter = haltonSequence[std::min(taaPushConstants.frameSinceViewChange, static_cast<int>(taaDepth - 1))];
+		taaPushConstants.jitter.x = (taaPushConstants.jitter.x / swapchain->getProperties().imageExtent.width) * 5.0f;
+		taaPushConstants.jitter.y = (taaPushConstants.jitter.y / swapchain->getProperties().imageExtent.height) * 5.0f;
 	}
 	else
 	{
-		taaPushConstant.jitter = glm::vec2(0.0f, 0.0f);
+		taaPushConstants.jitter = glm::vec2(0.0f, 0.0f);
 	}
 
 	// Begin command buffer for offscreen pass
 	frameData.commandBuffers[currentFrame][0]->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
 
-	// Compute shader invocations
+	// Invoke compute shader to compute particle positions and velocity
 	computeParticles();
 
 	// Compute vertices with compute shader; need to uncomment createModelAnimationComputePipeline if using this TODO: fix the validation errors that happen when this is enabled, might be due to incorrect sytnax with obj buffer in animate.comp or the fact that the objBuffer is readonly? Not totally sure.
 	//animateWithCompute(); 
 
-	if (raytracingEnabled)
+	if (activeRenderingTechnique == RenderingTechnique::RAY_TRACING)
 	{
 		// Add memory barrier to ensure that the particleIntegrate computer shader has finished writing to the currentFrameObjInstanceBuffer
 		VkMemoryBarrier2 memoryBarrier{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
@@ -400,7 +437,7 @@ void VulkrApp::update()
 
 		raytrace();
 	}
-	else
+	else if (activeRenderingTechnique == RenderingTechnique::FORWARD)
 	{
 		// Add memory barrier to ensure that the particleIntegrate computer shader has finished writing to the currentFrameObjInstanceBuffer
 		VkMemoryBarrier2 memoryBarrier{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
@@ -423,6 +460,31 @@ void VulkrApp::update()
 
 		frameData.commandBuffers[currentFrame][0]->beginRenderPass(*mainRenderPass.renderPass, *(frameData.offscreenFramebuffers[currentFrame]), swapchain->getProperties().imageExtent, offscreenFramebufferClearValues, VK_SUBPASS_CONTENTS_INLINE);
 		rasterizeObj();
+		rasterizeGltf();
+		frameData.commandBuffers[currentFrame][0]->endRenderPass();
+	}
+	else if (activeRenderingTechnique == RenderingTechnique::DEFERRED)
+	{
+		// Add memory barrier to ensure that the particleIntegrate computer shader has finished writing to the currentFrameObjInstanceBuffer
+		VkMemoryBarrier2 memoryBarrier{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
+		memoryBarrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+		memoryBarrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+		memoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+		memoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT;
+
+		VkDependencyInfo dependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+		dependencyInfo.pNext = nullptr;
+		dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+		dependencyInfo.memoryBarrierCount = 1u;
+		dependencyInfo.pMemoryBarriers = &memoryBarrier;
+		dependencyInfo.bufferMemoryBarrierCount = 0u;
+		dependencyInfo.pBufferMemoryBarriers = nullptr;
+		dependencyInfo.imageMemoryBarrierCount = 0u;
+		dependencyInfo.pImageMemoryBarriers = nullptr;
+
+		vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame][0]->getHandle(), &dependencyInfo);
+		// TODO: everything in this if else is still a WIP and hasn't been tested at all and could be wrong
+		frameData.commandBuffers[currentFrame][0]->beginRenderPass(*mrtGeometryBufferRenderPass.renderPass, *(frameData.geometryBufferFramebuffers[currentFrame]), swapchain->getProperties().imageExtent, geometryBufferFramebufferClearValues, VK_SUBPASS_CONTENTS_INLINE);
 		rasterizeGltf();
 		frameData.commandBuffers[currentFrame][0]->endRenderPass();
 	}
@@ -460,6 +522,15 @@ void VulkrApp::update()
 	offscreenPassSubmitInfo.pCommandBufferInfos = &offscreenCommandBufferSubmitInfo;
 	offscreenPassSubmitInfo.signalSemaphoreInfoCount = 1u;
 	offscreenPassSubmitInfo.pSignalSemaphoreInfos = &offScreenSignalSemaphoreSubmitInfo;
+
+	// If we are doing deferred shading, we need to execute the deferred rendering step after populating the geometry buffers in the initial stage
+	if (activeRenderingTechnique == RenderingTechnique::DEFERRED)
+	{
+		//TODO: this is incomplete, we also have to update the signal semaphore above just for deferred case to a new semaphore that will then trigger this code and then this code will signal offscreenRenderingFinishedSemaphores
+		frameData.commandBuffers[currentFrame][3]->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
+		rasterizeGltf();
+		frameData.commandBuffers[currentFrame][3]->end();
+	}
 
 	// Begin command buffer for post process pass
 	frameData.commandBuffers[currentFrame][1]->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
@@ -723,9 +794,13 @@ void VulkrApp::recreateSwapchain()
 	setupCamera();
 	createMainRenderPass();
 	createPostRenderPass();
+	createMrtGeometryBufferRenderPass();
+	createDeferredShadingRenderPass();
 	createMainRasterizationPipeline();
 	createPostProcessingPipeline();
 	createPbrRasterizationPipeline();
+	createMrtGeometryBufferPipeline();
+	createDeferredShadingPipeline();
 	//createModelAnimationComputePipeline();
 	createDepthResources();
 	createFramebuffers();
@@ -770,12 +845,23 @@ void VulkrApp::drawImGuiInterface()
 	{
 		if (ImGui::BeginTabItem("Scene"))
 		{
+			int selectedRenderingTechnique = static_cast<int>(activeRenderingTechnique);
+			std::ostringstream oss;
+			oss.str(""); oss << "Forward Rendering";
+			changed |= ImGui::RadioButton(oss.str().c_str(), &selectedRenderingTechnique, static_cast<int>(RenderingTechnique::FORWARD));
 #ifndef RENDERDOC_DEBUG
-			changed |= ImGui::Checkbox("Raytracing enabled", &raytracingEnabled);
+			ImGui::SameLine();
+			oss.str(""); oss << "Ray Tracing";
+			changed |= ImGui::RadioButton(oss.str().c_str(), &selectedRenderingTechnique, static_cast<int>(RenderingTechnique::RAY_TRACING));
 #endif
-			changed |= ImGui::Checkbox("Temporal anti-aliasing enabled (Rasterization only)", &temporalAntiAliasingEnabled);
+			ImGui::SameLine();
+			oss.str(""); oss << "Deferred Rendering";
+			changed |= ImGui::RadioButton(oss.str().c_str(), &selectedRenderingTechnique, static_cast<int>(RenderingTechnique::DEFERRED));
+
+			changed |= ImGui::Checkbox("Temporal anti-aliasing enabled (Forward rendering only)", &temporalAntiAliasingEnabled);
 			if (changed)
 			{
+				activeRenderingTechnique = static_cast<RenderingTechnique>(selectedRenderingTechnique);
 				resetFrameSinceViewChange();
 				changed = false;
 			}
@@ -891,13 +977,13 @@ void VulkrApp::animateWithCompute()
 	// TODO: we might require a buffer memory barrier similar to the code in the other compute workflows
 	const uint64_t wusonModelIndex{ getObjModelIndex(defaultObjModelFilePath + "wuson.obj") };
 
-	computePushConstant.indexCount = objModelRenderingDataList[wusonModelIndex].indicesCount;
-	computePushConstant.time = std::chrono::duration<float, std::chrono::seconds::period>(drawingTimer->elapsed()).count();
+	computePushConstants.indexCount = objModelRenderingDataList[wusonModelIndex].indicesCount;
+	computePushConstants.time = std::chrono::duration<float, std::chrono::seconds::period>(drawingTimer->elapsed()).count();
 
 	PipelineData &pipelineData = pipelines.computeModelAnimation;
 	vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipeline->getHandle());
 	vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipelineState->getPipelineLayout().getHandle(), 0, 1, &objectDescriptorSet->getHandle(), 0, nullptr);
-	vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstant), &computePushConstant);
+	vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants), &computePushConstants);
 	vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), objModelRenderingDataList[wusonModelIndex].indicesCount / m_workGroupSize, 1u, 1u);
 }
 
@@ -934,8 +1020,8 @@ void VulkrApp::computeParticles()
 	// First pass: Calculate particle movement
 	vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeParticleCalculate.pipeline->getBindPoint(), pipelines.computeParticleCalculate.pipeline->getHandle());
 	vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeParticleCalculate.pipeline->getBindPoint(), pipelines.computeParticleCalculate.pipelineState->getPipelineLayout().getHandle(), 0u, 1u, &particleComputeDescriptorSet->getHandle(), 0u, nullptr);
-	vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeParticleCalculate.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0u, sizeof(ComputeParticlesPushConstant), &computeParticlesPushConstant);
-	vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), to_u32(computeParticlesPushConstant.particleCount / m_workGroupSize) + 1u, 1u, 1u);
+	vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeParticleCalculate.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0u, sizeof(ComputeParticlesPushConstants), &computeParticlesPushConstants);
+	vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), to_u32(computeParticlesPushConstants.particleCount / m_workGroupSize) + 1u, 1u, 1u);
 
 	// Add memory barrier to ensure that the computer shader has finished writing to the buffer
 	VkMemoryBarrier2 memoryBarrier{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
@@ -960,8 +1046,8 @@ void VulkrApp::computeParticles()
 	vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeParticleIntegrate.pipeline->getBindPoint(), pipelines.computeParticleIntegrate.pipeline->getHandle());
 	vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeParticleIntegrate.pipeline->getBindPoint(), pipelines.computeParticleIntegrate.pipelineState->getPipelineLayout().getHandle(), 0u, 1u, &particleComputeDescriptorSet->getHandle(), 0u, nullptr);
 	vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeParticleIntegrate.pipeline->getBindPoint(), pipelines.computeParticleIntegrate.pipelineState->getPipelineLayout().getHandle(), 1u, 1u, &objectDescriptorSet->getHandle(), 0u, nullptr);
-	vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeParticleIntegrate.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0u, sizeof(ComputeParticlesPushConstant), &computeParticlesPushConstant);
-	vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), to_u32(computeParticlesPushConstant.particleCount / m_workGroupSize) + 1u, 1u, 1u); // round up invocation
+	vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeParticleIntegrate.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0u, sizeof(ComputeParticlesPushConstants), &computeParticlesPushConstants);
+	vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), to_u32(computeParticlesPushConstants.particleCount / m_workGroupSize) + 1u, 1u, 1u); // round up invocation
 
 	// Release
 	if (m_graphicsQueue->getFamilyIndex() != m_computeQueue->getFamilyIndex())
@@ -992,32 +1078,45 @@ void VulkrApp::computeParticles()
 	}
 }
 
-void VulkrApp::renderNode(vulkr::gltf::Node *node, uint32_t instanceIndex)
+void VulkrApp::renderNode(PipelineData *pipelineData, vulkr::gltf::Node *node, uint32_t instanceIndex)
 {
 	if (node->mesh)
 	{
 		// Render mesh primitives
 		for (vulkr::gltf::Primitive *primitive : node->mesh->primitives)
 		{
-			PipelineData &pipelineData = pipelines.pbr;
-			const std::vector<VkDescriptorSet> descriptorSets =
+			std::vector<VkDescriptorSet> descriptorSets;
+			if (activeRenderingTechnique == RenderingTechnique::FORWARD)
 			{
-				globalDescriptorSet->getHandle(),
-				objectDescriptorSet->getHandle(),
-				primitive->material.descriptorSet,
-				node->mesh->uniformBuffer.descriptorSet,
-				gltfMaterialDescriptorSet->getHandle()
-			};
+				descriptorSets =
+				{
+					globalDescriptorSet->getHandle(),
+					objectDescriptorSet->getHandle(),
+					primitive->material.descriptorSet,
+					node->mesh->uniformBuffer.descriptorSet,
+					gltfMaterialDescriptorSet->getHandle()
+				};
+			}
+			else if (activeRenderingTechnique == RenderingTechnique::DEFERRED)
+			{
+				descriptorSets =
+				{
+					globalDescriptorSet->getHandle(),
+					objectDescriptorSet->getHandle(),
+					node->mesh->uniformBuffer.descriptorSet,
+				};
+			}
 
-			vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineData.pipeline->getHandle());
-			vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipelineState->getPipelineLayout().getHandle(), 0, static_cast<uint32_t>(descriptorSets.size()), descriptorSets.data(), 0, NULL);
+			vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData->pipeline->getBindPoint(), pipelineData->pipelineState->getPipelineLayout().getHandle(), 0, static_cast<uint32_t>(descriptorSets.size()), descriptorSets.data(), 0, NULL);
 
 			// Pass material index for this primitive using a push constant, the shader uses this to index into the material buffer
-			gltfPushConstant.cameraPos = cameraController->getCamera()->getPosition();
-			gltfPushConstant.materialIndex = primitive->material.index;
-			gltfPushConstant.lightCount = static_cast<int>(sceneLights.size());
+			gltfPushConstants.cameraPos = cameraController->getCamera()->getPosition();
+			gltfPushConstants.materialIndex = primitive->material.index;
+			gltfPushConstants.lightCount = static_cast<int>(sceneLights.size());
 
-			vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0u, sizeof(GltfPushConstant), &gltfPushConstant);
+			mrtGeometryBufferPushConstants.materialIndex = primitive->material.index;
+
+			vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData->pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0u, sizeof(GltfPushConstants), &gltfPushConstants);
 
 			if (primitive->hasIndices)
 			{
@@ -1032,12 +1131,28 @@ void VulkrApp::renderNode(vulkr::gltf::Node *node, uint32_t instanceIndex)
 
 	for (auto child : node->children)
 	{
-		renderNode(child, instanceIndex);
+		renderNode(pipelineData, child, instanceIndex);
 	}
 }
 
 void VulkrApp::rasterizeGltf()
 {
+	PipelineData *pipelineData;
+	if (activeRenderingTechnique == RenderingTechnique::FORWARD)
+	{
+		pipelineData = &pipelines.pbr;
+	}
+	else if (activeRenderingTechnique == RenderingTechnique::DEFERRED)
+	{
+		pipelineData = &pipelines.mrtGeometryBuffer;
+	}
+	else
+	{
+		LOGEANDABORT("rasterizeGltf has been called when the renderingTechnique is neither forward render or deferred rendering. This should not happen...")
+	}
+
+	vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineData->pipeline->getHandle());
+
 	uint64_t lastModelIndex{ 0ull };
 	for (uint32_t index = 0u; index < gltfInstances.size(); index++)
 	{
@@ -1076,9 +1191,31 @@ void VulkrApp::rasterizeGltf()
 
 		for (auto node : model.nodes)
 		{
-			renderNode(node, index);
+			renderNode(pipelineData, node, index);
 		}
 	}
+}
+
+void VulkrApp::initiateDeferredRenderingPass()
+{
+	deferredShadingPushConstants.cameraPos = cameraController->getCamera()->getPosition();
+	deferredShadingPushConstants.lightCount = static_cast<int>(sceneLights.size());
+
+	PipelineData *pipelineData = &pipelines.deferredShading;
+
+	vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineData->pipeline->getHandle());
+
+	std::vector<VkDescriptorSet> descriptorSets =
+	{
+		globalDescriptorSet->getHandle(),
+		geometryBufferDescriptorSet->getHandle(),
+		// TODO: WE NEED TO ADD PRIMITIVE MATERIAL DESCRIPTOR SET BUFFER AND READ THE PRIMITIVE MATERIAL INDEX FROM THE GEOMOETRY BUFFER TO INDEX INTO THE DESCRIPTOR SET
+		gltfMaterialDescriptorSet->getHandle()
+	};
+
+	vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][3]->getHandle(), pipelineData->pipeline->getBindPoint(), pipelineData->pipelineState->getPipelineLayout().getHandle(), 0, static_cast<uint32_t>(descriptorSets.size()), descriptorSets.data(), 0, NULL);
+
+	vkCmdDraw(frameData.commandBuffers[currentFrame][3]->getHandle(), 3, 1, 0, 0);
 }
 
 void VulkrApp::initializeBufferData()
@@ -1146,11 +1283,11 @@ void VulkrApp::dataUpdatePerFrame()
 	}
 
 	// TAA Check
-	if (!temporalAntiAliasingEnabled && !raytracingEnabled)
+	if (!temporalAntiAliasingEnabled && activeRenderingTechnique != RenderingTechnique::RAY_TRACING)
 	{
-		raytracingPushConstant.frameSinceViewChange = 0; // TODO remove
-		taaPushConstant.frameSinceViewChange = 0;
-		taaPushConstant.jitter = glm::vec2(0.0f);
+		raytracingPushConstants.frameSinceViewChange = 0; // TODO remove
+		taaPushConstants.frameSinceViewChange = 0;
+		taaPushConstants.jitter = glm::vec2(0.0f);
 	}
 	else
 	{
@@ -1159,8 +1296,8 @@ void VulkrApp::dataUpdatePerFrame()
 		{
 			resetFrameSinceViewChange();
 		}
-		raytracingPushConstant.frameSinceViewChange += 1;// TODO remove
-		taaPushConstant.frameSinceViewChange += 1;
+		raytracingPushConstants.frameSinceViewChange += 1;// TODO remove
+		taaPushConstants.frameSinceViewChange += 1;
 
 	}
 }
@@ -1189,8 +1326,8 @@ void VulkrApp::rasterizeObj()
 	vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipelineState->getPipelineLayout().getHandle(), 3u, 1u, &taaDescriptorSet->getHandle(), 0u, nullptr);
 
 	// Push constants
-	vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_VERTEX_BIT, 0u, sizeof(TaaPushConstant), &taaPushConstant);
-	vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(TaaPushConstant), sizeof(RasterizationPushConstant), &rasterizationPushConstant);
+	vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_VERTEX_BIT, 0u, sizeof(TaaPushConstants), &taaPushConstants);
+	vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(TaaPushConstants), sizeof(RasterizationPushConstants), &rasterizationPushConstants);
 
 	// Bind vertices, indices and call the draw method
 	uint64_t lastObjIndex{ 0ull };
@@ -1239,7 +1376,7 @@ void VulkrApp::postProcess()
 	vkCmdSetBlendConstants(frameData.commandBuffers[currentFrame][1]->getHandle(), blendConstants);
 
 	// Push constants
-	vkCmdPushConstants(frameData.commandBuffers[currentFrame][1]->getHandle(), pipelineData.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PostProcessPushConstant), &postProcessPushConstant);
+	vkCmdPushConstants(frameData.commandBuffers[currentFrame][1]->getHandle(), pipelineData.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PostProcessPushConstants), &postProcessPushConstants);
 
 	// Bind vertices, indices and call the draw method
 	uint64_t lastObjIndex{ 0ull };
@@ -1325,7 +1462,7 @@ void VulkrApp::createSwapchain()
 	const std::set<VkImageUsageFlagBits> imageUsageFlags{ VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VK_IMAGE_USAGE_TRANSFER_DST_BIT };
 	swapchain = std::make_unique<Swapchain>(*device, m_surface, VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR, VK_PRESENT_MODE_FIFO_KHR, imageUsageFlags, m_graphicsQueue->getFamilyIndex(), m_presentQueue->getFamilyIndex());
 
-	postProcessPushConstant.imageExtent = glm::vec2(swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height);
+	postProcessPushConstants.imageExtent = glm::vec2(swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height);
 }
 
 void VulkrApp::setupCamera()
@@ -1504,6 +1641,7 @@ void VulkrApp::createPostRenderPass()
 	depthAttachmentRef.pNext = nullptr;
 	depthAttachmentRef.attachment = 1u;
 	depthAttachmentRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+	depthAttachmentRef.aspectMask = 0u;
 	postRenderPass.depthStencilAttachments.push_back(depthAttachmentRef);
 
 	postRenderPass.subpasses.emplace_back(
@@ -1559,6 +1697,284 @@ void VulkrApp::createPostRenderPass()
 
 	postRenderPass.renderPass = std::make_unique<RenderPass>(*device, attachments, postRenderPass.subpasses, dependencies);
 	setDebugUtilsObjectName(device->getHandle(), postRenderPass.renderPass->getHandle(), "postProcessRenderPass");
+}
+
+void VulkrApp::createMrtGeometryBufferRenderPass()
+{
+	std::vector<Attachment> attachments;
+	Attachment positionImageAttachment{}; // positionImage
+	positionImageAttachment.format = swapchain->getProperties().surfaceFormat.format;
+	positionImageAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+	positionImageAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	positionImageAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	positionImageAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	positionImageAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	positionImageAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	positionImageAttachment.finalLayout = VK_IMAGE_LAYOUT_GENERAL;
+	attachments.push_back(positionImageAttachment);
+
+	VkAttachmentReference2 positionImageAttachmentRef{ VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2 };
+	positionImageAttachmentRef.pNext = nullptr;
+	positionImageAttachmentRef.attachment = 0u;
+	positionImageAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+	positionImageAttachmentRef.aspectMask = 0u;
+	mrtGeometryBufferRenderPass.colorAttachments.push_back(positionImageAttachmentRef);
+
+	Attachment normalImageAttachment{}; // normalImage
+	normalImageAttachment.format = swapchain->getProperties().surfaceFormat.format;
+	normalImageAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+	normalImageAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	normalImageAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	normalImageAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	normalImageAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	normalImageAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	normalImageAttachment.finalLayout = VK_IMAGE_LAYOUT_GENERAL;
+	attachments.push_back(normalImageAttachment);
+
+	VkAttachmentReference2 normalImageAttachmentRef{ VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2 };
+	normalImageAttachmentRef.pNext = nullptr;
+	normalImageAttachmentRef.attachment = 1u;
+	normalImageAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+	normalImageAttachmentRef.aspectMask = 0u;
+	mrtGeometryBufferRenderPass.colorAttachments.push_back(normalImageAttachmentRef);
+
+	Attachment uv0ImageAttachment{}; // uv0Image
+	uv0ImageAttachment.format = swapchain->getProperties().surfaceFormat.format;
+	uv0ImageAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+	uv0ImageAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	uv0ImageAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	uv0ImageAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	uv0ImageAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	uv0ImageAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	uv0ImageAttachment.finalLayout = VK_IMAGE_LAYOUT_GENERAL;
+	attachments.push_back(uv0ImageAttachment);
+
+	VkAttachmentReference2 uv0ImageAttachmentRef{ VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2 };
+	uv0ImageAttachmentRef.pNext = nullptr;
+	uv0ImageAttachmentRef.attachment = 2u;
+	uv0ImageAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+	uv0ImageAttachmentRef.aspectMask = 0u;
+	mrtGeometryBufferRenderPass.colorAttachments.push_back(uv0ImageAttachmentRef);
+
+	Attachment uv1ImageAttachment{}; // uv1Image
+	uv1ImageAttachment.format = swapchain->getProperties().surfaceFormat.format;
+	uv1ImageAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+	uv1ImageAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	uv1ImageAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	uv1ImageAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	uv1ImageAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	uv1ImageAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	uv1ImageAttachment.finalLayout = VK_IMAGE_LAYOUT_GENERAL;
+	attachments.push_back(uv1ImageAttachment);
+
+	VkAttachmentReference2 uv1ImageAttachmentRef{ VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2 };
+	uv1ImageAttachmentRef.pNext = nullptr;
+	uv1ImageAttachmentRef.attachment = 3u;
+	uv1ImageAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+	uv1ImageAttachmentRef.aspectMask = 0u;
+	mrtGeometryBufferRenderPass.colorAttachments.push_back(uv1ImageAttachmentRef);
+
+	Attachment color0ImageAttachment{}; // color0Image
+	color0ImageAttachment.format = swapchain->getProperties().surfaceFormat.format;
+	color0ImageAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+	color0ImageAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	color0ImageAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	color0ImageAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	color0ImageAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	color0ImageAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	color0ImageAttachment.finalLayout = VK_IMAGE_LAYOUT_GENERAL;
+	attachments.push_back(color0ImageAttachment);
+
+	VkAttachmentReference2 color0ImageAttachmentRef{ VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2 };
+	color0ImageAttachmentRef.pNext = nullptr;
+	color0ImageAttachmentRef.attachment = 4u;
+	color0ImageAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+	color0ImageAttachmentRef.aspectMask = 0u;
+	mrtGeometryBufferRenderPass.colorAttachments.push_back(color0ImageAttachmentRef);
+	
+	Attachment materialIndexImageAttachment{}; // materialIndexImage
+	materialIndexImageAttachment.format = swapchain->getProperties().surfaceFormat.format;
+	materialIndexImageAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+	materialIndexImageAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	materialIndexImageAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	materialIndexImageAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	materialIndexImageAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	materialIndexImageAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	materialIndexImageAttachment.finalLayout = VK_IMAGE_LAYOUT_GENERAL;
+	attachments.push_back(materialIndexImageAttachment);
+
+	VkAttachmentReference2 materialIndexImageAttachmentRef{ VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2 };
+	materialIndexImageAttachmentRef.pNext = nullptr;
+	materialIndexImageAttachmentRef.attachment = 5u;
+	materialIndexImageAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+	materialIndexImageAttachmentRef.aspectMask = 0u;
+	mrtGeometryBufferRenderPass.colorAttachments.push_back(materialIndexImageAttachmentRef);
+
+	Attachment depthAttachment{};
+	depthAttachment.format = getSupportedDepthFormat(device->getPhysicalDevice().getHandle());
+	depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+	depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	depthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	depthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	depthAttachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+	attachments.push_back(depthAttachment);
+
+	VkAttachmentReference2 depthAttachmentRef{ VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2 };
+	depthAttachmentRef.pNext = nullptr;
+	depthAttachmentRef.attachment = 6u;
+	depthAttachmentRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+	depthAttachmentRef.aspectMask = 0u;
+	mrtGeometryBufferRenderPass.depthStencilAttachments.push_back(depthAttachmentRef);
+
+	mrtGeometryBufferRenderPass.subpasses.emplace_back(
+		mrtGeometryBufferRenderPass.inputAttachments,
+		mrtGeometryBufferRenderPass.colorAttachments,
+		mrtGeometryBufferRenderPass.resolveAttachments,
+		mrtGeometryBufferRenderPass.depthStencilAttachments,
+		mrtGeometryBufferRenderPass.preserveAttachments,
+		VK_PIPELINE_BIND_POINT_GRAPHICS
+	);
+
+	std::vector<VkSubpassDependency2> dependencies;
+	dependencies.resize(2);
+
+	// TODO: verify these subpass dependencies are correct
+	// Only need a dependency coming in to ensure that the first layout transition happens at the right time.
+	// Second external dependency is implied by having a different finalLayout and subpass layout.
+	VkMemoryBarrier2 memoryBarrier1 = {
+		.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2_KHR,
+		.pNext = nullptr,
+		.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
+		.srcAccessMask = 0u, // We don't have anything that we need to flush
+		.dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
+		.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT
+	};
+
+	dependencies[0].sType = VK_STRUCTURE_TYPE_SUBPASS_DEPENDENCY_2;
+	dependencies[0].pNext = &memoryBarrier1;
+	dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
+	dependencies[0].dstSubpass = 0u; // References the subpass index in the subpasses array
+	// srcStageMask, dstStageMask, srcAccessMask and dstAccessMask on subpassDependency2 are ignored since we're passing in a memory barrier
+	dependencies[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+
+	VkMemoryBarrier2 memoryBarrier2 = {
+		.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2_KHR,
+		.pNext = nullptr,
+		.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+		.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+		.dstStageMask = VK_PIPELINE_STAGE_2_NONE,
+		.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT
+	};
+
+	dependencies[1].sType = VK_STRUCTURE_TYPE_SUBPASS_DEPENDENCY_2;
+	dependencies[1].pNext = &memoryBarrier2;
+	dependencies[1].srcSubpass = 0u;
+	dependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
+	// srcStageMask, dstStageMask, srcAccessMask and dstAccessMask on subpassDependency2 are ignored since we're passing in a memory barrier
+	dependencies[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+
+	// Normally, we would need an external dependency at the end as well since we are changing layout in finalLayout,
+	// but since we are signalling a semaphore, we can rely on Vulkan's default behavior,
+	// which injects an external dependency here with dstStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, dstAccessMask = 0. 
+
+	mrtGeometryBufferRenderPass.renderPass = std::make_unique<RenderPass>(*device, attachments, mrtGeometryBufferRenderPass.subpasses, dependencies);
+	setDebugUtilsObjectName(device->getHandle(), mrtGeometryBufferRenderPass.renderPass->getHandle(), "mrtGeometryBufferRenderPass");
+}
+
+void VulkrApp::createDeferredShadingRenderPass()
+{
+	std::vector<Attachment> attachments;
+	Attachment colorAttachment{}; // outputImage
+	colorAttachment.format = swapchain->getProperties().surfaceFormat.format;
+	colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+	colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+	colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	colorAttachment.initialLayout = VK_IMAGE_LAYOUT_GENERAL;
+	colorAttachment.finalLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+	attachments.push_back(colorAttachment);
+
+	VkAttachmentReference2 colorAttachmentRef{ VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2 };
+	colorAttachmentRef.pNext = nullptr;
+	colorAttachmentRef.attachment = 0u;
+	colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+	colorAttachmentRef.aspectMask = 0u;
+	deferredShadingRenderPass.colorAttachments.push_back(colorAttachmentRef);
+
+	Attachment depthAttachment{};
+	depthAttachment.format = getSupportedDepthFormat(device->getPhysicalDevice().getHandle());
+	depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+	depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	depthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	depthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	depthAttachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+	attachments.push_back(depthAttachment);
+
+	VkAttachmentReference2 depthAttachmentRef{ VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2 };
+	depthAttachmentRef.pNext = nullptr;
+	depthAttachmentRef.attachment = 1u;
+	depthAttachmentRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+	depthAttachmentRef.aspectMask = 0u;
+	deferredShadingRenderPass.depthStencilAttachments.push_back(depthAttachmentRef);
+
+	deferredShadingRenderPass.subpasses.emplace_back(
+		deferredShadingRenderPass.inputAttachments,
+		deferredShadingRenderPass.colorAttachments,
+		deferredShadingRenderPass.resolveAttachments,
+		deferredShadingRenderPass.depthStencilAttachments,
+		deferredShadingRenderPass.preserveAttachments,
+		VK_PIPELINE_BIND_POINT_GRAPHICS
+	);
+
+	std::vector<VkSubpassDependency2> dependencies;
+	dependencies.resize(2);
+
+	// TODO: verify these subpass dependencies are correct
+	// Only need a dependency coming in to ensure that the first layout transition happens at the right time.
+	// Second external dependency is implied by having a different finalLayout and subpass layout.
+	VkMemoryBarrier2 memoryBarrier1 = {
+	.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2_KHR,
+	.pNext = nullptr,
+	.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
+	.srcAccessMask = 0, // we don't have anything to flush
+	.dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
+	.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT // The clear on depth counts as a write operation I believe so we need appropriate access masks
+	};
+
+	dependencies[0].sType = VK_STRUCTURE_TYPE_SUBPASS_DEPENDENCY_2;
+	dependencies[0].pNext = &memoryBarrier1;
+	dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
+	dependencies[0].dstSubpass = 0u; // References the subpass index in the subpasses array
+	// srcStageMask, dstStageMask, srcAccessMask and dstAccessMask on subpassDependency2 are ignored since we're passing in a memory barrier
+	dependencies[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+
+	VkMemoryBarrier2 memoryBarrier2 = {
+		.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2_KHR,
+		.pNext = nullptr,
+		.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+		.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+		.dstStageMask = VK_PIPELINE_STAGE_2_NONE,
+		.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT
+	};
+
+	dependencies[1].sType = VK_STRUCTURE_TYPE_SUBPASS_DEPENDENCY_2;
+	dependencies[1].pNext = &memoryBarrier2;
+	dependencies[1].srcSubpass = 0u;
+	dependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
+	// srcStageMask, dstStageMask, srcAccessMask and dstAccessMask on subpassDependency2 are ignored since we're passing in a memory barrier
+	dependencies[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+
+	// Normally, we would need an external dependency at the end as well since we are changing layout in finalLayout,
+	// but since we are signalling a semaphore, we can rely on Vulkan's default behavior,
+	// which injects an external dependency here with dstStageMask = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, dstAccessMask = 0. 
+
+	deferredShadingRenderPass.renderPass = std::make_unique<RenderPass>(*device, attachments, deferredShadingRenderPass.subpasses, dependencies);
+	setDebugUtilsObjectName(device->getHandle(), deferredShadingRenderPass.renderPass->getHandle(), "deferredShadingRenderPass");
 }
 
 
@@ -1705,13 +2121,61 @@ void VulkrApp::createDescriptorSetLayouts()
 	{ 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr },
 	};
 	gltfMaterialDescriptorSetLayout = std::make_unique<DescriptorSetLayout>(*device, gltfMaterialSetLayoutBindings);
+
+	// Geometry Buffer Descriptor Set Layout
+	VkDescriptorSetLayoutBinding positionBufferLayoutBinding{};
+	positionBufferLayoutBinding.binding = 0u;
+	positionBufferLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	positionBufferLayoutBinding.descriptorCount = 1u;
+	positionBufferLayoutBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+	positionBufferLayoutBinding.pImmutableSamplers = nullptr;
+	VkDescriptorSetLayoutBinding normalBufferLayoutBinding{};
+	normalBufferLayoutBinding.binding = 1u;
+	normalBufferLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	normalBufferLayoutBinding.descriptorCount = 1u;
+	normalBufferLayoutBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+	normalBufferLayoutBinding.pImmutableSamplers = nullptr;
+	VkDescriptorSetLayoutBinding uv0BufferLayoutBinding{};
+	uv0BufferLayoutBinding.binding = 2u;
+	uv0BufferLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	uv0BufferLayoutBinding.descriptorCount = 1u;
+	uv0BufferLayoutBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+	uv0BufferLayoutBinding.pImmutableSamplers = nullptr;
+	VkDescriptorSetLayoutBinding uv1BufferLayoutBinding{};
+	uv1BufferLayoutBinding.binding = 3u;
+	uv1BufferLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	uv1BufferLayoutBinding.descriptorCount = 1u;
+	uv1BufferLayoutBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+	uv1BufferLayoutBinding.pImmutableSamplers = nullptr;
+	VkDescriptorSetLayoutBinding color0BufferLayoutBinding{};
+	color0BufferLayoutBinding.binding = 4u;
+	color0BufferLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	color0BufferLayoutBinding.descriptorCount = 1u;
+	color0BufferLayoutBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+	color0BufferLayoutBinding.pImmutableSamplers = nullptr;
+	VkDescriptorSetLayoutBinding materialIndexBufferLayoutBinding{};
+	materialIndexBufferLayoutBinding.binding = 5u;
+	materialIndexBufferLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	materialIndexBufferLayoutBinding.descriptorCount = 1u;
+	materialIndexBufferLayoutBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+	materialIndexBufferLayoutBinding.pImmutableSamplers = nullptr;
+
+	std::vector<VkDescriptorSetLayoutBinding> geometryBufferDescriptorSetLayoutBindings{
+		positionBufferLayoutBinding,
+		normalBufferLayoutBinding,
+		uv0BufferLayoutBinding,
+		uv1BufferLayoutBinding,
+		color0BufferLayoutBinding,
+		materialIndexBufferLayoutBinding
+	};
+	geometryBufferDescriptorSetLayout = std::make_unique<DescriptorSetLayout>(*device, geometryBufferDescriptorSetLayoutBindings);
 }
 
 void VulkrApp::createMainRasterizationPipeline()
 {
 	VertexInputState vertexInputState{};
 	vertexInputState.bindingDescriptions.reserve(1);
-	vertexInputState.attributeDescriptions.reserve(3);
+	vertexInputState.attributeDescriptions.reserve(4);
 
 	VkVertexInputBindingDescription bindingDescription{};
 	bindingDescription.binding = 0;
@@ -1835,9 +2299,9 @@ void VulkrApp::createMainRasterizationPipeline()
 	};
 
 	std::vector<VkPushConstantRange> pushConstantRangeHandles;
-	VkPushConstantRange taaPushConstantRange{ VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(TaaPushConstant) };
+	VkPushConstantRange taaPushConstantRange{ VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(TaaPushConstants) };
 	pushConstantRangeHandles.push_back(taaPushConstantRange);
-	VkPushConstantRange rasterizationPushConstantRange{ VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(TaaPushConstant), sizeof(RasterizationPushConstant) };
+	VkPushConstantRange rasterizationPushConstantRange{ VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(TaaPushConstants), sizeof(RasterizationPushConstants) };
 	pushConstantRangeHandles.push_back(rasterizationPushConstantRange);
 
 	std::unique_ptr<GraphicsPipelineState> mainRasterizationPipelineState = std::make_unique<GraphicsPipelineState>(
@@ -1862,7 +2326,7 @@ void VulkrApp::createPbrRasterizationPipeline()
 {
 	VertexInputState vertexInputState{};
 	vertexInputState.bindingDescriptions.reserve(1);
-	vertexInputState.attributeDescriptions.reserve(3);
+	vertexInputState.attributeDescriptions.reserve(7);
 
 	VkVertexInputBindingDescription bindingDescription{};
 	bindingDescription.binding = 0;
@@ -1975,7 +2439,7 @@ void VulkrApp::createPbrRasterizationPipeline()
 	vertexShaderSpecializationInfo.mapEntryCount = 0;
 	vertexShaderSpecializationInfo.dataSize = 0;
 
-	std::shared_ptr<ShaderSource> fragmentShader = std::make_shared<ShaderSource>("rasterization/material_pbr.frag.spv");
+	std::shared_ptr<ShaderSource> fragmentShader = std::make_shared<ShaderSource>("rasterization/pbr.frag.spv");
 	struct SpecializationData
 	{
 		uint32_t maxLightCount;
@@ -2008,7 +2472,7 @@ void VulkrApp::createPbrRasterizationPipeline()
 	};
 
 	std::vector<VkPushConstantRange> pushConstantRangeHandles;
-	VkPushConstantRange pushConstantRange{ VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GltfPushConstant) };
+	VkPushConstantRange pushConstantRange{ VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GltfPushConstants) };
 	pushConstantRangeHandles.push_back(pushConstantRange);
 
 	std::unique_ptr<GraphicsPipelineState> pbrRasterizationPipelineState = std::make_unique<GraphicsPipelineState>(
@@ -2027,6 +2491,273 @@ void VulkrApp::createPbrRasterizationPipeline()
 
 	pipelines.pbr.pipelineState = std::move(pbrRasterizationPipelineState);
 	pipelines.pbr.pipeline = std::move(pbrRasterizationPipeline);
+}
+
+void VulkrApp::createMrtGeometryBufferPipeline()
+{
+	VertexInputState vertexInputState{};
+	vertexInputState.bindingDescriptions.reserve(1);
+	vertexInputState.attributeDescriptions.reserve(7);
+
+	VkVertexInputBindingDescription bindingDescription{};
+	bindingDescription.binding = 0;
+	bindingDescription.stride = sizeof(vulkr::gltf::Model::Vertex);
+	bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+	vertexInputState.bindingDescriptions.emplace_back(bindingDescription);
+
+	// Position at location 0
+	VkVertexInputAttributeDescription positionAttributeDescription;
+	positionAttributeDescription.location = 0;
+	positionAttributeDescription.binding = 0;
+	positionAttributeDescription.format = VK_FORMAT_R32G32B32_SFLOAT;
+	positionAttributeDescription.offset = offsetof(vulkr::gltf::Model::Vertex, pos);
+	// Normal at location 1
+	VkVertexInputAttributeDescription normalAttributeDescription;
+	normalAttributeDescription.location = 1;
+	normalAttributeDescription.binding = 0;
+	normalAttributeDescription.format = VK_FORMAT_R32G32B32_SFLOAT;
+	normalAttributeDescription.offset = offsetof(vulkr::gltf::Model::Vertex, normal);
+	// uv0 at location 2
+	VkVertexInputAttributeDescription uv0AttributeDescription;
+	uv0AttributeDescription.location = 2;
+	uv0AttributeDescription.binding = 0;
+	uv0AttributeDescription.format = VK_FORMAT_R32G32_SFLOAT;
+	uv0AttributeDescription.offset = offsetof(vulkr::gltf::Model::Vertex, uv0);
+	// uv1 at location 3
+	VkVertexInputAttributeDescription uv1AttributeDescription;
+	uv1AttributeDescription.location = 3;
+	uv1AttributeDescription.binding = 0;
+	uv1AttributeDescription.format = VK_FORMAT_R32G32_SFLOAT;
+	uv1AttributeDescription.offset = offsetof(vulkr::gltf::Model::Vertex, uv1);
+	// joint0 at location 4
+	VkVertexInputAttributeDescription joint0AttributeDescription;
+	joint0AttributeDescription.location = 4;
+	joint0AttributeDescription.binding = 0;
+	joint0AttributeDescription.format = VK_FORMAT_R32G32B32A32_SFLOAT;
+	joint0AttributeDescription.offset = offsetof(vulkr::gltf::Model::Vertex, joint0);
+	// weight0 at location 5
+	VkVertexInputAttributeDescription weight0AttributeDescription;
+	weight0AttributeDescription.location = 5;
+	weight0AttributeDescription.binding = 0;
+	weight0AttributeDescription.format = VK_FORMAT_R32G32B32A32_SFLOAT;
+	weight0AttributeDescription.offset = offsetof(vulkr::gltf::Model::Vertex, weight0);
+	// color at location 6
+	VkVertexInputAttributeDescription colorAttributeDescription;
+	colorAttributeDescription.location = 6;
+	colorAttributeDescription.binding = 0;
+	colorAttributeDescription.format = VK_FORMAT_R32G32B32A32_SFLOAT;
+	colorAttributeDescription.offset = offsetof(vulkr::gltf::Model::Vertex, color);
+
+	vertexInputState.attributeDescriptions.emplace_back(positionAttributeDescription);
+	vertexInputState.attributeDescriptions.emplace_back(normalAttributeDescription);
+	vertexInputState.attributeDescriptions.emplace_back(uv0AttributeDescription);
+	vertexInputState.attributeDescriptions.emplace_back(uv1AttributeDescription);
+	vertexInputState.attributeDescriptions.emplace_back(joint0AttributeDescription);
+	vertexInputState.attributeDescriptions.emplace_back(weight0AttributeDescription);
+	vertexInputState.attributeDescriptions.emplace_back(colorAttributeDescription);
+
+	InputAssemblyState inputAssemblyState{};
+	inputAssemblyState.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+	inputAssemblyState.primitiveRestartEnable = VK_FALSE;
+
+	ViewportState viewportState{};
+	VkViewport viewport{ 0.0f, 0.0f, static_cast<float>(swapchain->getProperties().imageExtent.width), static_cast<float>(swapchain->getProperties().imageExtent.height), 0.0f, 1.0f };
+	viewportState.viewports.emplace_back(viewport);
+	VkRect2D scissor{};
+	scissor.offset = { 0, 0 };
+	scissor.extent = swapchain->getProperties().imageExtent;
+	viewportState.scissors.emplace_back(scissor);
+
+	RasterizationState rasterizationState{};
+	rasterizationState.depthClampEnable = VK_FALSE;
+	rasterizationState.rasterizerDiscardEnable = VK_FALSE;
+	rasterizationState.polygonMode = VK_POLYGON_MODE_FILL;
+	rasterizationState.cullMode = VK_CULL_MODE_BACK_BIT;
+	rasterizationState.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+	rasterizationState.lineWidth = 1.0f;
+	rasterizationState.depthBiasEnable = VK_FALSE;
+
+	MultisampleState multisampleState{};
+	multisampleState.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+	multisampleState.sampleShadingEnable = VK_FALSE;
+
+	DepthStencilState depthStencilState{};
+	depthStencilState.depthTestEnable = VK_TRUE;
+	depthStencilState.depthWriteEnable = VK_TRUE;
+	// TODO: change this to VK_COMPARE_OP_GREATER: https://developer.nvidia.com/content/depth-precision-visualized , will need to also change the depthStencil clearValue to 0.0f instead of 1.0f
+	depthStencilState.depthCompareOp = VK_COMPARE_OP_LESS;
+	depthStencilState.depthBoundsTestEnable = VK_FALSE;
+	depthStencilState.stencilTestEnable = VK_FALSE;
+
+	ColorBlendAttachmentState colorBlendAttachmentState{};
+	colorBlendAttachmentState.blendEnable = VK_FALSE;
+
+	ColorBlendState colorBlendState{};
+	colorBlendState.logicOpEnable = VK_FALSE;
+	colorBlendState.logicOp = VK_LOGIC_OP_COPY;
+	colorBlendState.attachments.emplace_back(colorBlendAttachmentState); // No blending for position image
+	colorBlendState.attachments.emplace_back(colorBlendAttachmentState); // No blending for normal image
+	colorBlendState.attachments.emplace_back(colorBlendAttachmentState); // No blending for uv0 image
+	colorBlendState.attachments.emplace_back(colorBlendAttachmentState); // No blending for uv1 image
+	colorBlendState.attachments.emplace_back(colorBlendAttachmentState); // No blending for color0 image
+	colorBlendState.attachments.emplace_back(colorBlendAttachmentState); // No blending for materialIndex image
+	colorBlendState.blendConstants[0] = 0.0f;
+	colorBlendState.blendConstants[1] = 0.0f;
+	colorBlendState.blendConstants[2] = 0.0f;
+	colorBlendState.blendConstants[3] = 0.0f;
+
+	std::vector<VkDynamicState> dynamicStates;
+
+	std::shared_ptr<ShaderSource> vertexShader = std::make_shared<ShaderSource>("rasterization/mrtGeometryBuffer.vert.spv");
+	VkSpecializationInfo vertexShaderSpecializationInfo;
+	vertexShaderSpecializationInfo.mapEntryCount = 0;
+	vertexShaderSpecializationInfo.dataSize = 0;
+
+	std::shared_ptr<ShaderSource> fragmentShader = std::make_shared<ShaderSource>("rasterization/mrtGeometryBuffer.frag.spv");
+	VkSpecializationInfo fragmentShaderSpecializationInfo;
+	fragmentShaderSpecializationInfo.mapEntryCount = 0;
+	fragmentShaderSpecializationInfo.dataSize = 0;
+
+	std::vector<ShaderModule> shaderModules;
+	shaderModules.emplace_back(*device, VK_SHADER_STAGE_VERTEX_BIT, vertexShaderSpecializationInfo, vertexShader);
+	shaderModules.emplace_back(*device, VK_SHADER_STAGE_FRAGMENT_BIT, fragmentShaderSpecializationInfo, fragmentShader);
+
+	std::vector<VkDescriptorSetLayout> descriptorSetLayoutHandles{
+		globalDescriptorSetLayout->getHandle(),
+		objectDescriptorSetLayout->getHandle(),
+		gltfNodeDescriptorSetLayout->getHandle()
+	};
+
+	std::vector<VkPushConstantRange> pushConstantRangeHandles;
+	VkPushConstantRange pushConstantRange{ VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(MrtGeometryBufferPushConstants) };
+	pushConstantRangeHandles.push_back(pushConstantRange);
+
+	std::unique_ptr<GraphicsPipelineState> mrtGeometryBufferRasterizationPipelineState = std::make_unique<GraphicsPipelineState>(
+		std::make_unique<PipelineLayout>(*device, shaderModules, descriptorSetLayoutHandles, pushConstantRangeHandles),
+		*mrtGeometryBufferRenderPass.renderPass,
+		vertexInputState,
+		inputAssemblyState,
+		viewportState,
+		rasterizationState,
+		multisampleState,
+		depthStencilState,
+		colorBlendState,
+		dynamicStates
+	);
+	std::unique_ptr<GraphicsPipeline> mrtGeometryBufferRasterizationPipeline = std::make_unique<GraphicsPipeline>(*device, *mrtGeometryBufferRasterizationPipelineState, nullptr);
+
+	pipelines.mrtGeometryBuffer.pipelineState = std::move(mrtGeometryBufferRasterizationPipelineState);
+	pipelines.mrtGeometryBuffer.pipeline = std::move(mrtGeometryBufferRasterizationPipeline);
+}
+
+
+void VulkrApp::createDeferredShadingPipeline()
+{
+	VertexInputState vertexInputState{}; // No vertex inputs
+
+	InputAssemblyState inputAssemblyState{};
+	inputAssemblyState.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+	inputAssemblyState.primitiveRestartEnable = VK_FALSE;
+
+	ViewportState viewportState{};
+	VkViewport viewport{ 0.0f, 0.0f, static_cast<float>(swapchain->getProperties().imageExtent.width), static_cast<float>(swapchain->getProperties().imageExtent.height), 0.0f, 1.0f };
+	viewportState.viewports.emplace_back(viewport);
+	VkRect2D scissor{};
+	scissor.offset = { 0, 0 };
+	scissor.extent = swapchain->getProperties().imageExtent;
+	viewportState.scissors.emplace_back(scissor);
+
+	RasterizationState rasterizationState{};
+	rasterizationState.depthClampEnable = VK_FALSE;
+	rasterizationState.rasterizerDiscardEnable = VK_FALSE;
+	rasterizationState.polygonMode = VK_POLYGON_MODE_FILL;
+	rasterizationState.cullMode = VK_CULL_MODE_BACK_BIT;
+	rasterizationState.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+	rasterizationState.lineWidth = 1.0f;
+	rasterizationState.depthBiasEnable = VK_FALSE;
+
+	MultisampleState multisampleState{};
+	multisampleState.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+	multisampleState.sampleShadingEnable = VK_FALSE;
+
+	DepthStencilState depthStencilState{};
+	depthStencilState.depthTestEnable = VK_TRUE;
+	depthStencilState.depthWriteEnable = VK_TRUE;
+	// TODO: change this to VK_COMPARE_OP_GREATER: https://developer.nvidia.com/content/depth-precision-visualized , will need to also change the depthStencil clearValue to 0.0f instead of 1.0f
+	depthStencilState.depthCompareOp = VK_COMPARE_OP_LESS;
+	depthStencilState.depthBoundsTestEnable = VK_FALSE;
+	depthStencilState.stencilTestEnable = VK_FALSE;
+
+	ColorBlendAttachmentState colorBlendAttachmentState{};
+	colorBlendAttachmentState.blendEnable = VK_FALSE;
+
+	ColorBlendState colorBlendState{};
+	colorBlendState.logicOpEnable = VK_FALSE;
+	colorBlendState.logicOp = VK_LOGIC_OP_COPY;
+	colorBlendState.attachments.emplace_back(colorBlendAttachmentState); // No blending for the output image
+	colorBlendState.blendConstants[0] = 0.0f;
+	colorBlendState.blendConstants[1] = 0.0f;
+	colorBlendState.blendConstants[2] = 0.0f;
+	colorBlendState.blendConstants[3] = 0.0f;
+
+	std::vector<VkDynamicState> dynamicStates;
+
+	std::shared_ptr<ShaderSource> vertexShader = std::make_shared<ShaderSource>("rasterization/deferredShading.vert.spv");
+	VkSpecializationInfo vertexShaderSpecializationInfo;
+	vertexShaderSpecializationInfo.mapEntryCount = 0;
+	vertexShaderSpecializationInfo.dataSize = 0;
+
+	std::shared_ptr<ShaderSource> fragmentShader = std::make_shared<ShaderSource>("rasterization/deferredShading.frag.spv");
+	struct SpecializationData
+	{
+		uint32_t maxLightCount;
+	} specializationData;
+	const std::array<VkSpecializationMapEntry, 1> entries{
+		{
+			{ 0u, offsetof(SpecializationData, maxLightCount), sizeof(uint32_t) }
+		}
+	};
+	specializationData.maxLightCount = maxLightCount;
+
+	VkSpecializationInfo fragmentShaderSpecializationInfo =
+	{
+		to_u32(entries.size()),
+		entries.data(),
+		to_u32(sizeof(SpecializationData)),
+		&specializationData
+	};
+
+	std::vector<ShaderModule> shaderModules;
+	shaderModules.emplace_back(*device, VK_SHADER_STAGE_VERTEX_BIT, vertexShaderSpecializationInfo, vertexShader);
+	shaderModules.emplace_back(*device, VK_SHADER_STAGE_FRAGMENT_BIT, fragmentShaderSpecializationInfo, fragmentShader);
+
+	std::vector<VkDescriptorSetLayout> descriptorSetLayoutHandles{
+		globalDescriptorSetLayout->getHandle(),
+		geometryBufferDescriptorSetLayout->getHandle(),
+		gltfMaterialSamplersDescriptorSetLayout->getHandle(), // TODO this should turn into indexed descriptor
+		gltfMaterialDescriptorSetLayout->getHandle()
+	};
+
+	std::vector<VkPushConstantRange> pushConstantRangeHandles;
+	VkPushConstantRange pushConstantRange{ VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(DeferredShadingPushConstants) };
+	pushConstantRangeHandles.push_back(pushConstantRange);
+
+	std::unique_ptr<GraphicsPipelineState> deferredShadingPipelineState = std::make_unique<GraphicsPipelineState>(
+		std::make_unique<PipelineLayout>(*device, shaderModules, descriptorSetLayoutHandles, pushConstantRangeHandles),
+		*deferredShadingRenderPass.renderPass,
+		vertexInputState,
+		inputAssemblyState,
+		viewportState,
+		rasterizationState,
+		multisampleState,
+		depthStencilState,
+		colorBlendState,
+		dynamicStates
+	);
+	std::unique_ptr<GraphicsPipeline> deferredShadingPipeline = std::make_unique<GraphicsPipeline>(*device, *deferredShadingPipelineState, nullptr);
+
+	pipelines.deferredShading.pipelineState = std::move(deferredShadingPipelineState);
+	pipelines.deferredShading.pipeline = std::move(deferredShadingPipeline);
 }
 
 void VulkrApp::createPostProcessingPipeline()
@@ -2138,7 +2869,7 @@ void VulkrApp::createPostProcessingPipeline()
 	std::vector<VkDescriptorSetLayout> descriptorSetLayoutHandles{ postProcessingDescriptorSetLayout->getHandle() };
 
 	std::vector<VkPushConstantRange> pushConstantRangeHandles;
-	VkPushConstantRange postProcessPushConstantRange{ VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PostProcessPushConstant) };
+	VkPushConstantRange postProcessPushConstantRange{ VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PostProcessPushConstants) };
 	pushConstantRangeHandles.push_back(postProcessPushConstantRange);
 
 	std::unique_ptr<GraphicsPipelineState> postProcessingPipelineState = std::make_unique<GraphicsPipelineState>(
@@ -2188,7 +2919,7 @@ void VulkrApp::createModelAnimationComputePipeline()
 	std::vector<VkDescriptorSetLayout> descriptorSetLayoutHandles{ objectDescriptorSetLayout->getHandle() };
 
 	std::vector<VkPushConstantRange> pushConstantRangeHandles;
-	VkPushConstantRange computePushConstantRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstant) };
+	VkPushConstantRange computePushConstantRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants) };
 	pushConstantRangeHandles.push_back(computePushConstantRange);
 
 	std::unique_ptr<ComputePipelineState> computePipelineState = std::make_unique<ComputePipelineState>(
@@ -2241,7 +2972,7 @@ void VulkrApp::createParticleCalculateComputePipeline()
 	std::vector<VkDescriptorSetLayout> descriptorSetLayoutHandles{ particleComputeDescriptorSetLayout->getHandle() };
 
 	std::vector<VkPushConstantRange> pushConstantRangeHandles;
-	VkPushConstantRange computePushConstantRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputeParticlesPushConstant) };
+	VkPushConstantRange computePushConstantRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputeParticlesPushConstants) };
 	pushConstantRangeHandles.push_back(computePushConstantRange);
 
 	std::unique_ptr<ComputePipelineState> computePipelineState = std::make_unique<ComputePipelineState>(
@@ -2282,7 +3013,7 @@ void VulkrApp::createParticleIntegrateComputePipeline()
 	std::vector<VkDescriptorSetLayout> descriptorSetLayoutHandles{ particleComputeDescriptorSetLayout->getHandle(), objectDescriptorSetLayout->getHandle() };
 
 	std::vector<VkPushConstantRange> pushConstantRangeHandles;
-	VkPushConstantRange computePushConstantRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputeParticlesPushConstant) };
+	VkPushConstantRange computePushConstantRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputeParticlesPushConstants) };
 	pushConstantRangeHandles.push_back(computePushConstantRange);
 
 	std::unique_ptr<ComputePipelineState> computePipelineState = std::make_unique<ComputePipelineState>(
@@ -2305,6 +3036,25 @@ void VulkrApp::createFramebuffers()
 		std::vector<VkImageView> postProcessingAttachments{ outputImageView->getHandle(), depthImageView->getHandle() };
 		frameData.postProcessFramebuffers[i] = std::make_unique<Framebuffer>(*device, *swapchain, *postRenderPass.renderPass, postProcessingAttachments);
 		setDebugUtilsObjectName(device->getHandle(), frameData.postProcessFramebuffers[i]->getHandle(), "postProcessingFramebuffer for frame #" + std::to_string(i));
+
+		std::vector<VkImageView> mrtGeometryBufferAttachments
+		{
+			positionImageView->getHandle(),
+			normalImageView->getHandle(),
+			uv0ImageView->getHandle(),
+			uv1ImageView->getHandle(),
+			color0ImageView->getHandle(),
+			materialIndexImageView->getHandle(),
+			depthImageView->getHandle()
+		};
+		frameData.geometryBufferFramebuffers[i] = std::make_unique<Framebuffer>(*device, *swapchain, *mrtGeometryBufferRenderPass.renderPass, mrtGeometryBufferAttachments);
+		setDebugUtilsObjectName(device->getHandle(), frameData.geometryBufferFramebuffers[i]->getHandle(), "geometryBufferFramebuffer for frame #" + std::to_string(i));
+
+		// IMPORTANT TODO: this frame buffer should have the same attachements as the offscreen one, so we should eventually support copyOutput and velocity so that our post processing pipeline will work with deferred rendering
+		// maybe we eventually don't even need a different frame buffer for the deferred step vs forward rendering. in that case, we can delete deferredShadingFramebufferClearValues as well
+		std::vector<VkImageView> deferredShadingAttachments{ outputImageView->getHandle(), /*copyOutputImageView->getHandle(), velocityImageView->getHandle(),*/ depthImageView->getHandle() };
+		frameData.deferredShadingFramebuffers[i] = std::make_unique<Framebuffer>(*device, *swapchain, *deferredShadingRenderPass.renderPass, deferredShadingAttachments);
+		setDebugUtilsObjectName(device->getHandle(), frameData.deferredShadingFramebuffers[i]->getHandle(), "deferredShadingFramebuffers for frame #" + std::to_string(i));
 	}
 
 	// Set clear values
@@ -2317,6 +3067,19 @@ void VulkrApp::createFramebuffers()
 	postProcessFramebufferClearValues.resize(2);
 	postProcessFramebufferClearValues[0].color = { 1.0f, 1.0f, 1.0f, 1.0f }; // outputImage
 	postProcessFramebufferClearValues[1].depthStencil = { 1.0f, 0u };
+
+	geometryBufferFramebufferClearValues.resize(7);
+	geometryBufferFramebufferClearValues[0].color = { 1.0f, 1.0f, 1.0f, 1.0f }; // positionBuffer
+	geometryBufferFramebufferClearValues[1].color = { 1.0f, 1.0f, 1.0f, 1.0f }; // normalBuffer
+	geometryBufferFramebufferClearValues[2].color = { 0.0f, 0.0f, 0.0f, 0.0f }; // uv0 buffer
+	geometryBufferFramebufferClearValues[3].color = { 0.0f, 0.0f, 0.0f, 0.0f }; // uv1 buffer
+	geometryBufferFramebufferClearValues[4].color = { 0.0f, 0.0f, 0.0f, 0.0f }; // color0 buffer
+	geometryBufferFramebufferClearValues[5].color = { 0.0f, 0.0f, 0.0f, 0.0f }; // materialIndex buffer
+	geometryBufferFramebufferClearValues[6].depthStencil = { 1.0f, 0u };
+
+	deferredShadingFramebufferClearValues.resize(2);
+	deferredShadingFramebufferClearValues[0].color = { 1.0f, 1.0f, 1.0f, 1.0f }; // outputImage
+	deferredShadingFramebufferClearValues[1].depthStencil = { 1.0f, 0u };
 }
 
 void VulkrApp::createCommandPools()
@@ -2357,7 +3120,7 @@ void VulkrApp::returnInitCommandPool(uint8_t commandPoolId)
 
 void VulkrApp::createCommandBuffers()
 {
-	if (commandBufferCountForFrame != 3) LOGEANDABORT("commandBufferCountForFrame should be 3");
+	if (commandBufferCountForFrame != 4) LOGEANDABORT("commandBufferCountForFrame should be 4");
 
 	for (uint32_t i = 0; i < maxFramesInFlight; ++i)
 	{
@@ -2369,6 +3132,9 @@ void VulkrApp::createCommandBuffers()
 
 		frameData.commandBuffers[i][2] = std::make_unique<CommandBuffer>(*frameData.commandPools[i], VK_COMMAND_BUFFER_LEVEL_PRIMARY);
 		setDebugUtilsObjectName(device->getHandle(), frameData.commandBuffers[i][2]->getHandle(), "image transfer commandBuffer for frame #" + std::to_string(i));
+
+		frameData.commandBuffers[i][3] = std::make_unique<CommandBuffer>(*frameData.commandPools[i], VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+		setDebugUtilsObjectName(device->getHandle(), frameData.commandBuffers[i][3]->getHandle(), "geometry buffer pass commandBuffer for frame #" + std::to_string(i));
 	}
 }
 
@@ -2848,10 +3614,10 @@ void VulkrApp::createSSBOs()
 // Setup and fill the compute shader storage buffers containing the particles
 void VulkrApp::prepareParticleData()
 {
-	computeParticlesPushConstant.particleCount = to_u32(attractors.size()) * particlesPerAttractor;
+	computeParticlesPushConstants.particleCount = to_u32(attractors.size()) * particlesPerAttractor;
 
 	// Initial particle positions
-	allParticleData.resize(computeParticlesPushConstant.particleCount);
+	allParticleData.resize(computeParticlesPushConstants.particleCount);
 
 	std::default_random_engine      rndEngine((unsigned)time(nullptr));
 	std::normal_distribution<float> rndDistribution(0.0f, 1.0f);
@@ -2924,7 +3690,7 @@ void VulkrApp::createDescriptorPool()
 	poolSizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 	poolSizes[1].descriptorCount = 10u;
 	poolSizes[2].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-	poolSizes[2].descriptorCount = 10u;
+	poolSizes[2].descriptorCount = 20u;
 	poolSizes[3].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 	poolSizes[3].descriptorCount = 10u;
 
@@ -3105,7 +3871,7 @@ void VulkrApp::createDescriptorSets()
 	VkDescriptorBufferInfo particleBufferInfo{};
 	particleBufferInfo.buffer = particleBuffer->getHandle();
 	particleBufferInfo.offset = 0;
-	particleBufferInfo.range = sizeof(Particle) * computeParticlesPushConstant.particleCount;
+	particleBufferInfo.range = sizeof(Particle) * computeParticlesPushConstants.particleCount;
 	std::array<VkDescriptorBufferInfo, 1> particleComputeStorageBufferInfos{ particleBufferInfo };
 
 	VkWriteDescriptorSet writeParticleComputeStorageBufferDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
@@ -3147,8 +3913,59 @@ void VulkrApp::createDescriptorSets()
 	writeTextureDescriptorSet.pBufferInfo = nullptr;
 	writeTextureDescriptorSet.pTexelBufferView = nullptr;
 
+	// Geometry Buffer Descriptor Set
+	VkDescriptorSetAllocateInfo geometryBufferDescriptorSetAllocateInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+	geometryBufferDescriptorSetAllocateInfo.descriptorPool = descriptorPool->getHandle();
+	geometryBufferDescriptorSetAllocateInfo.descriptorSetCount = 1u;
+	geometryBufferDescriptorSetAllocateInfo.pSetLayouts = &geometryBufferDescriptorSetLayout->getHandle();
+	geometryBufferDescriptorSet = std::make_unique<DescriptorSet>(*device, geometryBufferDescriptorSetAllocateInfo);
+	setDebugUtilsObjectName(device->getHandle(), geometryBufferDescriptorSet->getHandle(), "geometryBufferDescriptorSet");
 
-	std::array<VkWriteDescriptorSet, 9> writeDescriptorSets
+	VkDescriptorImageInfo positionImageInfo{};
+	positionImageInfo.sampler = textureSampler->getHandle();
+	positionImageInfo.imageView = positionImageView->getHandle();
+	positionImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+	VkDescriptorImageInfo normalImageInfo{};
+	normalImageInfo.sampler = textureSampler->getHandle();
+	normalImageInfo.imageView = normalImageView->getHandle();
+	normalImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+	VkDescriptorImageInfo uv0ImageInfo{};
+	uv0ImageInfo.sampler = textureSampler->getHandle();
+	uv0ImageInfo.imageView = uv0ImageView->getHandle();
+	uv0ImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+	VkDescriptorImageInfo uv1ImageInfo{};
+	uv1ImageInfo.sampler = textureSampler->getHandle();
+	uv1ImageInfo.imageView = uv1ImageView->getHandle();
+	uv1ImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+	VkDescriptorImageInfo color0ImageInfo{};
+	color0ImageInfo.sampler = textureSampler->getHandle();
+	color0ImageInfo.imageView = color0ImageView->getHandle();
+	color0ImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+	VkDescriptorImageInfo materialIndexImageInfo{};
+	materialIndexImageInfo.sampler = textureSampler->getHandle();
+	materialIndexImageInfo.imageView = materialIndexImageView->getHandle();
+	materialIndexImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+	std::array<VkDescriptorImageInfo, 6> geometryStorageImageInfos
+	{
+		positionImageInfo,
+		normalImageInfo,
+		uv0ImageInfo,
+		uv1ImageInfo,
+		color0ImageInfo,
+		materialIndexImageInfo
+	};
+
+	VkWriteDescriptorSet writeGeometryStorageImageDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+	writeGeometryStorageImageDescriptorSet.dstSet = geometryBufferDescriptorSet->getHandle();
+	writeGeometryStorageImageDescriptorSet.dstBinding = 0;
+	writeGeometryStorageImageDescriptorSet.dstArrayElement = 0;
+	writeGeometryStorageImageDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	writeGeometryStorageImageDescriptorSet.descriptorCount = to_u32(geometryStorageImageInfos.size());
+	writeGeometryStorageImageDescriptorSet.pImageInfo = geometryStorageImageInfos.data();
+	writeGeometryStorageImageDescriptorSet.pBufferInfo = nullptr;
+	writeGeometryStorageImageDescriptorSet.pTexelBufferView = nullptr;
+
+	std::array<VkWriteDescriptorSet, 10> writeDescriptorSets
 	{
 		writeGlobalDescriptorSet,
 		writeObjectDescriptorSet,
@@ -3161,7 +3978,9 @@ void VulkrApp::createDescriptorSets()
 		writeTaaStorageBufferDescriptorSet,
 
 		writeParticleComputeStorageBufferDescriptorSet,
-		writeTextureDescriptorSet
+		writeTextureDescriptorSet,
+
+		writeGeometryStorageImageDescriptorSet
 	};
 	vkUpdateDescriptorSets(device->getHandle(), to_u32(writeDescriptorSets.size()), writeDescriptorSets.data(), 0, nullptr);
 
@@ -3169,6 +3988,7 @@ void VulkrApp::createDescriptorSets()
 	// Per-Material descriptor sets
 	for (auto &gltfModelToRender : gltfModelRenderingDataList)
 	{
+		// TODO: ADD MATERIAL INDEX INTO MATERIALS STRUCT SO THAT WE CAN HAVE A DESCRIPTOR SET ARRAY AND THEN INDEX OFF IT
 		for (auto &material : gltfModelToRender.gltfModel.materials)
 		{
 			VkDescriptorSetAllocateInfo descriptorSetAllocInfo{};
@@ -3444,8 +4264,8 @@ void VulkrApp::createSceneLights()
 		LOGEANDABORT("Lights in the scene exceed the maxLightCount of {}", maxLightCount);
 	}
 
-	rasterizationPushConstant.lightCount = static_cast<int>(sceneLights.size());
-	raytracingPushConstant.lightCount = static_cast<int>(sceneLights.size());
+	rasterizationPushConstants.lightCount = static_cast<int>(sceneLights.size());
+	raytracingPushConstants.lightCount = static_cast<int>(sceneLights.size());
 }
 
 void VulkrApp::loadModels()
@@ -3548,8 +4368,8 @@ void VulkrApp::createSceneInstances()
 	//createObjInstance(lost_empire.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ 5,-10,0 }));
 
 	// ALl particle instances are assumed to be grouped together
-	computeParticlesPushConstant.startingIndex = static_cast<int>(objInstances.size());
-	for (int i = 0; i < computeParticlesPushConstant.particleCount; ++i)
+	computeParticlesPushConstants.startingIndex = static_cast<int>(objInstances.size());
+	for (int i = 0; i < computeParticlesPushConstants.particleCount; ++i)
 	{
 		createObjInstance("cube.obj", glm::translate(glm::scale(glm::mat4{ 1.0 }, glm::vec3(0.2f, 0.2f, 0.2f)), glm::vec3(allParticleData[i].position.xyz)));
 	}
@@ -3672,8 +4492,8 @@ void VulkrApp::initializeImGui()
 
 void VulkrApp::resetFrameSinceViewChange()
 {
-	raytracingPushConstant.frameSinceViewChange = -1; // TODO remove
-	taaPushConstant.frameSinceViewChange = -1;
+	raytracingPushConstants.frameSinceViewChange = -1; // TODO remove
+	taaPushConstants.frameSinceViewChange = -1;
 }
 
 void VulkrApp::createImageResourcesForFrames()
@@ -3686,11 +4506,12 @@ void VulkrApp::createImageResourcesForFrames()
 	subresourceRange.baseArrayLayer = 0u;
 	subresourceRange.layerCount = 1u;
 
-	// Create textureImageViews
+	// Main output image
 	std::unique_ptr<Image> outputImage = std::make_unique<Image>(*device, swapchain->getProperties().surfaceFormat.format, extent, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 	VkFormat outputImageFormat = outputImage->getFormat();
 	outputImageView = std::make_unique<ImageView>(std::move(outputImage), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, outputImageFormat);
 
+	// Images required for post processing
 	std::unique_ptr<Image> copyOutputImage = std::make_unique<Image>(*device, swapchain->getProperties().surfaceFormat.format, extent, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 	VkFormat copyOutputImageFormat = copyOutputImage->getFormat();
 	copyOutputImageView = std::make_unique<ImageView>(std::move(copyOutputImage), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, copyOutputImageFormat);
@@ -3703,6 +4524,31 @@ void VulkrApp::createImageResourcesForFrames()
 	VkFormat velocityImageFormat = velocityImage->getFormat();
 	velocityImageView = std::make_unique<ImageView>(std::move(velocityImage), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, velocityImageFormat);
 
+	// Images required for deferred rendering
+	std::unique_ptr<Image> positionImage = std::make_unique<Image>(*device, swapchain->getProperties().surfaceFormat.format, extent, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+	VkFormat positionImageFormat = positionImage->getFormat();
+	positionImageView = std::make_unique<ImageView>(std::move(positionImage), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, positionImageFormat);
+
+	std::unique_ptr<Image> normalImage = std::make_unique<Image>(*device, swapchain->getProperties().surfaceFormat.format, extent, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+	VkFormat normalImageFormat = normalImage->getFormat();
+	normalImageView = std::make_unique<ImageView>(std::move(normalImage), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, normalImageFormat);
+
+	std::unique_ptr<Image> uv0Image = std::make_unique<Image>(*device, swapchain->getProperties().surfaceFormat.format, extent, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+	VkFormat uv0ImageFormat = uv0Image->getFormat();
+	uv0ImageView = std::make_unique<ImageView>(std::move(uv0Image), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, uv0ImageFormat);
+
+	std::unique_ptr<Image> uv1Image = std::make_unique<Image>(*device, swapchain->getProperties().surfaceFormat.format, extent, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+	VkFormat uv1ImageFormat = uv1Image->getFormat();
+	uv1ImageView = std::make_unique<ImageView>(std::move(uv1Image), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, uv1ImageFormat);
+
+	std::unique_ptr<Image> color0Image = std::make_unique<Image>(*device, swapchain->getProperties().surfaceFormat.format, extent, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+	VkFormat color0ImageFormat = color0Image->getFormat();
+	color0ImageView = std::make_unique<ImageView>(std::move(color0Image), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, color0ImageFormat);
+	
+	std::unique_ptr<Image> materialIndexImage = std::make_unique<Image>(*device, swapchain->getProperties().surfaceFormat.format, extent, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+	VkFormat materialIndexImageFormat = materialIndexImage->getFormat();
+	materialIndexImageView = std::make_unique<ImageView>(std::move(materialIndexImage), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, materialIndexImageFormat);
+
 	// Set debug markers
 	setDebugUtilsObjectName(device->getHandle(), outputImageView->getImage()->getHandle(), "outputImage");
 	setDebugUtilsObjectName(device->getHandle(), outputImageView->getHandle(), "outputImageView");
@@ -3712,6 +4558,18 @@ void VulkrApp::createImageResourcesForFrames()
 	setDebugUtilsObjectName(device->getHandle(), historyImageView->getHandle(), "historyImageView");
 	setDebugUtilsObjectName(device->getHandle(), velocityImageView->getImage()->getHandle(), "velocityImage");
 	setDebugUtilsObjectName(device->getHandle(), velocityImageView->getHandle(), "velocityImageView");
+	setDebugUtilsObjectName(device->getHandle(), positionImageView->getImage()->getHandle(), "positionImage");
+	setDebugUtilsObjectName(device->getHandle(), positionImageView->getHandle(), "positionImageView");
+	setDebugUtilsObjectName(device->getHandle(), normalImageView->getImage()->getHandle(), "normalImage");
+	setDebugUtilsObjectName(device->getHandle(), normalImageView->getHandle(), "normalImageView");
+	setDebugUtilsObjectName(device->getHandle(), uv0ImageView->getImage()->getHandle(), "uv0Image");
+	setDebugUtilsObjectName(device->getHandle(), uv0ImageView->getHandle(), "uv0ImageView");
+	setDebugUtilsObjectName(device->getHandle(), uv1ImageView->getImage()->getHandle(), "uv1Image");
+	setDebugUtilsObjectName(device->getHandle(), uv1ImageView->getHandle(), "uv1ImageView");
+	setDebugUtilsObjectName(device->getHandle(), color0ImageView->getImage()->getHandle(), "color0Image");
+	setDebugUtilsObjectName(device->getHandle(), color0ImageView->getHandle(), "color0ImageView");
+	setDebugUtilsObjectName(device->getHandle(), materialIndexImageView->getImage()->getHandle(), "materialIndexImage");
+	setDebugUtilsObjectName(device->getHandle(), materialIndexImageView->getHandle(), "materialIndexImageView");
 
 	// Create memory barriers for layout transition
 	VkImageMemoryBarrier2 transitionOutputImageLayoutBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
@@ -4571,7 +5429,7 @@ void VulkrApp::raytrace()
 		to_u32(descSets.size()), descSets.data(), 0, nullptr);
 	vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.rayTracing.pipelineState->getPipelineLayout().getHandle(),
 		VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR,
-		0, sizeof(RaytracingPushConstant), &raytracingPushConstant);
+		0, sizeof(RaytracingPushConstants), &raytracingPushConstants);
 
 
 	// Size of a program identifier
