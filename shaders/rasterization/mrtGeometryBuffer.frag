@@ -1,5 +1,6 @@
 #version 460
 #extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_debug_printf : enable
 
 #include "../common.glsl"
 
@@ -22,11 +23,14 @@ layout (push_constant) uniform PushConstants {
 
 void main() 
 {
+	// TODO: this data is not packed together efficiently (eg. uv0 and uv1 can be put into a single output of size vec4)
 	outPosition = inWorldPos;
 	outNormal = inNormal;
 	outUV0 = inUV0;
 	outUV1 = inUV1;
 	outColor0 = inColor0;
-	outMaterialIndex = pushConstants.materialIndex;
-	// TODO add primative descriptor index after implementing descriptor indexing
+	// TODO investigate why changing line 18 from int to float and casting this to a float results in 1 being returned in deferredShading.frag and 0 when it's not changed...
+	outMaterialIndex = pushConstants.materialIndex;//vec4(float(pushConstants.materialIndex), 3.0f, 3.0f, 3.0f);
+
+	//debugPrintfEXT("outMaterialIndex is %f, %f", outMaterialIndex, float(outMaterialIndex));
 }

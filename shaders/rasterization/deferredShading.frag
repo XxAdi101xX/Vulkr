@@ -1,9 +1,22 @@
 #version 460
 #extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_debug_printf : enable
 
 #include "../common.glsl"
 
 layout(constant_id = 0) const uint maxLightCount = 100;
+layout(constant_id = 1) const uint totalMaterialCount = 10000;
+
+layout (push_constant) uniform PushConstants {
+	vec3 cameraPos;
+	int lightCount;
+} pushConstants;
+
+layout (location = 0) in vec2 inUV;
+layout (location = 0) out vec4 outColor;
+// TODO populate and test ourColor and outVelocity for postprocessing
+//layout(location = 1) out vec4 outColorCopy;
+//layout(location = 2) out vec4 outVelocity;
 
 // Scene bindings
 layout(set = 0, binding = 0) uniform CurrentFrameCameraBuffer {
@@ -23,17 +36,17 @@ layout (set = 1, binding = 3) uniform sampler2D samplerUV1;
 layout (set = 1, binding = 4) uniform sampler2D samplerColor0;
 layout (set = 1, binding = 5) uniform sampler2D samplerMaterialIndex;
 
-// Textures
-layout (set = 2, binding = 0) uniform sampler2D colorMap;
-layout (set = 2, binding = 1) uniform sampler2D physicalDescriptorMap;
-layout (set = 2, binding = 2) uniform sampler2D normalMap;
-layout (set = 2, binding = 3) uniform sampler2D aoMap;
-layout (set = 2, binding = 4) uniform sampler2D emissiveMap;
+// Texture samplers
+layout (set = 2, binding = 0) uniform sampler2D colorMap[totalMaterialCount];
+layout (set = 2, binding = 1) uniform sampler2D physicalDescriptorMap[totalMaterialCount];
+layout (set = 2, binding = 2) uniform sampler2D normalMap[totalMaterialCount];
+layout (set = 2, binding = 3) uniform sampler2D aoMap[totalMaterialCount];
+layout (set = 2, binding = 4) uniform sampler2D emissiveMap[totalMaterialCount];
 
 // Material buffer
 layout(std430, set = 3, binding = 0) buffer SSBO
 {
-   GltfMaterial materials[ ];
+   GltfMaterial materials[];
 };
 
 /*
@@ -58,21 +71,6 @@ layout (set = 0, binding = 2) uniform samplerCube samplerIrradiance;
 layout (set = 0, binding = 3) uniform samplerCube prefilteredMap;
 layout (set = 0, binding = 4) uniform sampler2D samplerBRDFLUT;
 */
-
-
-// Properties
-
-layout (push_constant) uniform PushConstants {
-	vec3 cameraPos;
-	int lightCount;
-} pushConstants;
-
-layout (location = 0) in vec2 inUV;
-
-layout (location = 0) out vec4 outColor;
-// TODO populate and test ourColor and outVelocity!
-//layout(location = 1) out vec4 outColorCopy;
-//layout(location = 2) out vec4 outVelocity;
 
 
 // Encapsulate the various inputs used by the various functions in the shading equation
@@ -144,9 +142,10 @@ vec3 getNormal(GltfMaterial material)
 	vec3 sampledNormal = texture(samplerNormal, inUV).rgb;
 	vec2 sampledUV0 = texture(samplerUV0, inUV).rg;
 	vec2 sampledUV1 = texture(samplerUV1, inUV).rg;
+	int sampledMaterialIndex = int(texture(samplerMaterialIndex, inUV).r);
 
 	// Perturb normal, see http://www.thetenthplanet.de/archives/1180
-	vec3 tangentNormal = texture(normalMap, material.normalTextureSet == 0 ? sampledUV0 : sampledUV1).xyz * 2.0 - 1.0;
+	vec3 tangentNormal = texture(normalMap[sampledMaterialIndex], material.normalTextureSet == 0 ? sampledUV0 : sampledUV1).xyz * 2.0 - 1.0;
 
 	vec3 q1 = dFdx(sampledPosition);
 	vec3 q2 = dFdy(sampledPosition);
@@ -249,6 +248,10 @@ void main()
 	vec4 sampledColor0 = texture(samplerColor0, inUV).rgba;
 	int sampledMaterialIndex = int(texture(samplerMaterialIndex, inUV).r);
 
+	//if (sampledMaterialIndex != 0) debugPrintfEXT("SampledMaterialIndex is %f, %f, the int value of .r is %d", texture(samplerMaterialIndex, inUV).r, texture(samplerMaterialIndex, inUV).g, sampledMaterialIndex);
+	//vec2 texCoords = gl_FragCoord.xy / vec2(1280, 720); // Same value as inUV
+	//debugPrintfEXT("inuv is (%f, %f), texCoords is (%f, %f)", inUV.x, inUV.y, texCoords.x, texCoords.y);
+
 	GltfMaterial material = materials[sampledMaterialIndex];
 
 	float perceptualRoughness;
@@ -269,7 +272,7 @@ void main()
 	{
 		if (material.alphaMask == 1.0f) {
 			if (material.baseColorTextureSet > -1) {
-				baseColor = SRGBtoLINEAR(texture(colorMap, material.baseColorTextureSet == 0 ? sampledUV0 : sampledUV1)) * material.baseColorFactor;
+				baseColor = SRGBtoLINEAR(texture(colorMap[sampledMaterialIndex], material.baseColorTextureSet == 0 ? sampledUV0 : sampledUV1)) * material.baseColorFactor;
 			} else {
 				baseColor = material.baseColorFactor;
 			}
@@ -287,7 +290,7 @@ void main()
 			if (material.physicalDescriptorTextureSet > -1) {
 				// Roughness is stored in the 'g' channel, metallic is stored in the 'b' channel.
 				// This layout intentionally reserves the 'r' channel for (optional) occlusion map data
-				vec4 mrSample = texture(physicalDescriptorMap, material.physicalDescriptorTextureSet == 0 ? sampledUV0 : sampledUV1);
+				vec4 mrSample = texture(physicalDescriptorMap[sampledMaterialIndex], material.physicalDescriptorTextureSet == 0 ? sampledUV0 : sampledUV1);
 				perceptualRoughness = mrSample.g * perceptualRoughness;
 				metallic = mrSample.b * metallic;
 			} else {
@@ -299,7 +302,7 @@ void main()
 
 			// The albedo may be defined from a base texture or a flat color
 			if (material.baseColorTextureSet > -1) {
-				baseColor = SRGBtoLINEAR(texture(colorMap, material.baseColorTextureSet == 0 ? sampledUV0 : sampledUV1)) * material.baseColorFactor;
+				baseColor = SRGBtoLINEAR(texture(colorMap[sampledMaterialIndex], material.baseColorTextureSet == 0 ? sampledUV0 : sampledUV1)) * material.baseColorFactor;
 			} else {
 				baseColor = material.baseColorFactor;
 			}
@@ -308,15 +311,15 @@ void main()
 		if (material.workflow == PBR_WORKFLOW_SPECULAR_GLOSINESS) {
 			// Values from specular glossiness workflow are converted to metallic roughness
 			if (material.physicalDescriptorTextureSet > -1) {
-				perceptualRoughness = 1.0 - texture(physicalDescriptorMap, material.physicalDescriptorTextureSet == 0 ? sampledUV0 : sampledUV1).a;
+				perceptualRoughness = 1.0 - texture(physicalDescriptorMap[sampledMaterialIndex], material.physicalDescriptorTextureSet == 0 ? sampledUV0 : sampledUV1).a;
 			} else {
 				perceptualRoughness = 0.0;
 			}
 
 			const float epsilon = 1e-6;
 
-			vec4 diffuse = SRGBtoLINEAR(texture(colorMap, sampledUV0));
-			vec3 specular = SRGBtoLINEAR(texture(physicalDescriptorMap, sampledUV0)).rgb;
+			vec4 diffuse = SRGBtoLINEAR(texture(colorMap[sampledMaterialIndex], sampledUV0));
+			vec3 specular = SRGBtoLINEAR(texture(physicalDescriptorMap[sampledMaterialIndex], sampledUV0)).rgb;
 
 			float maxSpecular = max(max(specular.r, specular.g), specular.b);
 
@@ -412,13 +415,13 @@ void main()
 		const float u_OcclusionStrength = 1.0f;
 		// Apply optional PBR terms for additional (optional) shading
 		if (material.occlusionTextureSet > -1) {
-			float ao = texture(aoMap, (material.occlusionTextureSet == 0 ? sampledUV0 : sampledUV1)).r;
+			float ao = texture(aoMap[sampledMaterialIndex], (material.occlusionTextureSet == 0 ? sampledUV0 : sampledUV1)).r;
 			color = mix(color, color * ao, u_OcclusionStrength);
 		}
 
 		vec3 emissive = material.emissiveFactor.rgb * material.emissiveStrength;
 		if (material.emissiveTextureSet > -1) {
-			emissive *= SRGBtoLINEAR(texture(emissiveMap, material.emissiveTextureSet == 0 ? sampledUV0 : sampledUV1)).rgb;
+			emissive *= SRGBtoLINEAR(texture(emissiveMap[sampledMaterialIndex], material.emissiveTextureSet == 0 ? sampledUV0 : sampledUV1)).rgb;
 		};
 		color += emissive;
 	}
@@ -431,22 +434,22 @@ void main()
 		int index = int(debugViewInputs);
 		switch (index) {
 			case 1:
-				outColor.rgba = material.baseColorTextureSet > -1 ? texture(colorMap, material.baseColorTextureSet == 0 ? sampledUV0 : sampledUV1) : vec4(1.0f);
+				outColor.rgba = material.baseColorTextureSet > -1 ? texture(colorMap[sampledMaterialIndex], material.baseColorTextureSet == 0 ? sampledUV0 : sampledUV1) : vec4(1.0f);
 				break;
 			case 2:
-				outColor.rgb = (material.normalTextureSet > -1) ? texture(normalMap, material.normalTextureSet == 0 ? sampledUV0 : sampledUV1).rgb : normalize(sampledNormal);
+				outColor.rgb = (material.normalTextureSet > -1) ? texture(normalMap[sampledMaterialIndex], material.normalTextureSet == 0 ? sampledUV0 : sampledUV1).rgb : normalize(sampledNormal);
 				break;
 			case 3:
-				outColor.rgb = (material.occlusionTextureSet > -1) ? texture(aoMap, material.occlusionTextureSet == 0 ? sampledUV0 : sampledUV1).rrr : vec3(0.0f);
+				outColor.rgb = (material.occlusionTextureSet > -1) ? texture(aoMap[sampledMaterialIndex], material.occlusionTextureSet == 0 ? sampledUV0 : sampledUV1).rrr : vec3(0.0f);
 				break;
 			case 4:
-				outColor.rgb = (material.emissiveTextureSet > -1) ? texture(emissiveMap, material.emissiveTextureSet == 0 ? sampledUV0 : sampledUV1).rgb : vec3(0.0f);
+				outColor.rgb = (material.emissiveTextureSet > -1) ? texture(emissiveMap[sampledMaterialIndex], material.emissiveTextureSet == 0 ? sampledUV0 : sampledUV1).rgb : vec3(0.0f);
 				break;
 			case 5:
-				outColor.rgb = texture(physicalDescriptorMap, sampledUV0).bbb;
+				outColor.rgb = texture(physicalDescriptorMap[sampledMaterialIndex], sampledUV0).bbb;
 				break;
 			case 6:
-				outColor.rgb = texture(physicalDescriptorMap, sampledUV0).ggg;
+				outColor.rgb = texture(physicalDescriptorMap[sampledMaterialIndex], sampledUV0).ggg;
 				break;
 		}
 		outColor = SRGBtoLINEAR(outColor);

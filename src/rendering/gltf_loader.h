@@ -47,7 +47,7 @@ class Image;
 namespace vulkr::gltf
 {
 
-struct Node;
+struct Node; // Forward declaration
 
 struct BoundingBox
 {

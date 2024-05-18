@@ -22,8 +22,10 @@
 
 #include "image.h"
 #include "device.h"
+#include "physical_device.h"
 
 #include "common/logger.h"
+#include "common/strings.h"
 
 namespace vulkr
 {
@@ -68,13 +70,50 @@ VkImageType getImageType(VkExtent3D extent)
 
 	return result;
 }
+
+VkResult checkImageFormatProperties(VkPhysicalDevice physicalDevice, VkFormat format, VkImageType type, VkImageTiling tiling, VkImageUsageFlags usageFlags, VkImageCreateFlags flags)
+{
+	VkPhysicalDeviceImageFormatInfo2 formatInfo = {};
+	formatInfo.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_FORMAT_INFO_2;
+	formatInfo.pNext = VK_NULL_HANDLE;
+	formatInfo.format = format;
+	formatInfo.type = type;
+	formatInfo.tiling = tiling;
+	formatInfo.usage = usageFlags;
+	formatInfo.flags = flags;
+
+	VkImageFormatProperties2 formatProperties = {};
+	formatProperties.sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_PROPERTIES_2;
+	formatProperties.pNext = VK_NULL_HANDLE;
+
+	VkResult result = vkGetPhysicalDeviceImageFormatProperties2(
+		physicalDevice,
+		&formatInfo,
+		&formatProperties
+	);
+
+	if (result == VK_SUCCESS)
+	{
+		// Properties successfully retrieved
+		VkImageFormatProperties props = formatProperties.imageFormatProperties;
+		LOGD("Printing mage format properties for {}", to_string(format));
+		LOGD("Max extent: {} x {} x {}", props.maxExtent.width, props.maxExtent.height, props.maxExtent.depth);
+		LOGD("Max mip levels: {}", props.maxMipLevels);
+		LOGD("Max array layers: {}", props.maxArrayLayers);
+		LOGD("Sample counts: {}", props.sampleCounts);
+		LOGD("Max resource size: {}", (unsigned long long)props.maxResourceSize);
+		LOGD("Printing properties finished.\n");
+	}
+
+	return result;
+}
 } // namespace
 
 Image::Image(
 	Device &device,
 	VkFormat format,
 	VkExtent3D extent,
-	VkImageUsageFlags imageUsage,
+	VkImageUsageFlags usageFlags,
 	VmaMemoryUsage memoryUsage,
 	const uint32_t mipLevels,
 	const uint32_t arrayLayers,
@@ -90,7 +129,7 @@ Image::Image(
 	type{ getImageType(extent) },
 	format{ format },
 	extent{ extent },
-	usageFlags{ imageUsage },
+	usageFlags{ usageFlags },
 	arrayLayerCount{ arrayLayers },
 	sampleCount{ sampleCount },
 	tiling{ tiling }
@@ -117,7 +156,7 @@ Image::Image(
 	imageInfo.arrayLayers = arrayLayers;
 	imageInfo.samples = sampleCount;
 	imageInfo.tiling = tiling;
-	imageInfo.usage = imageUsage;
+	imageInfo.usage = usageFlags;
 	imageInfo.sharingMode = sharingMode;
 	imageInfo.queueFamilyIndexCount = queueFamilyIndexCount;
 	imageInfo.pQueueFamilyIndices = pQueueFamilyIndices;
@@ -125,22 +164,23 @@ Image::Image(
 
 	VmaAllocationCreateInfo allocationInfo{};
 	allocationInfo.usage = memoryUsage;
-	if (imageUsage & VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT)
+	if (usageFlags & VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT)
 	{
 		allocationInfo.preferredFlags = VK_MEMORY_PROPERTY_LAZILY_ALLOCATED_BIT;
 	}
 
+	VK_CHECK(checkImageFormatProperties(device.getPhysicalDevice().getHandle(), format, getImageType(extent), tiling, usageFlags, flags));
 	VK_CHECK(vmaCreateImage(device.getMemoryAllocator(), &imageInfo, &allocationInfo, &handle, &allocation, nullptr));
 }
 
-Image::Image(Device &device, VkImage handle, VkExtent3D extent, VkFormat format, VkImageUsageFlags imageUsageFlags, VkSampleCountFlagBits sampleCount) :
+Image::Image(Device &device, VkImage handle, VkExtent3D extent, VkFormat format, VkImageUsageFlags usageFlags, VkSampleCountFlagBits sampleCount) :
 	device{ device },
 	handle{ handle },
 	type{ getImageType(extent) },
 	extent{ extent },
 	format{ format },
 	sampleCount{ sampleCount },
-	usageFlags{ imageUsageFlags }
+	usageFlags{ usageFlags }
 {
 	subresource.mipLevel = 1;
 	subresource.arrayLayer = 1;

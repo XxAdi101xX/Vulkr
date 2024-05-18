@@ -57,6 +57,7 @@ VulkrApp::~VulkrApp()
 	taaDescriptorSetLayout.reset();
 	particleComputeDescriptorSetLayout.reset();
 	gltfMaterialSamplersDescriptorSetLayout.reset();
+	allGltfMaterialSamplersDescriptorSetLayout.reset();
 	gltfNodeDescriptorSetLayout.reset();
 	gltfMaterialDescriptorSetLayout.reset();
 	geometryBufferDescriptorSetLayout.reset();
@@ -197,6 +198,7 @@ void VulkrApp::cleanupSwapchain()
 	objInstanceBuffer.reset();
 	previousFrameObjInstanceBuffer.reset();
 	particleBuffer.reset();
+	gltfMaterialsBuffer.reset();
 
 	// Descriptor Sets
 	globalDescriptorSet.reset();
@@ -206,8 +208,9 @@ void VulkrApp::cleanupSwapchain()
 	particleComputeDescriptorSet.reset();
 	// textureDescriptorSet.reset(); // Don't need to reset textureDescriptorSet this one up on recreate since the texture data is the same across different swapchain configurations
 	raytracingDescriptorSet.reset();
-	gltfMaterialDescriptorSet.reset();
 	geometryBufferDescriptorSet.reset();
+	allGltfMaterialSamplersDescriptorSet.reset();
+	gltfMaterialDescriptorSet.reset();
 
 	// Textures
 	outputImageView.reset();
@@ -465,6 +468,8 @@ void VulkrApp::update()
 	}
 	else if (activeRenderingTechnique == RenderingTechnique::DEFERRED)
 	{
+		if (false)
+		{
 		// Add memory barrier to ensure that the particleIntegrate computer shader has finished writing to the currentFrameObjInstanceBuffer
 		VkMemoryBarrier2 memoryBarrier{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
 		memoryBarrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
@@ -483,7 +488,29 @@ void VulkrApp::update()
 		dependencyInfo.pImageMemoryBarriers = nullptr;
 
 		vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame][0]->getHandle(), &dependencyInfo);
-		// TODO: everything in this if else is still a WIP and hasn't been tested at all and could be wrong
+		}
+		else
+		{
+		// TODO REMOVE FULL PIPELINE BARRIER
+		VkMemoryBarrier2 memoryBarrier{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
+		memoryBarrier.srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
+		memoryBarrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
+		memoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+		memoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+
+		VkDependencyInfo dependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+		dependencyInfo.pNext = nullptr;
+		dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+		dependencyInfo.memoryBarrierCount = 1u;
+		dependencyInfo.pMemoryBarriers = &memoryBarrier;
+		dependencyInfo.bufferMemoryBarrierCount = 0u;
+		dependencyInfo.pBufferMemoryBarriers = nullptr;
+		dependencyInfo.imageMemoryBarrierCount = 0u;
+		dependencyInfo.pImageMemoryBarriers = nullptr;
+
+		vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame][0]->getHandle(), &dependencyInfo);
+		}
+
 		frameData.commandBuffers[currentFrame][0]->beginRenderPass(*mrtGeometryBufferRenderPass.renderPass, *(frameData.geometryBufferFramebuffers[currentFrame]), swapchain->getProperties().imageExtent, geometryBufferFramebufferClearValues, VK_SUBPASS_CONTENTS_INLINE);
 		rasterizeGltf();
 		frameData.commandBuffers[currentFrame][0]->endRenderPass();
@@ -508,10 +535,15 @@ void VulkrApp::update()
 
 	VkSemaphoreSubmitInfo offScreenSignalSemaphoreSubmitInfo{ VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
 	offScreenSignalSemaphoreSubmitInfo.pNext = nullptr;
-	offScreenSignalSemaphoreSubmitInfo.semaphore = frameData.offscreenRenderingFinishedSemaphores[currentFrame];
+	offScreenSignalSemaphoreSubmitInfo.semaphore = frameData.offscreenRenderingFinishedSemaphores[currentFrame]; // We want to signal offscreenRenderingFinishedSemaphores RenderingTechnique::FORWARD and RenderingTechnique::RAY_TRACING but not RenderingTechnique::DEFERRED; we want to signal geometryBufferPopulationFinishedSemaphores instead
 	offScreenSignalSemaphoreSubmitInfo.value = 0u; // Optional: ignored since this isn't a timeline semaphore
 	offScreenSignalSemaphoreSubmitInfo.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
 	offScreenSignalSemaphoreSubmitInfo.deviceIndex = 0u; // replaces VkDeviceGroupSubmitInfo but we don't have that in our pNext chain so not used.
+
+	if (activeRenderingTechnique == RenderingTechnique::DEFERRED)
+	{
+		offScreenSignalSemaphoreSubmitInfo.semaphore = frameData.geometryBufferPopulationFinishedSemaphores[currentFrame];
+	}
 
 	VkSubmitInfo2 offscreenPassSubmitInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO_2 };
 	offscreenPassSubmitInfo.pNext = nullptr;
@@ -523,14 +555,67 @@ void VulkrApp::update()
 	offscreenPassSubmitInfo.signalSemaphoreInfoCount = 1u;
 	offscreenPassSubmitInfo.pSignalSemaphoreInfos = &offScreenSignalSemaphoreSubmitInfo;
 
-	// If we are doing deferred shading, we need to execute the deferred rendering step after populating the geometry buffers in the initial stage
+	// Deferred shading pass
 	if (activeRenderingTechnique == RenderingTechnique::DEFERRED)
 	{
-		//TODO: this is incomplete, we also have to update the signal semaphore above just for deferred case to a new semaphore that will then trigger this code and then this code will signal offscreenRenderingFinishedSemaphores
 		frameData.commandBuffers[currentFrame][3]->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
-		rasterizeGltf();
+
+		// TODO REMOVE FULL PIPELINE BARRIER!!!
+		VkMemoryBarrier2 memoryBarrier{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
+		memoryBarrier.srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
+		memoryBarrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
+		memoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+		memoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+
+		VkDependencyInfo dependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+		dependencyInfo.pNext = nullptr;
+		dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+		dependencyInfo.memoryBarrierCount = 1u;
+		dependencyInfo.pMemoryBarriers = &memoryBarrier;
+		dependencyInfo.bufferMemoryBarrierCount = 0u;
+		dependencyInfo.pBufferMemoryBarriers = nullptr;
+		dependencyInfo.imageMemoryBarrierCount = 0u;
+		dependencyInfo.pImageMemoryBarriers = nullptr;
+
+		vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame][3]->getHandle(), &dependencyInfo);
+
+		frameData.commandBuffers[currentFrame][3]->beginRenderPass(*deferredShadingRenderPass.renderPass, *(frameData.deferredShadingFramebuffers[currentFrame]), swapchain->getProperties().imageExtent, deferredShadingFramebufferClearValues, VK_SUBPASS_CONTENTS_INLINE);
+
+		initiateDeferredShadingPass();
+
+		frameData.commandBuffers[currentFrame][3]->endRenderPass();
 		frameData.commandBuffers[currentFrame][3]->end();
 	}
+
+	// This is outside of if statement above so that it could be conditionally added to the 
+	VkCommandBufferSubmitInfo deferredShadingCommandBufferSubmitInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO };
+	deferredShadingCommandBufferSubmitInfo.pNext = nullptr;
+	deferredShadingCommandBufferSubmitInfo.commandBuffer = frameData.commandBuffers[currentFrame][3]->getHandle();
+	deferredShadingCommandBufferSubmitInfo.deviceMask = 0u;
+
+	VkSemaphoreSubmitInfo deferredShadingWaitSemaphoreSubmitInfo{ VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
+	deferredShadingWaitSemaphoreSubmitInfo.pNext = nullptr;
+	deferredShadingWaitSemaphoreSubmitInfo.semaphore = frameData.geometryBufferPopulationFinishedSemaphores[currentFrame];
+	deferredShadingWaitSemaphoreSubmitInfo.value = 0u; // Optional: ignored since this isn't a timeline semaphore
+	deferredShadingWaitSemaphoreSubmitInfo.stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+	deferredShadingWaitSemaphoreSubmitInfo.deviceIndex = 0u; // replaces VkDeviceGroupSubmitInfo but we don't have that in our pNext chain so not used.
+
+	VkSemaphoreSubmitInfo deferredShadingSignalSemaphoreSubmitInfo{ VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
+	deferredShadingSignalSemaphoreSubmitInfo.pNext = nullptr;
+	deferredShadingSignalSemaphoreSubmitInfo.semaphore = frameData.offscreenRenderingFinishedSemaphores[currentFrame];
+	deferredShadingSignalSemaphoreSubmitInfo.value = 0u; // Optional: ignored since this isn't a timeline semaphore
+	deferredShadingSignalSemaphoreSubmitInfo.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+	deferredShadingSignalSemaphoreSubmitInfo.deviceIndex = 0u; // replaces VkDeviceGroupSubmitInfo but we don't have that in our pNext chain so not used.
+
+	VkSubmitInfo2 deferredShadingPassSubmitInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO_2 };
+	deferredShadingPassSubmitInfo.pNext = nullptr;
+	deferredShadingPassSubmitInfo.flags = 0u;
+	deferredShadingPassSubmitInfo.waitSemaphoreInfoCount = 1u;
+	deferredShadingPassSubmitInfo.pWaitSemaphoreInfos = &deferredShadingWaitSemaphoreSubmitInfo;
+	deferredShadingPassSubmitInfo.commandBufferInfoCount = 1u;
+	deferredShadingPassSubmitInfo.pCommandBufferInfos = &deferredShadingCommandBufferSubmitInfo;
+	deferredShadingPassSubmitInfo.signalSemaphoreInfoCount = 1u;
+	deferredShadingPassSubmitInfo.pSignalSemaphoreInfos = &deferredShadingSignalSemaphoreSubmitInfo;
 
 	// Begin command buffer for post process pass
 	frameData.commandBuffers[currentFrame][1]->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
@@ -550,7 +635,7 @@ void VulkrApp::update()
 
 	// Wait on postProcess pass to complete before copy operations
 	// I have setup a subpass dependency to ensure that the render pass waits for the swapchain to finish reading from the image before accessing it
-	// hence I don't need to set the wait stages to VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT 
+	// hence I don't need to set the wait stages to VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT 0`
 	VkCommandBufferSubmitInfo postProcessCommandBufferSubmitInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO };
 	postProcessCommandBufferSubmitInfo.pNext = nullptr;
 	postProcessCommandBufferSubmitInfo.commandBuffer = frameData.commandBuffers[currentFrame][1]->getHandle();
@@ -754,7 +839,15 @@ void VulkrApp::update()
 	outputImageTransferPassSubmitInfo.signalSemaphoreInfoCount = 1u;
 	outputImageTransferPassSubmitInfo.pSignalSemaphoreInfos = &outputImageTransferSemaphoreSubmitInfo;
 
-	std::array<VkSubmitInfo2, 3> submitInfo{ offscreenPassSubmitInfo, postProcessPassSubmitInfo, outputImageTransferPassSubmitInfo };
+	// Submit all command buffers
+	std::vector<VkSubmitInfo2> submitInfo;
+	submitInfo.push_back(offscreenPassSubmitInfo);
+	if (activeRenderingTechnique == RenderingTechnique::DEFERRED)
+	{
+		submitInfo.push_back(deferredShadingPassSubmitInfo);
+	}
+	submitInfo.push_back(postProcessPassSubmitInfo);
+	submitInfo.push_back(outputImageTransferPassSubmitInfo);
 
 	VK_CHECK(vkQueueSubmit2KHR(m_graphicsQueue->getHandle(), to_u32(submitInfo.size()), submitInfo.data(), frameData.inFlightFences[currentFrame]));
 
@@ -1078,8 +1171,9 @@ void VulkrApp::computeParticles()
 	}
 }
 
-void VulkrApp::renderNode(PipelineData *pipelineData, vulkr::gltf::Node *node, uint32_t instanceIndex)
+void VulkrApp::renderNode(PipelineData *pipelineData, vulkr::gltf::Node *node, uint32_t instanceIndex, uint32_t modelIndex)
 {
+	GltfModelRenderingData &gltfModelRenderingData = gltfModelRenderingDataList[modelIndex];
 	if (node->mesh)
 	{
 		// Render mesh primitives
@@ -1094,8 +1188,13 @@ void VulkrApp::renderNode(PipelineData *pipelineData, vulkr::gltf::Node *node, u
 					objectDescriptorSet->getHandle(),
 					primitive->material.descriptorSet,
 					node->mesh->uniformBuffer.descriptorSet,
-					gltfMaterialDescriptorSet->getHandle()
+					gltfModelRenderingData.materialsBufferDescriptorSet->getHandle()
 				};
+
+				gltfPushConstants.cameraPos = cameraController->getCamera()->getPosition();
+				gltfPushConstants.materialIndex = primitive->material.index;
+				gltfPushConstants.lightCount = static_cast<int>(sceneLights.size());
+				vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData->pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0u, sizeof(GltfPushConstants), &gltfPushConstants);
 			}
 			else if (activeRenderingTechnique == RenderingTechnique::DEFERRED)
 			{
@@ -1105,18 +1204,12 @@ void VulkrApp::renderNode(PipelineData *pipelineData, vulkr::gltf::Node *node, u
 					objectDescriptorSet->getHandle(),
 					node->mesh->uniformBuffer.descriptorSet,
 				};
+
+				mrtGeometryBufferPushConstants.materialIndex = gltfModelRenderingData.materialBufferOffset + primitive->material.index;
+				vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData->pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0u, sizeof(MrtGeometryBufferPushConstants), &mrtGeometryBufferPushConstants);
 			}
 
 			vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData->pipeline->getBindPoint(), pipelineData->pipelineState->getPipelineLayout().getHandle(), 0, static_cast<uint32_t>(descriptorSets.size()), descriptorSets.data(), 0, NULL);
-
-			// Pass material index for this primitive using a push constant, the shader uses this to index into the material buffer
-			gltfPushConstants.cameraPos = cameraController->getCamera()->getPosition();
-			gltfPushConstants.materialIndex = primitive->material.index;
-			gltfPushConstants.lightCount = static_cast<int>(sceneLights.size());
-
-			mrtGeometryBufferPushConstants.materialIndex = primitive->material.index;
-
-			vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData->pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0u, sizeof(GltfPushConstants), &gltfPushConstants);
 
 			if (primitive->hasIndices)
 			{
@@ -1131,7 +1224,7 @@ void VulkrApp::renderNode(PipelineData *pipelineData, vulkr::gltf::Node *node, u
 
 	for (auto child : node->children)
 	{
-		renderNode(pipelineData, child, instanceIndex);
+		renderNode(pipelineData, child, instanceIndex, modelIndex);
 	}
 }
 
@@ -1191,30 +1284,30 @@ void VulkrApp::rasterizeGltf()
 
 		for (auto node : model.nodes)
 		{
-			renderNode(pipelineData, node, index);
+			renderNode(pipelineData, node, index, gltfInstances[index].modelIndex);
 		}
 	}
 }
 
-void VulkrApp::initiateDeferredRenderingPass()
+void VulkrApp::initiateDeferredShadingPass()
 {
+	PipelineData *pipelineData = &pipelines.deferredShading;
+	vkCmdBindPipeline(frameData.commandBuffers[currentFrame][3]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineData->pipeline->getHandle());
+
 	deferredShadingPushConstants.cameraPos = cameraController->getCamera()->getPosition();
 	deferredShadingPushConstants.lightCount = static_cast<int>(sceneLights.size());
-
-	PipelineData *pipelineData = &pipelines.deferredShading;
-
-	vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineData->pipeline->getHandle());
+	vkCmdPushConstants(frameData.commandBuffers[currentFrame][3]->getHandle(), pipelineData->pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0u, sizeof(DeferredShadingPushConstants), &deferredShadingPushConstants);
 
 	std::vector<VkDescriptorSet> descriptorSets =
 	{
 		globalDescriptorSet->getHandle(),
 		geometryBufferDescriptorSet->getHandle(),
-		// TODO: WE NEED TO ADD PRIMITIVE MATERIAL DESCRIPTOR SET BUFFER AND READ THE PRIMITIVE MATERIAL INDEX FROM THE GEOMOETRY BUFFER TO INDEX INTO THE DESCRIPTOR SET
+		allGltfMaterialSamplersDescriptorSet->getHandle(),
 		gltfMaterialDescriptorSet->getHandle()
 	};
-
 	vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][3]->getHandle(), pipelineData->pipeline->getBindPoint(), pipelineData->pipelineState->getPipelineLayout().getHandle(), 0, static_cast<uint32_t>(descriptorSets.size()), descriptorSets.data(), 0, NULL);
 
+	// Draw full screen quad and process geometry buffer in fragment shader
 	vkCmdDraw(frameData.commandBuffers[currentFrame][3]->getHandle(), 3, 1, 0, 0);
 }
 
@@ -1894,7 +1987,7 @@ void VulkrApp::createDeferredShadingRenderPass()
 	colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 	colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
 	colorAttachment.initialLayout = VK_IMAGE_LAYOUT_GENERAL;
-	colorAttachment.finalLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+	colorAttachment.finalLayout = VK_IMAGE_LAYOUT_GENERAL;
 	attachments.push_back(colorAttachment);
 
 	VkAttachmentReference2 colorAttachmentRef{ VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2 };
@@ -2108,6 +2201,18 @@ void VulkrApp::createDescriptorSetLayouts()
 		{ 4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr },
 	};
 	gltfMaterialSamplersDescriptorSetLayout = std::make_unique<DescriptorSetLayout>(*device, gltfMaterialSamplersLayoutBinding);
+
+
+	// all glTF material sampler descriptor set layout
+	std::vector<VkDescriptorSetLayoutBinding> allGltfMaterialSamplersLayoutBinding =
+	{
+		{ 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, to_u32(allGltfMaterials.size()), VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+		{ 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, to_u32(allGltfMaterials.size()), VK_SHADER_STAGE_FRAGMENT_BIT, nullptr },
+		{ 2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, to_u32(allGltfMaterials.size()), VK_SHADER_STAGE_FRAGMENT_BIT, nullptr },
+		{ 3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, to_u32(allGltfMaterials.size()), VK_SHADER_STAGE_FRAGMENT_BIT, nullptr },
+		{ 4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, to_u32(allGltfMaterials.size()), VK_SHADER_STAGE_FRAGMENT_BIT, nullptr },
+	};
+	allGltfMaterialSamplersDescriptorSetLayout = std::make_unique<DescriptorSetLayout>(*device, allGltfMaterialSamplersLayoutBinding);
 
 	// glTF node descriptor set layout
 	std::vector<VkDescriptorSetLayoutBinding> gltfNodeLayoutBinding =
@@ -2671,7 +2776,7 @@ void VulkrApp::createDeferredShadingPipeline()
 	rasterizationState.depthClampEnable = VK_FALSE;
 	rasterizationState.rasterizerDiscardEnable = VK_FALSE;
 	rasterizationState.polygonMode = VK_POLYGON_MODE_FILL;
-	rasterizationState.cullMode = VK_CULL_MODE_BACK_BIT;
+	rasterizationState.cullMode = VK_CULL_MODE_FRONT_BIT;
 	rasterizationState.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
 	rasterizationState.lineWidth = 1.0f;
 	rasterizationState.depthBiasEnable = VK_FALSE;
@@ -2704,20 +2809,23 @@ void VulkrApp::createDeferredShadingPipeline()
 
 	std::shared_ptr<ShaderSource> vertexShader = std::make_shared<ShaderSource>("rasterization/deferredShading.vert.spv");
 	VkSpecializationInfo vertexShaderSpecializationInfo;
-	vertexShaderSpecializationInfo.mapEntryCount = 0;
-	vertexShaderSpecializationInfo.dataSize = 0;
+	vertexShaderSpecializationInfo.mapEntryCount = 0u;
+	vertexShaderSpecializationInfo.dataSize = 0ull;
 
 	std::shared_ptr<ShaderSource> fragmentShader = std::make_shared<ShaderSource>("rasterization/deferredShading.frag.spv");
 	struct SpecializationData
 	{
 		uint32_t maxLightCount;
+		uint32_t totalMaterialCount;
 	} specializationData;
-	const std::array<VkSpecializationMapEntry, 1> entries{
+	const std::array<VkSpecializationMapEntry, 2> entries{
 		{
-			{ 0u, offsetof(SpecializationData, maxLightCount), sizeof(uint32_t) }
+			{ 0u, offsetof(SpecializationData, maxLightCount), sizeof(uint32_t) },
+			{ 1u, offsetof(SpecializationData, totalMaterialCount), sizeof(uint32_t) }
 		}
 	};
 	specializationData.maxLightCount = maxLightCount;
+	specializationData.totalMaterialCount = allGltfMaterials.size();
 
 	VkSpecializationInfo fragmentShaderSpecializationInfo =
 	{
@@ -2734,7 +2842,7 @@ void VulkrApp::createDeferredShadingPipeline()
 	std::vector<VkDescriptorSetLayout> descriptorSetLayoutHandles{
 		globalDescriptorSetLayout->getHandle(),
 		geometryBufferDescriptorSetLayout->getHandle(),
-		gltfMaterialSamplersDescriptorSetLayout->getHandle(), // TODO this should turn into indexed descriptor
+		allGltfMaterialSamplersDescriptorSetLayout->getHandle(),
 		gltfMaterialDescriptorSetLayout->getHandle()
 	};
 
@@ -3069,11 +3177,11 @@ void VulkrApp::createFramebuffers()
 	postProcessFramebufferClearValues[1].depthStencil = { 1.0f, 0u };
 
 	geometryBufferFramebufferClearValues.resize(7);
-	geometryBufferFramebufferClearValues[0].color = { 1.0f, 1.0f, 1.0f, 1.0f }; // positionBuffer
-	geometryBufferFramebufferClearValues[1].color = { 1.0f, 1.0f, 1.0f, 1.0f }; // normalBuffer
+	geometryBufferFramebufferClearValues[0].color = { 0.0f, 0.0f, 0.0f, 0.0f }; // positionBuffer
+	geometryBufferFramebufferClearValues[1].color = { 0.0f, 0.0f, 0.0f, 0.0f }; // normalBuffer
 	geometryBufferFramebufferClearValues[2].color = { 0.0f, 0.0f, 0.0f, 0.0f }; // uv0 buffer
 	geometryBufferFramebufferClearValues[3].color = { 0.0f, 0.0f, 0.0f, 0.0f }; // uv1 buffer
-	geometryBufferFramebufferClearValues[4].color = { 0.0f, 0.0f, 0.0f, 0.0f }; // color0 buffer
+	geometryBufferFramebufferClearValues[4].color = { 1.0f, 1.0f, 1.0f, 1.0f }; // color0 buffer
 	geometryBufferFramebufferClearValues[5].color = { 0.0f, 0.0f, 0.0f, 0.0f }; // materialIndex buffer
 	geometryBufferFramebufferClearValues[6].depthStencil = { 1.0f, 0u };
 
@@ -3506,6 +3614,7 @@ void VulkrApp::createMaterialBuffer(GltfModelRenderingData &gltfModelRenderingDa
 		}
 
 		gltfMaterials.push_back(gltfMaterial);
+		allGltfMaterials.push_back(gltfMaterial);
 	}
 
 	VkDeviceSize bufferSize{ gltfMaterials.size() * sizeof(GltfMaterial) };
@@ -3683,7 +3792,7 @@ void VulkrApp::prepareParticleData()
 
 void VulkrApp::createDescriptorPool()
 {
-	std::vector<VkDescriptorPoolSize> poolSizes{};
+	std::vector<VkDescriptorPoolSize> poolSizes{}; // We are allocating more space than currenly used
 	poolSizes.resize(4);
 	poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 	poolSizes[0].descriptorCount = 10u;
@@ -3695,7 +3804,12 @@ void VulkrApp::createDescriptorPool()
 	poolSizes[3].descriptorCount = 10u;
 
 
-	uint32_t maxSets = 40u; // we are allocating more space than currenly used
+	uint32_t maxSets = 0u;
+	for (VkDescriptorPoolSize poolSize: poolSizes)
+	{
+		maxSets += poolSize.descriptorCount;
+	}
+
 	descriptorPool = std::make_unique<DescriptorPool>(*device, poolSizes, maxSets, 0);
 }
 
@@ -3945,7 +4059,7 @@ void VulkrApp::createDescriptorSets()
 	materialIndexImageInfo.sampler = textureSampler->getHandle();
 	materialIndexImageInfo.imageView = materialIndexImageView->getHandle();
 	materialIndexImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-	std::array<VkDescriptorImageInfo, 6> geometryStorageImageInfos
+	std::array<VkDescriptorImageInfo, 6> geometryDataImageInfos
 	{
 		positionImageInfo,
 		normalImageInfo,
@@ -3960,8 +4074,8 @@ void VulkrApp::createDescriptorSets()
 	writeGeometryStorageImageDescriptorSet.dstBinding = 0;
 	writeGeometryStorageImageDescriptorSet.dstArrayElement = 0;
 	writeGeometryStorageImageDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-	writeGeometryStorageImageDescriptorSet.descriptorCount = to_u32(geometryStorageImageInfos.size());
-	writeGeometryStorageImageDescriptorSet.pImageInfo = geometryStorageImageInfos.data();
+	writeGeometryStorageImageDescriptorSet.descriptorCount = to_u32(geometryDataImageInfos.size());
+	writeGeometryStorageImageDescriptorSet.pImageInfo = geometryDataImageInfos.data();
 	writeGeometryStorageImageDescriptorSet.pBufferInfo = nullptr;
 	writeGeometryStorageImageDescriptorSet.pTexelBufferView = nullptr;
 
@@ -3986,9 +4100,14 @@ void VulkrApp::createDescriptorSets()
 
 
 	// Per-Material descriptor sets
+	std::vector<VkDescriptorImageInfo> colorMaps;
+	std::vector<VkDescriptorImageInfo> physicalDescriptorMaps;
+	std::vector<VkDescriptorImageInfo> normalMaps;
+	std::vector<VkDescriptorImageInfo> aoMaps;
+	std::vector<VkDescriptorImageInfo> emissiveMaps;
+
 	for (auto &gltfModelToRender : gltfModelRenderingDataList)
 	{
-		// TODO: ADD MATERIAL INDEX INTO MATERIALS STRUCT SO THAT WE CAN HAVE A DESCRIPTOR SET ARRAY AND THEN INDEX OFF IT
 		for (auto &material : gltfModelToRender.gltfModel.materials)
 		{
 			VkDescriptorSetAllocateInfo descriptorSetAllocInfo{};
@@ -4005,12 +4124,13 @@ void VulkrApp::createDescriptorSets()
 			defaultEmptyDescriptorImageInfo.imageView = textureImageViews[0]->getHandle();
 			defaultEmptyDescriptorImageInfo.sampler = textureSampler->getHandle();
 
-			std::vector<VkDescriptorImageInfo> imageDescriptors = {
+			const uint32_t perMaterialTextureCount = 5u;
+			std::array<VkDescriptorImageInfo, perMaterialTextureCount> imageDescriptors = {
 				defaultEmptyDescriptorImageInfo,
-				defaultEmptyDescriptorImageInfo,
-				material.normalTexture ? material.normalTexture->descriptor : defaultEmptyDescriptorImageInfo,
-				material.occlusionTexture ? material.occlusionTexture->descriptor : defaultEmptyDescriptorImageInfo,
-				material.emissiveTexture ? material.emissiveTexture->descriptor : defaultEmptyDescriptorImageInfo
+					defaultEmptyDescriptorImageInfo,
+					material.normalTexture ? material.normalTexture->descriptor : defaultEmptyDescriptorImageInfo,
+					material.occlusionTexture ? material.occlusionTexture->descriptor : defaultEmptyDescriptorImageInfo,
+					material.emissiveTexture ? material.emissiveTexture->descriptor : defaultEmptyDescriptorImageInfo
 			};
 
 			// TODO: glTF specs states that metallic roughness should be preferred, even if specular glosiness is present
@@ -4039,8 +4159,8 @@ void VulkrApp::createDescriptorSets()
 				}
 			}
 
-			std::array<VkWriteDescriptorSet, 5> writeDescriptorSets{};
-			for (size_t i = 0; i < imageDescriptors.size(); i++)
+			std::array<VkWriteDescriptorSet, perMaterialTextureCount> writeDescriptorSets{};
+			for (size_t i = 0; i < perMaterialTextureCount; i++)
 			{
 				writeDescriptorSets[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 				writeDescriptorSets[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -4051,6 +4171,13 @@ void VulkrApp::createDescriptorSets()
 			}
 
 			vkUpdateDescriptorSets(device->getHandle(), static_cast<uint32_t>(writeDescriptorSets.size()), writeDescriptorSets.data(), 0, NULL);
+
+			// Populate samplers
+			colorMaps.push_back(imageDescriptors[0]);
+			physicalDescriptorMaps.push_back(imageDescriptors[1]);
+			normalMaps.push_back(imageDescriptors[2]);
+			aoMaps.push_back(imageDescriptors[3]);
+			emissiveMaps.push_back(imageDescriptors[4]);
 		}
 
 		// Model node (matrices)
@@ -4062,14 +4189,15 @@ void VulkrApp::createDescriptorSets()
 			}
 		}
 
-		// Material Buffer
+		// Material Buffer per model
 		{
 			VkDescriptorSetAllocateInfo gltfMaterialsDescriptorSetAllocateInfo{};
 			gltfMaterialsDescriptorSetAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
 			gltfMaterialsDescriptorSetAllocateInfo.descriptorPool = descriptorPool->getHandle();
 			gltfMaterialsDescriptorSetAllocateInfo.pSetLayouts = &gltfMaterialDescriptorSetLayout->getHandle();
 			gltfMaterialsDescriptorSetAllocateInfo.descriptorSetCount = 1u;
-			gltfMaterialDescriptorSet = std::make_unique<DescriptorSet>(*device, gltfMaterialsDescriptorSetAllocateInfo);
+
+			gltfModelToRender.materialsBufferDescriptorSet = std::make_unique<DescriptorSet>(*device, gltfMaterialsDescriptorSetAllocateInfo);
 
 			VkDescriptorBufferInfo gltfMaterialBufferInfo{};
 			gltfMaterialBufferInfo.buffer = gltfModelToRender.materialsBuffer->getHandle();
@@ -4080,11 +4208,89 @@ void VulkrApp::createDescriptorSets()
 			writeDescriptorSet.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 			writeDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 			writeDescriptorSet.descriptorCount = 1;
-			writeDescriptorSet.dstSet = gltfMaterialDescriptorSet->getHandle();
+			writeDescriptorSet.dstSet = gltfModelToRender.materialsBufferDescriptorSet->getHandle();
 			writeDescriptorSet.dstBinding = 0;
 			writeDescriptorSet.pBufferInfo = &gltfMaterialBufferInfo;
 			vkUpdateDescriptorSets(device->getHandle(), 1, &writeDescriptorSet, 0, nullptr);
+
 		}
+	}
+
+	{
+		// TODO: move buffer copy out of this method
+		// Create gltfMaterialsBuffer
+		VkDeviceSize bufferSize{ sizeof(GltfMaterial) * allGltfMaterials.size() };
+
+		VkBufferCreateInfo bufferInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+		bufferInfo.size = bufferSize;
+		bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+		bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+		VmaAllocationCreateInfo memoryInfo{};
+		memoryInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
+
+		std::unique_ptr<Buffer> stagingBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
+
+		bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | m_rayTracingBufferUsageFlags;
+		memoryInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+
+		gltfMaterialsBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
+
+		void *mappedData = stagingBuffer->map();
+		memcpy(mappedData, allGltfMaterials.data(), static_cast<size_t>(bufferSize));
+		stagingBuffer->unmap();
+		stagingBuffer->flush();
+		copyBufferToBuffer(*stagingBuffer, *gltfMaterialsBuffer, bufferSize);
+
+		// Create descriptor set
+		VkDescriptorSetAllocateInfo gltfMaterialsDescriptorSetAllocateInfo{};
+		gltfMaterialsDescriptorSetAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+		gltfMaterialsDescriptorSetAllocateInfo.descriptorPool = descriptorPool->getHandle();
+		gltfMaterialsDescriptorSetAllocateInfo.pSetLayouts = &gltfMaterialDescriptorSetLayout->getHandle();
+		gltfMaterialsDescriptorSetAllocateInfo.descriptorSetCount = 1u;
+		gltfMaterialDescriptorSet = std::make_unique<DescriptorSet>(*device, gltfMaterialsDescriptorSetAllocateInfo);
+
+		// Write to descriptor set
+		VkDescriptorBufferInfo gltfMaterialBufferInfo{};
+		gltfMaterialBufferInfo.buffer = gltfMaterialsBuffer->getHandle();
+		gltfMaterialBufferInfo.offset = 0;
+		gltfMaterialBufferInfo.range = bufferSize;
+
+		VkWriteDescriptorSet writeDescriptorSet{};
+		writeDescriptorSet.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		writeDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+		writeDescriptorSet.descriptorCount = 1;
+		writeDescriptorSet.dstSet = gltfMaterialDescriptorSet->getHandle();
+		writeDescriptorSet.dstBinding = 0;
+		writeDescriptorSet.pBufferInfo = &gltfMaterialBufferInfo;
+		vkUpdateDescriptorSets(device->getHandle(), 1, &writeDescriptorSet, 0, nullptr);
+	}
+
+	// allGltfMaterialSamplersDescriptors
+	{
+		VkDescriptorSetAllocateInfo allGltfMaterialDescriptorSetAllocInfo{};
+		allGltfMaterialDescriptorSetAllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+		allGltfMaterialDescriptorSetAllocInfo.descriptorPool = descriptorPool->getHandle();
+		allGltfMaterialDescriptorSetAllocInfo.pSetLayouts = &allGltfMaterialSamplersDescriptorSetLayout->getHandle();
+		allGltfMaterialDescriptorSetAllocInfo.descriptorSetCount = 1u;
+		allGltfMaterialSamplersDescriptorSet = std::make_unique<DescriptorSet>(*device, allGltfMaterialDescriptorSetAllocInfo);
+
+		std::array<VkWriteDescriptorSet, 5> writeDescriptorSets{};
+		for (size_t i = 0; i < 5; i++)
+		{
+			writeDescriptorSets[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			writeDescriptorSets[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+			writeDescriptorSets[i].descriptorCount = allGltfMaterials.size();
+			writeDescriptorSets[i].dstSet = allGltfMaterialSamplersDescriptorSet->getHandle();
+			writeDescriptorSets[i].dstBinding = static_cast<uint32_t>(i);
+		}
+		writeDescriptorSets[0].pImageInfo = colorMaps.data();
+		writeDescriptorSets[1].pImageInfo = physicalDescriptorMaps.data();
+		writeDescriptorSets[2].pImageInfo = normalMaps.data();
+		writeDescriptorSets[3].pImageInfo = aoMaps.data();
+		writeDescriptorSets[4].pImageInfo = emissiveMaps.data();
+
+		vkUpdateDescriptorSets(device->getHandle(), static_cast<uint32_t>(writeDescriptorSets.size()), writeDescriptorSets.data(), 0, NULL);
 	}
 }
 
@@ -4124,11 +4330,11 @@ void VulkrApp::createSemaphoreAndFencePools()
 
 void VulkrApp::loadTextureImages(const std::vector<std::string> &textureFiles)
 {
-	LOGI("Loading {} texture files..", std::to_string(textureFiles.size()));
+	LOGD("Loading {} texture files..", std::to_string(textureFiles.size()));
 	int x = 1;
 	for (const std::string &textureFile : textureFiles)
 	{
-		LOGI(std::to_string(x++) + ": processing " + textureFile);
+		LOGD(std::to_string(x++) + ": processing " + textureFile);
 
 		std::unique_ptr<Image> imageOfTexture = createTextureImage(std::string("../../assets/textures/" + textureFile).c_str());
 		VkFormat textureImageFormat = imageOfTexture->getFormat();
@@ -4145,11 +4351,20 @@ void VulkrApp::setupSynchronizationObjects()
 	for (size_t i = 0; i < maxFramesInFlight; ++i)
 	{
 		frameData.imageAvailableSemaphores[i] = semaphorePool->requestSemaphore();
+		frameData.geometryBufferPopulationFinishedSemaphores[i] = semaphorePool->requestSemaphore();
 		frameData.offscreenRenderingFinishedSemaphores[i] = semaphorePool->requestSemaphore();
 		frameData.postProcessRenderingFinishedSemaphores[i] = semaphorePool->requestSemaphore();
 		frameData.outputImageCopyFinishedSemaphores[i] = semaphorePool->requestSemaphore();
 		frameData.computeParticlesFinishedSemaphores[i] = semaphorePool->requestSemaphore();
+
 		frameData.inFlightFences[i] = fencePool->requestFence();
+
+		setDebugUtilsObjectName(device->getHandle(), frameData.imageAvailableSemaphores[i], "imageAvailableSemaphores for frame #" + std::to_string(i));
+		setDebugUtilsObjectName(device->getHandle(), frameData.geometryBufferPopulationFinishedSemaphores[i], "geometryBufferPopulationFinishedSemaphores for frame #" + std::to_string(i));
+		setDebugUtilsObjectName(device->getHandle(), frameData.offscreenRenderingFinishedSemaphores[i], "offscreenRenderingFinishedSemaphores for frame #" + std::to_string(i));
+		setDebugUtilsObjectName(device->getHandle(), frameData.postProcessRenderingFinishedSemaphores[i], "postProcessRenderingFinishedSemaphores for frame #" + std::to_string(i));
+		setDebugUtilsObjectName(device->getHandle(), frameData.outputImageCopyFinishedSemaphores[i], "outputImageCopyFinishedSemaphores for frame #" + std::to_string(i));
+		setDebugUtilsObjectName(device->getHandle(), frameData.computeParticlesFinishedSemaphores[i], "computeParticlesFinishedSemaphores for frame #" + std::to_string(i));
 	}
 }
 
@@ -4193,7 +4408,7 @@ void VulkrApp::loadObjModel(const std::string &objFilePath)
 
 void VulkrApp::loadGltfModel(const std::string &gltfFilePath)
 {
-	LOGI("Loading scene from {}", gltfFilePath);
+	LOGD("Started loading scene from {}", gltfFilePath);
 	GltfModelRenderingData gltfModelRenderingData;
 	gltfModelRenderingData.filePath = gltfFilePath;
 	animationIndex = 0;
@@ -4202,7 +4417,16 @@ void VulkrApp::loadGltfModel(const std::string &gltfFilePath)
 	gltfModelRenderingData.gltfModel.loadFromFile(gltfFilePath, device.get(), frameData.commandPools[0].get(), m_transferQueue->getHandle());
 	createMaterialBuffer(gltfModelRenderingData);
 	auto tFileLoad = std::chrono::duration<double, std::milli>(std::chrono::high_resolution_clock::now() - tStart).count();
-	LOGI("Loading took {} ms", tFileLoad);
+	LOGD("Finished loading scene from {}; took {} ms", gltfFilePath, tFileLoad);
+
+	if (gltfModelRenderingDataList.empty())
+	{
+		gltfModelRenderingData.materialBufferOffset = 0u;
+	}
+	else
+	{
+		gltfModelRenderingData.materialBufferOffset = gltfModelRenderingDataList[gltfModelRenderingDataList.size() - 1].materialBufferOffset + gltfModelRenderingData.gltfModel.materials.size();
+	}
 
 	gltfModelRenderingDataList.push_back(std::move(gltfModelRenderingData));
 }
@@ -4385,7 +4609,8 @@ void VulkrApp::createSceneInstances()
 	createGltfInstance("DamagedHelmet.gltf", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ -2, 3, 0 }));
 	createGltfInstance("MosquitoInAmber.glb", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ -4, 3, 0 }));
 	createGltfInstance("WaterBottle.glb", glm::translate(glm::scale(glm::mat4{ 1.0 }, glm::vec3(4.0)), glm::vec3{ -2, 2, 0 }));
-	createGltfInstance("SciFiHelmet.gltf", glm::translate(glm::scale(glm::mat4{ 1.0 }, glm::vec3(4.0)), glm::vec3{ -2, 1, 0 }));
+	//createGltfInstance("SciFiHelmet.gltf", glm::translate(glm::scale(glm::mat4{ 1.0 }, glm::vec3(4.0)), glm::vec3{ -2, 1, 0 }));
+	createGltfInstance("DamagedHelmet.gltf", glm::translate(glm::scale(glm::mat4{ 1.0 }, glm::vec3(4.0)), glm::vec3{ -2, 1, 0 }));
 
 	if (gltfInstances.size() > maxGltfInstanceCount)
 	{
@@ -4507,46 +4732,46 @@ void VulkrApp::createImageResourcesForFrames()
 	subresourceRange.layerCount = 1u;
 
 	// Main output image
-	std::unique_ptr<Image> outputImage = std::make_unique<Image>(*device, swapchain->getProperties().surfaceFormat.format, extent, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
-	VkFormat outputImageFormat = outputImage->getFormat();
+	VkFormat outputImageFormat = swapchain->getProperties().surfaceFormat.format;
+	std::unique_ptr<Image> outputImage = std::make_unique<Image>(*device, outputImageFormat, extent, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 	outputImageView = std::make_unique<ImageView>(std::move(outputImage), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, outputImageFormat);
 
 	// Images required for post processing
-	std::unique_ptr<Image> copyOutputImage = std::make_unique<Image>(*device, swapchain->getProperties().surfaceFormat.format, extent, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
-	VkFormat copyOutputImageFormat = copyOutputImage->getFormat();
+	VkFormat copyOutputImageFormat = swapchain->getProperties().surfaceFormat.format;
+	std::unique_ptr<Image> copyOutputImage = std::make_unique<Image>(*device, copyOutputImageFormat, extent, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 	copyOutputImageView = std::make_unique<ImageView>(std::move(copyOutputImage), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, copyOutputImageFormat);
 
-	std::unique_ptr<Image> historyImage = std::make_unique<Image>(*device, swapchain->getProperties().surfaceFormat.format, extent, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
-	VkFormat historyImageFormat = historyImage->getFormat();
+	VkFormat historyImageFormat = swapchain->getProperties().surfaceFormat.format;
+	std::unique_ptr<Image> historyImage = std::make_unique<Image>(*device, historyImageFormat, extent, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 	historyImageView = std::make_unique<ImageView>(std::move(historyImage), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, historyImageFormat);
 
-	std::unique_ptr<Image> velocityImage = std::make_unique<Image>(*device, swapchain->getProperties().surfaceFormat.format, extent, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
-	VkFormat velocityImageFormat = velocityImage->getFormat();
+	VkFormat velocityImageFormat = swapchain->getProperties().surfaceFormat.format;
+	std::unique_ptr<Image> velocityImage = std::make_unique<Image>(*device, velocityImageFormat, extent, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 	velocityImageView = std::make_unique<ImageView>(std::move(velocityImage), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, velocityImageFormat);
 
 	// Images required for deferred rendering
-	std::unique_ptr<Image> positionImage = std::make_unique<Image>(*device, swapchain->getProperties().surfaceFormat.format, extent, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
-	VkFormat positionImageFormat = positionImage->getFormat();
+	VkFormat positionImageFormat = swapchain->getProperties().surfaceFormat.format;
+	std::unique_ptr<Image> positionImage = std::make_unique<Image>(*device, positionImageFormat, extent, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 	positionImageView = std::make_unique<ImageView>(std::move(positionImage), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, positionImageFormat);
 
-	std::unique_ptr<Image> normalImage = std::make_unique<Image>(*device, swapchain->getProperties().surfaceFormat.format, extent, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
-	VkFormat normalImageFormat = normalImage->getFormat();
+	VkFormat normalImageFormat = swapchain->getProperties().surfaceFormat.format;
+	std::unique_ptr<Image> normalImage = std::make_unique<Image>(*device, normalImageFormat, extent, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 	normalImageView = std::make_unique<ImageView>(std::move(normalImage), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, normalImageFormat);
 
-	std::unique_ptr<Image> uv0Image = std::make_unique<Image>(*device, swapchain->getProperties().surfaceFormat.format, extent, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
-	VkFormat uv0ImageFormat = uv0Image->getFormat();
+	VkFormat uv0ImageFormat = swapchain->getProperties().surfaceFormat.format;
+	std::unique_ptr<Image> uv0Image = std::make_unique<Image>(*device, uv0ImageFormat, extent, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 	uv0ImageView = std::make_unique<ImageView>(std::move(uv0Image), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, uv0ImageFormat);
 
-	std::unique_ptr<Image> uv1Image = std::make_unique<Image>(*device, swapchain->getProperties().surfaceFormat.format, extent, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
-	VkFormat uv1ImageFormat = uv1Image->getFormat();
+	VkFormat uv1ImageFormat = swapchain->getProperties().surfaceFormat.format;
+	std::unique_ptr<Image> uv1Image = std::make_unique<Image>(*device, uv1ImageFormat, extent, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 	uv1ImageView = std::make_unique<ImageView>(std::move(uv1Image), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, uv1ImageFormat);
 
-	std::unique_ptr<Image> color0Image = std::make_unique<Image>(*device, swapchain->getProperties().surfaceFormat.format, extent, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
-	VkFormat color0ImageFormat = color0Image->getFormat();
+	VkFormat color0ImageFormat = swapchain->getProperties().surfaceFormat.format;
+	std::unique_ptr<Image> color0Image = std::make_unique<Image>(*device, color0ImageFormat, extent, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 	color0ImageView = std::make_unique<ImageView>(std::move(color0Image), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, color0ImageFormat);
 	
-	std::unique_ptr<Image> materialIndexImage = std::make_unique<Image>(*device, swapchain->getProperties().surfaceFormat.format, extent, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
-	VkFormat materialIndexImageFormat = materialIndexImage->getFormat();
+	VkFormat materialIndexImageFormat = swapchain->getProperties().surfaceFormat.format; // TODO: four chanenls are wasteful, we should use VK_FORMAT_R32_UINT;
+	std::unique_ptr<Image> materialIndexImage = std::make_unique<Image>(*device, materialIndexImageFormat, extent, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 	materialIndexImageView = std::make_unique<ImageView>(std::move(materialIndexImage), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, materialIndexImageFormat);
 
 	// Set debug markers

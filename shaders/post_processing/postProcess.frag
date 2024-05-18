@@ -2,6 +2,7 @@
 
 layout(location = 0) out vec4 outColor;
 
+// TODO check if rgba8_snorm is correct, the image format is set to the swapchain format, which is bgr8_unorm
 layout(set = 0, binding = 2, rgba8_snorm) uniform image2D historyImage;
 layout(set = 0, binding = 3, rgba8_snorm) uniform image2D velocityImage;
 layout(set = 0, binding = 4, rgba8_snorm) uniform image2D copyOutputImage;

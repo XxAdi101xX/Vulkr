@@ -65,7 +65,7 @@ layout (set = 2, binding = 4) uniform sampler2D emissiveMap;
 // Properties
 layout(std430, set = 4, binding = 0) buffer SSBO
 {
-   GltfMaterial materials[ ];
+   GltfMaterial materials[];
 };
 
 layout (push_constant) uniform PushConstants {

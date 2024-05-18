@@ -195,6 +195,7 @@ struct Particle
 	alignas(16) glm::vec4 velocity; // xyz = velocity, w = gradient texture position
 };
 
+//TODO DO I NEED TO ADD PADDING HERE, WE ARE A 4 BYTE VARIABLE AWAY FROM BEING DIVISIBLE BY 4
 struct alignas(16) GltfMaterial
 {
 	glm::vec4 baseColorFactor;
@@ -294,6 +295,8 @@ struct GltfModelRenderingData
 	std::string filePath;
 	gltf::Model gltfModel;
 	std::unique_ptr<Buffer> materialsBuffer;
+	std::unique_ptr<DescriptorSet> materialsBufferDescriptorSet;
+	uint32_t materialBufferOffset;
 };
 
 struct PipelineData
@@ -422,7 +425,8 @@ private:
 	std::unique_ptr<DescriptorSetLayout> postProcessingDescriptorSetLayout{ nullptr };
 	std::unique_ptr<DescriptorSetLayout> taaDescriptorSetLayout{ nullptr };
 	std::unique_ptr<DescriptorSetLayout> particleComputeDescriptorSetLayout{ nullptr };
-	std::unique_ptr<DescriptorSetLayout> gltfMaterialSamplersDescriptorSetLayout{ nullptr };
+	std::unique_ptr<DescriptorSetLayout> gltfMaterialSamplersDescriptorSetLayout{ nullptr }; // Contains the samplers for a specific material
+	std::unique_ptr<DescriptorSetLayout> allGltfMaterialSamplersDescriptorSetLayout{ nullptr }; // Contains all the samplers for all materials
 	std::unique_ptr<DescriptorSetLayout> gltfNodeDescriptorSetLayout{ nullptr };
 	std::unique_ptr<DescriptorSetLayout> gltfMaterialDescriptorSetLayout{ nullptr };
 	std::unique_ptr<DescriptorSetLayout> geometryBufferDescriptorSetLayout{ nullptr };
@@ -449,6 +453,7 @@ private:
 		std::array<std::unique_ptr<Framebuffer>, maxFramesInFlight> deferredShadingFramebuffers;
 
 		std::array<VkSemaphore, maxFramesInFlight> imageAvailableSemaphores;
+		std::array<VkSemaphore, maxFramesInFlight> geometryBufferPopulationFinishedSemaphores;
 		std::array<VkSemaphore, maxFramesInFlight> offscreenRenderingFinishedSemaphores;
 		std::array<VkSemaphore, maxFramesInFlight> postProcessRenderingFinishedSemaphores;
 		std::array<VkSemaphore, maxFramesInFlight> outputImageCopyFinishedSemaphores;
@@ -475,6 +480,8 @@ private:
 	std::unique_ptr<Buffer> particleBuffer;
 	std::unique_ptr<Buffer> gltfMaterialsBuffer;
 
+	std::vector<GltfMaterial> allGltfMaterials{};
+
 	// TAA related textures
 	std::unique_ptr<ImageView> outputImageView;
 	std::unique_ptr<ImageView> copyOutputImageView;
@@ -497,8 +504,9 @@ private:
 	std::unique_ptr<DescriptorSet> particleComputeDescriptorSet;
 	std::unique_ptr<DescriptorSet> textureDescriptorSet; // This is currently only read by shaders
 	std::unique_ptr<DescriptorSet> raytracingDescriptorSet;
-	std::unique_ptr<DescriptorSet> gltfMaterialDescriptorSet;
 	std::unique_ptr<DescriptorSet> geometryBufferDescriptorSet; // Although this says geometry buffers, they're actually filled with ImageView rather than Buffer
+	std::unique_ptr<DescriptorSet> allGltfMaterialSamplersDescriptorSet;
+	std::unique_ptr<DescriptorSet> gltfMaterialDescriptorSet;
 
 	size_t currentFrame{ 0 };
 
@@ -542,11 +550,11 @@ private:
 	void animateInstances();
 	void animateWithCompute();
 	void computeParticles();
-	void renderNode(PipelineData *pipelineData, vulkr::gltf::Node *node, uint32_t instanceIndex);
+	void renderNode(PipelineData *pipelineData, vulkr::gltf::Node *node, uint32_t instanceIndex, uint32_t modelIndex);
 	void dataUpdatePerFrame();
 	void rasterizeObj();
 	void rasterizeGltf();
-	void initiateDeferredRenderingPass();
+	void initiateDeferredShadingPass();
 	void postProcess();
 	void cleanupSwapchain();
 	void createInstance();

@@ -37,7 +37,7 @@ public:
 		Device &device,
 		VkFormat format,
 		VkExtent3D extent,
-		VkImageUsageFlags imageUsage,
+		VkImageUsageFlags usageFlags,
 		VmaMemoryUsage memoryUsage,
 		uint32_t mipLevels = 1,
 		uint32_t arrayLayers = 1,
@@ -50,13 +50,13 @@ public:
 		const uint32_t *pQueueFamilyIndices = nullptr
 	);
 
-	// This constructor is used to store swapchain image info, which does not need to be created from a vmaCreateImage call
+	// This constructor is used to represent the swapchain image, which does not need to be created from a vmaCreateImage call
 	Image(
 		Device &device,
 		VkImage handle,
 		VkExtent3D extent,
 		VkFormat format,
-		VkImageUsageFlags imageUsageFlags,
+		VkImageUsageFlags usageFlags,
 		VkSampleCountFlagBits sampleCount = VK_SAMPLE_COUNT_1_BIT
 	);
 	~Image();

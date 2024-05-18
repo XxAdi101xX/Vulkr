@@ -230,13 +230,7 @@ void FluidSimulation::update()
 	dependencyInfo.imageMemoryBarrierCount = 0u;
 	dependencyInfo.pImageMemoryBarriers = nullptr;
 
-	// TODO: current commandBuffer[0] is empty and has no work when submitted
 	vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame][0]->getHandle(), &dependencyInfo);
-	/*
-	frameData.commandBuffers[currentFrame][0]->beginRenderPass(*mainRenderPass.renderPass, *(frameData.offscreenFramebuffers[currentFrame]), swapchain->getProperties().imageExtent, offscreenFramebufferClearValues, VK_SUBPASS_CONTENTS_INLINE);
-	rasterize();
-	frameData.commandBuffers[currentFrame][0]->endRenderPass();
-	*/
 
 	// End command buffer for offscreen pass
 	frameData.commandBuffers[currentFrame][0]->end();
@@ -735,10 +729,10 @@ void FluidSimulation::computeFluidSimulation()
 		std::array<VkImageMemoryBarrier2, 5> imageMemoryBarriers
 		{
 			fluidVelocityInputTextureImageMemoryBarrier,
-				fluidVelocityDivergenceInputTextureImageMemoryBarrier,
-				fluidPressureInputTextureImageMemoryBarrier,
-				fluidDensityInputTextureImageMemoryBarrier,
-				fluidSimulationOutputTextureImageMemoryBarrier
+			fluidVelocityDivergenceInputTextureImageMemoryBarrier,
+			fluidPressureInputTextureImageMemoryBarrier,
+			fluidDensityInputTextureImageMemoryBarrier,
+			fluidSimulationOutputTextureImageMemoryBarrier
 		};
 		VkDependencyInfo dependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
 		dependencyInfo.pNext = nullptr;
@@ -758,7 +752,7 @@ void FluidSimulation::computeFluidSimulation()
 
 	uint32_t fluidSimulationGridSize = to_u32(fluidSimulationPushConstant.gridSize.x * fluidSimulationPushConstant.gridSize.y);
 
-	// TODO: for both the advection and gaussian splat shaders, we can refactor to just have one of each shader with differetn descriptor sets instead
+	// TODO: for both the advection and gaussian splat shaders, we can refactor to just have one of each shader with different descriptor sets instead
 	// First pass: Compute velocity advection
 	vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeVelocityAdvection.pipeline->getBindPoint(), pipelines.computeVelocityAdvection.pipeline->getHandle());
 	vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeVelocityAdvection.pipeline->getBindPoint(), pipelines.computeVelocityAdvection.pipelineState->getPipelineLayout().getHandle(), 0u, 1u, &fluidSimulationInputDescriptorSet->getHandle(), 0u, nullptr);
