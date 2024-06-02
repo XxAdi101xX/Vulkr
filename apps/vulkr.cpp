@@ -299,14 +299,14 @@ void VulkrApp::prepare()
 	}
 
 	createSwapchain();
+	createCommandPools();
+	createCommandBuffers();
+	createImageResourcesForFrames();
 	createDepthResources();
 	createMainRenderPass();
 	createPostRenderPass();
 	createMrtGeometryBufferRenderPass();
 	createDeferredShadingRenderPass();
-	createCommandPools();
-	createCommandBuffers();
-	createImageResourcesForFrames();
 	createFramebuffers();
 
 	initializeImGui();
@@ -468,8 +468,6 @@ void VulkrApp::update()
 	}
 	else if (activeRenderingTechnique == RenderingTechnique::DEFERRED)
 	{
-		if (false)
-		{
 		// Add memory barrier to ensure that the particleIntegrate computer shader has finished writing to the currentFrameObjInstanceBuffer
 		VkMemoryBarrier2 memoryBarrier{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
 		memoryBarrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
@@ -488,28 +486,6 @@ void VulkrApp::update()
 		dependencyInfo.pImageMemoryBarriers = nullptr;
 
 		vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame][0]->getHandle(), &dependencyInfo);
-		}
-		else
-		{
-		// TODO REMOVE FULL PIPELINE BARRIER
-		VkMemoryBarrier2 memoryBarrier{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
-		memoryBarrier.srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
-		memoryBarrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
-		memoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-		memoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-
-		VkDependencyInfo dependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
-		dependencyInfo.pNext = nullptr;
-		dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-		dependencyInfo.memoryBarrierCount = 1u;
-		dependencyInfo.pMemoryBarriers = &memoryBarrier;
-		dependencyInfo.bufferMemoryBarrierCount = 0u;
-		dependencyInfo.pBufferMemoryBarriers = nullptr;
-		dependencyInfo.imageMemoryBarrierCount = 0u;
-		dependencyInfo.pImageMemoryBarriers = nullptr;
-
-		vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame][0]->getHandle(), &dependencyInfo);
-		}
 
 		frameData.commandBuffers[currentFrame][0]->beginRenderPass(*mrtGeometryBufferRenderPass.renderPass, *(frameData.geometryBufferFramebuffers[currentFrame]), swapchain->getProperties().imageExtent, geometryBufferFramebufferClearValues, VK_SUBPASS_CONTENTS_INLINE);
 		rasterizeGltf();
@@ -535,14 +511,23 @@ void VulkrApp::update()
 
 	VkSemaphoreSubmitInfo offScreenSignalSemaphoreSubmitInfo{ VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
 	offScreenSignalSemaphoreSubmitInfo.pNext = nullptr;
-	offScreenSignalSemaphoreSubmitInfo.semaphore = frameData.offscreenRenderingFinishedSemaphores[currentFrame]; // We want to signal offscreenRenderingFinishedSemaphores RenderingTechnique::FORWARD and RenderingTechnique::RAY_TRACING but not RenderingTechnique::DEFERRED; we want to signal geometryBufferPopulationFinishedSemaphores instead
 	offScreenSignalSemaphoreSubmitInfo.value = 0u; // Optional: ignored since this isn't a timeline semaphore
 	offScreenSignalSemaphoreSubmitInfo.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
 	offScreenSignalSemaphoreSubmitInfo.deviceIndex = 0u; // replaces VkDeviceGroupSubmitInfo but we don't have that in our pNext chain so not used.
 
-	if (activeRenderingTechnique == RenderingTechnique::DEFERRED)
+	if (activeRenderingTechnique == RenderingTechnique::FORWARD || activeRenderingTechnique == RenderingTechnique::RAY_TRACING)
 	{
+		// Signal the offscreenRenderingFinishedSemaphores so that the post processing step can begin
+		offScreenSignalSemaphoreSubmitInfo.semaphore = frameData.offscreenRenderingFinishedSemaphores[currentFrame];
+	}
+	else if (activeRenderingTechnique == RenderingTechnique::DEFERRED)
+	{
+		// Signal geometryBufferPopulationFinishedSemaphores so that the deferred rendering pass step could begin
 		offScreenSignalSemaphoreSubmitInfo.semaphore = frameData.geometryBufferPopulationFinishedSemaphores[currentFrame];
+	}
+	else
+	{
+		LOGEANDABORT("Unexpectly, activeRenderingTechnique is neither FORWARD, RAY_TRACING or DEFERRED.");
 	}
 
 	VkSubmitInfo2 offscreenPassSubmitInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO_2 };
@@ -559,26 +544,6 @@ void VulkrApp::update()
 	if (activeRenderingTechnique == RenderingTechnique::DEFERRED)
 	{
 		frameData.commandBuffers[currentFrame][3]->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
-
-		// TODO REMOVE FULL PIPELINE BARRIER!!!
-		VkMemoryBarrier2 memoryBarrier{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
-		memoryBarrier.srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
-		memoryBarrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
-		memoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-		memoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-
-		VkDependencyInfo dependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
-		dependencyInfo.pNext = nullptr;
-		dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-		dependencyInfo.memoryBarrierCount = 1u;
-		dependencyInfo.pMemoryBarriers = &memoryBarrier;
-		dependencyInfo.bufferMemoryBarrierCount = 0u;
-		dependencyInfo.pBufferMemoryBarriers = nullptr;
-		dependencyInfo.imageMemoryBarrierCount = 0u;
-		dependencyInfo.pImageMemoryBarriers = nullptr;
-
-		vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame][3]->getHandle(), &dependencyInfo);
-
 		frameData.commandBuffers[currentFrame][3]->beginRenderPass(*deferredShadingRenderPass.renderPass, *(frameData.deferredShadingFramebuffers[currentFrame]), swapchain->getProperties().imageExtent, deferredShadingFramebufferClearValues, VK_SUBPASS_CONTENTS_INLINE);
 
 		initiateDeferredShadingPass();
@@ -771,7 +736,7 @@ void VulkrApp::update()
 	transitionSwapchainLayoutBarrier.pNext = nullptr;
 	transitionSwapchainLayoutBarrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT; // Wait for transfer to finish
 	transitionSwapchainLayoutBarrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-	transitionSwapchainLayoutBarrier.dstStageMask = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT; // There was a validation error when VK_PIPELINE_STAGE_2_NONE is used, might be a validation bug but this should be equivilant
+	transitionSwapchainLayoutBarrier.dstStageMask = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT; // There was a validation error when VK_PIPELINE_STAGE_2_NONE is used, might be a validation bug but this should be equivalent
 	transitionSwapchainLayoutBarrier.dstAccessMask = VK_ACCESS_2_NONE;
 	transitionSwapchainLayoutBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
 	transitionSwapchainLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
@@ -1569,7 +1534,7 @@ void VulkrApp::createMainRenderPass()
 {
 	std::vector<Attachment> attachments;
 	Attachment outputImageAttachment{}; // outputImage
-	outputImageAttachment.format = swapchain->getProperties().surfaceFormat.format;
+	outputImageAttachment.format = outputImageView->getFormat();
 	outputImageAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
 	outputImageAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 	outputImageAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -1590,7 +1555,7 @@ void VulkrApp::createMainRenderPass()
 	mainRenderPass.colorAttachments.push_back(outputImageAttachmentRef);
 
 	Attachment copyOutputImageAttachment{}; // copyOutputImage
-	copyOutputImageAttachment.format = swapchain->getProperties().surfaceFormat.format;
+	copyOutputImageAttachment.format = copyOutputImageView->getFormat();
 	copyOutputImageAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
 	copyOutputImageAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 	copyOutputImageAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -1608,7 +1573,7 @@ void VulkrApp::createMainRenderPass()
 	mainRenderPass.colorAttachments.push_back(copyOutputImageAttachmentRef);
 
 	Attachment velocityImageAttachment{}; // velocityImage
-	velocityImageAttachment.format = swapchain->getProperties().surfaceFormat.format;
+	velocityImageAttachment.format = velocityImageView->getFormat();
 	velocityImageAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
 	velocityImageAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 	velocityImageAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -1655,44 +1620,35 @@ void VulkrApp::createMainRenderPass()
 	std::vector<VkSubpassDependency2> dependencies;
 	dependencies.resize(2);
 
-	// TODO: verify these subpass dependencies are correct
-	// Only need a dependency coming in to ensure that the first layout transition happens at the right time.
-	// Second external dependency is implied by having a different finalLayout and subpass layout.
-	VkMemoryBarrier2 memoryBarrier1 = {
+	VkMemoryBarrier2 memoryBarrierForFirstSubpassDependency = {
 		.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2_KHR,
 		.pNext = nullptr,
 		.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
-		.srcAccessMask = 0u, // We don't have anything that we need to flush
+		.srcAccessMask = VK_ACCESS_2_NONE, // We don't have anything that we need to flush
 		.dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
 		.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT
 	};
-
 	dependencies[0].sType = VK_STRUCTURE_TYPE_SUBPASS_DEPENDENCY_2;
-	dependencies[0].pNext = &memoryBarrier1;
+	dependencies[0].pNext = &memoryBarrierForFirstSubpassDependency;
 	dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
 	dependencies[0].dstSubpass = 0u; // References the subpass index in the subpasses array
 	// srcStageMask, dstStageMask, srcAccessMask and dstAccessMask on subpassDependency2 are ignored since we're passing in a memory barrier
 	dependencies[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
 
-	VkMemoryBarrier2 memoryBarrier2 = {
+	VkMemoryBarrier2 memoryBarrierForLastSubpassDependency = {
 		.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2_KHR,
 		.pNext = nullptr,
 		.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
 		.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-		.dstStageMask = VK_PIPELINE_STAGE_2_NONE,
+		.dstStageMask = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT,
 		.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT
 	};
-
 	dependencies[1].sType = VK_STRUCTURE_TYPE_SUBPASS_DEPENDENCY_2;
-	dependencies[1].pNext = &memoryBarrier2;
+	dependencies[1].pNext = &memoryBarrierForLastSubpassDependency;
 	dependencies[1].srcSubpass = 0u;
 	dependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
 	// srcStageMask, dstStageMask, srcAccessMask and dstAccessMask on subpassDependency2 are ignored since we're passing in a memory barrier
 	dependencies[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-
-	// Normally, we would need an external dependency at the end as well since we are changing layout in finalLayout,
-	// but since we are signalling a semaphore, we can rely on Vulkan's default behavior,
-	// which injects an external dependency here with dstStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, dstAccessMask = 0. 
 
 	mainRenderPass.renderPass = std::make_unique<RenderPass>(*device, attachments, mainRenderPass.subpasses, dependencies);
 	setDebugUtilsObjectName(device->getHandle(), mainRenderPass.renderPass->getHandle(), "mainRenderPass");
@@ -1702,7 +1658,7 @@ void VulkrApp::createPostRenderPass()
 {
 	std::vector<Attachment> attachments;
 	Attachment colorAttachment{}; // outputImage
-	colorAttachment.format = swapchain->getProperties().surfaceFormat.format;
+	colorAttachment.format = outputImageView->getFormat();
 	colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
 	colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
 	colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -1749,44 +1705,35 @@ void VulkrApp::createPostRenderPass()
 	std::vector<VkSubpassDependency2> dependencies;
 	dependencies.resize(2);
 
-	// TODO: verify these subpass dependencies are correct
-	// Only need a dependency coming in to ensure that the first layout transition happens at the right time.
-	// Second external dependency is implied by having a different finalLayout and subpass layout.
-	VkMemoryBarrier2 memoryBarrier1 = {
+	VkMemoryBarrier2 memoryBarrierForFirstSubpassDependency = {
 	.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2_KHR,
 	.pNext = nullptr,
 	.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
-	.srcAccessMask = 0, // we don't have anything to flush
+	.srcAccessMask = VK_ACCESS_2_NONE, // we don't have anything to flush
 	.dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
 	.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT // The clear on depth counts as a write operation I believe so we need appropriate access masks
 	};
-
 	dependencies[0].sType = VK_STRUCTURE_TYPE_SUBPASS_DEPENDENCY_2;
-	dependencies[0].pNext = &memoryBarrier1;
+	dependencies[0].pNext = &memoryBarrierForFirstSubpassDependency;
 	dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
 	dependencies[0].dstSubpass = 0u; // References the subpass index in the subpasses array
 	// srcStageMask, dstStageMask, srcAccessMask and dstAccessMask on subpassDependency2 are ignored since we're passing in a memory barrier
 	dependencies[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
 
-	VkMemoryBarrier2 memoryBarrier2 = {
+	VkMemoryBarrier2 memoryBarrierForLastSubpassDependency = {
 		.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2_KHR,
 		.pNext = nullptr,
 		.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
 		.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-		.dstStageMask = VK_PIPELINE_STAGE_2_NONE,
+		.dstStageMask = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT,
 		.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT
 	};
-
 	dependencies[1].sType = VK_STRUCTURE_TYPE_SUBPASS_DEPENDENCY_2;
-	dependencies[1].pNext = &memoryBarrier2;
+	dependencies[1].pNext = &memoryBarrierForLastSubpassDependency;
 	dependencies[1].srcSubpass = 0u;
 	dependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
 	// srcStageMask, dstStageMask, srcAccessMask and dstAccessMask on subpassDependency2 are ignored since we're passing in a memory barrier
 	dependencies[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-
-	// Normally, we would need an external dependency at the end as well since we are changing layout in finalLayout,
-	// but since we are signalling a semaphore, we can rely on Vulkan's default behavior,
-	// which injects an external dependency here with dstStageMask = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, dstAccessMask = 0. 
 
 	postRenderPass.renderPass = std::make_unique<RenderPass>(*device, attachments, postRenderPass.subpasses, dependencies);
 	setDebugUtilsObjectName(device->getHandle(), postRenderPass.renderPass->getHandle(), "postProcessRenderPass");
@@ -1796,14 +1743,14 @@ void VulkrApp::createMrtGeometryBufferRenderPass()
 {
 	std::vector<Attachment> attachments;
 	Attachment positionImageAttachment{}; // positionImage
-	positionImageAttachment.format = swapchain->getProperties().surfaceFormat.format;
+	positionImageAttachment.format = positionImageView->getFormat();
 	positionImageAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
 	positionImageAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 	positionImageAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 	positionImageAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 	positionImageAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
 	positionImageAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-	positionImageAttachment.finalLayout = VK_IMAGE_LAYOUT_GENERAL;
+	positionImageAttachment.finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 	attachments.push_back(positionImageAttachment);
 
 	VkAttachmentReference2 positionImageAttachmentRef{ VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2 };
@@ -1814,14 +1761,14 @@ void VulkrApp::createMrtGeometryBufferRenderPass()
 	mrtGeometryBufferRenderPass.colorAttachments.push_back(positionImageAttachmentRef);
 
 	Attachment normalImageAttachment{}; // normalImage
-	normalImageAttachment.format = swapchain->getProperties().surfaceFormat.format;
+	normalImageAttachment.format = normalImageView->getFormat();
 	normalImageAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
 	normalImageAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 	normalImageAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 	normalImageAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 	normalImageAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
 	normalImageAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-	normalImageAttachment.finalLayout = VK_IMAGE_LAYOUT_GENERAL;
+	normalImageAttachment.finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 	attachments.push_back(normalImageAttachment);
 
 	VkAttachmentReference2 normalImageAttachmentRef{ VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2 };
@@ -1832,14 +1779,14 @@ void VulkrApp::createMrtGeometryBufferRenderPass()
 	mrtGeometryBufferRenderPass.colorAttachments.push_back(normalImageAttachmentRef);
 
 	Attachment uv0ImageAttachment{}; // uv0Image
-	uv0ImageAttachment.format = swapchain->getProperties().surfaceFormat.format;
+	uv0ImageAttachment.format = uv0ImageView->getFormat();
 	uv0ImageAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
 	uv0ImageAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 	uv0ImageAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 	uv0ImageAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 	uv0ImageAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
 	uv0ImageAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-	uv0ImageAttachment.finalLayout = VK_IMAGE_LAYOUT_GENERAL;
+	uv0ImageAttachment.finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 	attachments.push_back(uv0ImageAttachment);
 
 	VkAttachmentReference2 uv0ImageAttachmentRef{ VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2 };
@@ -1850,14 +1797,14 @@ void VulkrApp::createMrtGeometryBufferRenderPass()
 	mrtGeometryBufferRenderPass.colorAttachments.push_back(uv0ImageAttachmentRef);
 
 	Attachment uv1ImageAttachment{}; // uv1Image
-	uv1ImageAttachment.format = swapchain->getProperties().surfaceFormat.format;
+	uv1ImageAttachment.format = uv1ImageView->getFormat();
 	uv1ImageAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
 	uv1ImageAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 	uv1ImageAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 	uv1ImageAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 	uv1ImageAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
 	uv1ImageAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-	uv1ImageAttachment.finalLayout = VK_IMAGE_LAYOUT_GENERAL;
+	uv1ImageAttachment.finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 	attachments.push_back(uv1ImageAttachment);
 
 	VkAttachmentReference2 uv1ImageAttachmentRef{ VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2 };
@@ -1868,14 +1815,14 @@ void VulkrApp::createMrtGeometryBufferRenderPass()
 	mrtGeometryBufferRenderPass.colorAttachments.push_back(uv1ImageAttachmentRef);
 
 	Attachment color0ImageAttachment{}; // color0Image
-	color0ImageAttachment.format = swapchain->getProperties().surfaceFormat.format;
+	color0ImageAttachment.format = color0ImageView->getFormat();
 	color0ImageAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
 	color0ImageAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 	color0ImageAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 	color0ImageAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 	color0ImageAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
 	color0ImageAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-	color0ImageAttachment.finalLayout = VK_IMAGE_LAYOUT_GENERAL;
+	color0ImageAttachment.finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 	attachments.push_back(color0ImageAttachment);
 
 	VkAttachmentReference2 color0ImageAttachmentRef{ VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2 };
@@ -1884,16 +1831,16 @@ void VulkrApp::createMrtGeometryBufferRenderPass()
 	color0ImageAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 	color0ImageAttachmentRef.aspectMask = 0u;
 	mrtGeometryBufferRenderPass.colorAttachments.push_back(color0ImageAttachmentRef);
-	
+
 	Attachment materialIndexImageAttachment{}; // materialIndexImage
-	materialIndexImageAttachment.format = swapchain->getProperties().surfaceFormat.format;
+	materialIndexImageAttachment.format = materialIndexImageView->getFormat();
 	materialIndexImageAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
 	materialIndexImageAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 	materialIndexImageAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 	materialIndexImageAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 	materialIndexImageAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
 	materialIndexImageAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-	materialIndexImageAttachment.finalLayout = VK_IMAGE_LAYOUT_GENERAL;
+	materialIndexImageAttachment.finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 	attachments.push_back(materialIndexImageAttachment);
 
 	VkAttachmentReference2 materialIndexImageAttachmentRef{ VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2 };
@@ -1933,44 +1880,37 @@ void VulkrApp::createMrtGeometryBufferRenderPass()
 	std::vector<VkSubpassDependency2> dependencies;
 	dependencies.resize(2);
 
-	// TODO: verify these subpass dependencies are correct
-	// Only need a dependency coming in to ensure that the first layout transition happens at the right time.
-	// Second external dependency is implied by having a different finalLayout and subpass layout.
-	VkMemoryBarrier2 memoryBarrier1 = {
+	VkMemoryBarrier2 memoryBarrierForFirstSubpassDependency =
+	{
 		.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2_KHR,
 		.pNext = nullptr,
 		.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
-		.srcAccessMask = 0u, // We don't have anything that we need to flush
+		.srcAccessMask = VK_ACCESS_2_NONE, // We don't have anything that we need to flush
 		.dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
 		.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT
 	};
-
 	dependencies[0].sType = VK_STRUCTURE_TYPE_SUBPASS_DEPENDENCY_2;
-	dependencies[0].pNext = &memoryBarrier1;
+	dependencies[0].pNext = &memoryBarrierForFirstSubpassDependency;
 	dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
 	dependencies[0].dstSubpass = 0u; // References the subpass index in the subpasses array
 	// srcStageMask, dstStageMask, srcAccessMask and dstAccessMask on subpassDependency2 are ignored since we're passing in a memory barrier
 	dependencies[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
 
-	VkMemoryBarrier2 memoryBarrier2 = {
+	VkMemoryBarrier2 memoryBarrierForLastSubpassDependency =
+	{
 		.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2_KHR,
 		.pNext = nullptr,
 		.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
 		.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-		.dstStageMask = VK_PIPELINE_STAGE_2_NONE,
+		.dstStageMask = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT,
 		.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT
 	};
-
 	dependencies[1].sType = VK_STRUCTURE_TYPE_SUBPASS_DEPENDENCY_2;
-	dependencies[1].pNext = &memoryBarrier2;
+	dependencies[1].pNext = &memoryBarrierForLastSubpassDependency;
 	dependencies[1].srcSubpass = 0u;
 	dependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
 	// srcStageMask, dstStageMask, srcAccessMask and dstAccessMask on subpassDependency2 are ignored since we're passing in a memory barrier
 	dependencies[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-
-	// Normally, we would need an external dependency at the end as well since we are changing layout in finalLayout,
-	// but since we are signalling a semaphore, we can rely on Vulkan's default behavior,
-	// which injects an external dependency here with dstStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, dstAccessMask = 0. 
 
 	mrtGeometryBufferRenderPass.renderPass = std::make_unique<RenderPass>(*device, attachments, mrtGeometryBufferRenderPass.subpasses, dependencies);
 	setDebugUtilsObjectName(device->getHandle(), mrtGeometryBufferRenderPass.renderPass->getHandle(), "mrtGeometryBufferRenderPass");
@@ -1980,7 +1920,7 @@ void VulkrApp::createDeferredShadingRenderPass()
 {
 	std::vector<Attachment> attachments;
 	Attachment colorAttachment{}; // outputImage
-	colorAttachment.format = swapchain->getProperties().surfaceFormat.format;
+	colorAttachment.format = outputImageView->getFormat();
 	colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
 	colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
 	colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -2027,44 +1967,38 @@ void VulkrApp::createDeferredShadingRenderPass()
 	std::vector<VkSubpassDependency2> dependencies;
 	dependencies.resize(2);
 
-	// TODO: verify these subpass dependencies are correct
-	// Only need a dependency coming in to ensure that the first layout transition happens at the right time.
-	// Second external dependency is implied by having a different finalLayout and subpass layout.
-	VkMemoryBarrier2 memoryBarrier1 = {
+	VkMemoryBarrier2 memoryBarrierForFirstSubpassDependency =
+	{
 	.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2_KHR,
 	.pNext = nullptr,
 	.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
-	.srcAccessMask = 0, // we don't have anything to flush
+	.srcAccessMask = VK_ACCESS_2_NONE, // we don't have anything to flush
 	.dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
 	.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT // The clear on depth counts as a write operation I believe so we need appropriate access masks
 	};
-
 	dependencies[0].sType = VK_STRUCTURE_TYPE_SUBPASS_DEPENDENCY_2;
-	dependencies[0].pNext = &memoryBarrier1;
+	dependencies[0].pNext = &memoryBarrierForFirstSubpassDependency;
 	dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
 	dependencies[0].dstSubpass = 0u; // References the subpass index in the subpasses array
 	// srcStageMask, dstStageMask, srcAccessMask and dstAccessMask on subpassDependency2 are ignored since we're passing in a memory barrier
 	dependencies[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
 
-	VkMemoryBarrier2 memoryBarrier2 = {
+	VkMemoryBarrier2 memoryBarrierForLastSubpassDependency =
+	{
 		.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2_KHR,
 		.pNext = nullptr,
 		.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
 		.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-		.dstStageMask = VK_PIPELINE_STAGE_2_NONE,
+		.dstStageMask = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT,
 		.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT
 	};
 
 	dependencies[1].sType = VK_STRUCTURE_TYPE_SUBPASS_DEPENDENCY_2;
-	dependencies[1].pNext = &memoryBarrier2;
+	dependencies[1].pNext = &memoryBarrierForLastSubpassDependency;
 	dependencies[1].srcSubpass = 0u;
 	dependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
 	// srcStageMask, dstStageMask, srcAccessMask and dstAccessMask on subpassDependency2 are ignored since we're passing in a memory barrier
 	dependencies[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-
-	// Normally, we would need an external dependency at the end as well since we are changing layout in finalLayout,
-	// but since we are signalling a semaphore, we can rely on Vulkan's default behavior,
-	// which injects an external dependency here with dstStageMask = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, dstAccessMask = 0. 
 
 	deferredShadingRenderPass.renderPass = std::make_unique<RenderPass>(*device, attachments, deferredShadingRenderPass.subpasses, dependencies);
 	setDebugUtilsObjectName(device->getHandle(), deferredShadingRenderPass.renderPass->getHandle(), "deferredShadingRenderPass");
@@ -3542,7 +3476,7 @@ void VulkrApp::createIndexBuffer(ObjModelRenderingData &objModelRenderingData, c
 	memcpy(mappedData, objLoader.indices.data(), static_cast<size_t>(bufferSize));
 	stagingBuffer->unmap();
 	stagingBuffer->flush();
-	
+
 	copyBufferToBuffer(*stagingBuffer, *(objModelRenderingData.indexBuffer), bufferSize);
 }
 
@@ -3805,7 +3739,7 @@ void VulkrApp::createDescriptorPool()
 
 
 	uint32_t maxSets = 0u;
-	for (VkDescriptorPoolSize poolSize: poolSizes)
+	for (VkDescriptorPoolSize poolSize : poolSizes)
 	{
 		maxSets += poolSize.descriptorCount;
 	}
@@ -4038,27 +3972,27 @@ void VulkrApp::createDescriptorSets()
 	VkDescriptorImageInfo positionImageInfo{};
 	positionImageInfo.sampler = textureSampler->getHandle();
 	positionImageInfo.imageView = positionImageView->getHandle();
-	positionImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+	positionImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 	VkDescriptorImageInfo normalImageInfo{};
 	normalImageInfo.sampler = textureSampler->getHandle();
 	normalImageInfo.imageView = normalImageView->getHandle();
-	normalImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+	normalImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 	VkDescriptorImageInfo uv0ImageInfo{};
 	uv0ImageInfo.sampler = textureSampler->getHandle();
 	uv0ImageInfo.imageView = uv0ImageView->getHandle();
-	uv0ImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+	uv0ImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 	VkDescriptorImageInfo uv1ImageInfo{};
 	uv1ImageInfo.sampler = textureSampler->getHandle();
 	uv1ImageInfo.imageView = uv1ImageView->getHandle();
-	uv1ImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+	uv1ImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 	VkDescriptorImageInfo color0ImageInfo{};
 	color0ImageInfo.sampler = textureSampler->getHandle();
 	color0ImageInfo.imageView = color0ImageView->getHandle();
-	color0ImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+	color0ImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 	VkDescriptorImageInfo materialIndexImageInfo{};
 	materialIndexImageInfo.sampler = textureSampler->getHandle();
 	materialIndexImageInfo.imageView = materialIndexImageView->getHandle();
-	materialIndexImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+	materialIndexImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 	std::array<VkDescriptorImageInfo, 6> geometryDataImageInfos
 	{
 		positionImageInfo,
@@ -4750,27 +4684,27 @@ void VulkrApp::createImageResourcesForFrames()
 	velocityImageView = std::make_unique<ImageView>(std::move(velocityImage), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, velocityImageFormat);
 
 	// Images required for deferred rendering
-	VkFormat positionImageFormat = swapchain->getProperties().surfaceFormat.format;
+	VkFormat positionImageFormat = VK_FORMAT_R32G32B32A32_SFLOAT;
 	std::unique_ptr<Image> positionImage = std::make_unique<Image>(*device, positionImageFormat, extent, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 	positionImageView = std::make_unique<ImageView>(std::move(positionImage), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, positionImageFormat);
 
-	VkFormat normalImageFormat = swapchain->getProperties().surfaceFormat.format;
+	VkFormat normalImageFormat = VK_FORMAT_R32G32B32A32_SFLOAT;
 	std::unique_ptr<Image> normalImage = std::make_unique<Image>(*device, normalImageFormat, extent, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 	normalImageView = std::make_unique<ImageView>(std::move(normalImage), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, normalImageFormat);
 
-	VkFormat uv0ImageFormat = swapchain->getProperties().surfaceFormat.format;
+	VkFormat uv0ImageFormat = VK_FORMAT_R32G32B32A32_SFLOAT;
 	std::unique_ptr<Image> uv0Image = std::make_unique<Image>(*device, uv0ImageFormat, extent, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 	uv0ImageView = std::make_unique<ImageView>(std::move(uv0Image), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, uv0ImageFormat);
 
-	VkFormat uv1ImageFormat = swapchain->getProperties().surfaceFormat.format;
+	VkFormat uv1ImageFormat = VK_FORMAT_R32G32B32A32_SFLOAT;
 	std::unique_ptr<Image> uv1Image = std::make_unique<Image>(*device, uv1ImageFormat, extent, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 	uv1ImageView = std::make_unique<ImageView>(std::move(uv1Image), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, uv1ImageFormat);
 
-	VkFormat color0ImageFormat = swapchain->getProperties().surfaceFormat.format;
+	VkFormat color0ImageFormat = VK_FORMAT_R32G32B32A32_SFLOAT;
 	std::unique_ptr<Image> color0Image = std::make_unique<Image>(*device, color0ImageFormat, extent, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 	color0ImageView = std::make_unique<ImageView>(std::move(color0Image), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, color0ImageFormat);
-	
-	VkFormat materialIndexImageFormat = swapchain->getProperties().surfaceFormat.format; // TODO: four chanenls are wasteful, we should use VK_FORMAT_R32_UINT;
+
+	VkFormat materialIndexImageFormat = VK_FORMAT_R32G32B32A32_SFLOAT;
 	std::unique_ptr<Image> materialIndexImage = std::make_unique<Image>(*device, materialIndexImageFormat, extent, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 	materialIndexImageView = std::make_unique<ImageView>(std::move(materialIndexImage), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, materialIndexImageFormat);
 

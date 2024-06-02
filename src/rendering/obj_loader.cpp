@@ -152,7 +152,7 @@ void ObjLoader::loadModel(const char *filename)
 			mi = 0;
 		}
 	}
-	if (readujustedMaterialIndices) LOGW("Material indices had to be readjusted to 0");
+	if (readujustedMaterialIndices) LOGD("Material indices had to be readjusted to 0");
 
 	// Compute normals if none are provided
 	if (objAttrib.normals.empty())

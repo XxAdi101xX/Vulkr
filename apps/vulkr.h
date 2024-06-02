@@ -482,8 +482,10 @@ private:
 
 	std::vector<GltfMaterial> allGltfMaterials{};
 
-	// TAA related textures
+	// Main output image view; this image will be copied over to the swapchain image after all of the rendering logic is completed
 	std::unique_ptr<ImageView> outputImageView;
+	
+	// TAA related textures
 	std::unique_ptr<ImageView> copyOutputImageView;
 	std::unique_ptr<ImageView> historyImageView;
 	std::unique_ptr<ImageView> velocityImageView;
