@@ -103,7 +103,7 @@ constexpr uint32_t maxFramesInFlight{ 2u }; // Explanation on this how we got th
 constexpr uint32_t commandBufferCountForFrame{ 4u };
 constexpr uint32_t taaDepth{ 128u };
 constexpr uint32_t maxObjInstanceCount{ 1000u };
-constexpr uint32_t maxGltfInstanceCount{ 100u };
+constexpr uint32_t maxGltfInstanceCount{ 1000u };
 constexpr uint32_t maxLightCount{ 100u };
 
 #ifdef VULKR_DEBUG
@@ -549,7 +549,7 @@ private:
 
 	// Subroutines
 	void drawImGuiInterface();
-	void animateInstances();
+	void animateWusonInstances();
 	void animateWithCompute();
 	void computeParticles();
 	void renderNode(PipelineData *pipelineData, vulkr::gltf::Node *node, uint32_t instanceIndex, uint32_t modelIndex);

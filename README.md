@@ -7,16 +7,16 @@ The engine runs on `Vulkan 1.3` using `VK_KHR_synchronization2` and the code is 
 https://user-images.githubusercontent.com/18451835/173965410-b90e12f6-1137-4c0d-bb6b-b521f90e2a7d.mp4
 
 ## Features
-The Vulkr renderer is able to accept GLTF (.gltf or glb) or OBJ asset formats and render them in a 3D environment. Some core features are:
-- Choosing between a traditional rasterization pipeline (forward rendering) and raytracing (VK_KHR_ray_tracing) as rendering methods (you can switch between them at runtime)
-- Triple buffering (pending GPU exposes atleast 3 swapchain images) with two sets of frame resources
+- Rendering GLTF (.gltf and .glb) or OBJ asset formats in real-time
+- Choosing between forward rendering, deferred rendering and raytracing (VK_KHR_ray_tracing) as rendering methods (configurable at runtime)
+- Triple buffering with two sets of frame resources
 - Instanced object rendering
-- Navigating within the world using mouse controls you would see on typical graphics software like Blender
 - Multiple global light sources that can be set as a directional (infinite) or point light with customizable intensity and position values
 - Temporal Anti-Aliasing for static and dynamic scenes (rasterization only so far); implemented using techniques mentioned in the "[A Survey of Temporal Antialising Techniques](http://behindthepixels.io/assets/files/TemporalAA.pdf)" white paper and [Ziyad Barakat's TAA Blog Post](https://ziyadbarakat.wordpress.com/2020/07/28/temporal-anti-aliasing-step-by-step/)
+- A free flight camera with similar controls to blender
 - A imgui debug window that provides access to altering the camera and light settings
-- Shadows (ray tracing only so far)
-- A particle system simulation
+- Shadows (works with ray_tracing only so far)
+- A particle system implemented using compute shaders for the position and velocity calculations
 
 https://user-images.githubusercontent.com/18451835/173991616-5825f922-1a45-4556-9cf3-51c6615e918b.mp4
 

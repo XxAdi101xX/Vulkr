@@ -1,0 +1,11 @@
+Model Information:
+* title:	Floor Stones Tilleable
+* source:	https://sketchfab.com/3d-models/floor-stones-tilleable-fbd7fa6a858a4e62a69885e6c3d4a43a
+* author:	C. Anastasiadis (https://sketchfab.com/bagatir)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Floor Stones Tilleable" (https://sketchfab.com/3d-models/floor-stones-tilleable-fbd7fa6a858a4e62a69885e6c3d4a43a) by C. Anastasiadis (https://sketchfab.com/bagatir) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

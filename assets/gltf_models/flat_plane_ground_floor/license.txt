@@ -1,0 +1,11 @@
+Model Information:
+* title:	Flat Plane Ground Floor by Pickle
+* source:	https://sketchfab.com/3d-models/flat-plane-ground-floor-by-pickle-1a229de4cb484cc99e0fb355ba2374b0
+* author:	pickle (https://sketchfab.com/caseybrandonmcbride)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Flat Plane Ground Floor by Pickle" (https://sketchfab.com/3d-models/flat-plane-ground-floor-by-pickle-1a229de4cb484cc99e0fb355ba2374b0) by pickle (https://sketchfab.com/caseybrandonmcbride) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

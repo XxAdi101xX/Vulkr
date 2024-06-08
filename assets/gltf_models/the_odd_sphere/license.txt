@@ -1,0 +1,11 @@
+Model Information:
+* title:	The odd Sphere
+* source:	https://sketchfab.com/3d-models/the-odd-sphere-d1e0bd2956f448f683951a4af1e7258e
+* author:	Polygonal Miniatures (https://sketchfab.com/Polygonal_Miniatures)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "The odd Sphere" (https://sketchfab.com/3d-models/the-odd-sphere-d1e0bd2956f448f683951a4af1e7258e) by Polygonal Miniatures (https://sketchfab.com/Polygonal_Miniatures) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

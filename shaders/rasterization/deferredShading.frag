@@ -241,8 +241,13 @@ float convertMetallic(vec3 diffuse, vec3 specular, float maxSpecular) {
 void main()
 {
 	// Get info from geometry buffer
-	vec3 sampledPosition = texture(samplerPosition, inUV).rgb;
 	vec3 sampledNormal = texture(samplerNormal, inUV).rgb;
+	if (sampledNormal.x == 0.0 && sampledNormal.y == 0.0 && sampledNormal.z == 0.0) {
+		outColor = vec4(0.18, 0.18, 0.133, 1.0); // Set background color
+		return;
+	}
+
+	vec3 sampledPosition = texture(samplerPosition, inUV).rgb;
 	vec2 sampledUV0 = texture(samplerUV0, inUV).rg;
 	vec2 sampledUV1 = texture(samplerUV1, inUV).rg;
 	vec4 sampledColor0 = texture(samplerColor0, inUV).rgba;

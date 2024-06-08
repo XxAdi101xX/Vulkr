@@ -386,7 +386,7 @@ void VulkrApp::update()
 		computeParticlesPushConstants.deltaTime = static_cast<float>(drawingTimer->tick());
 	}
 	drawImGuiInterface();
-	animateInstances();
+	animateWusonInstances();
 	dataUpdatePerFrame();
 
 #ifndef RENDERDOC_DEBUG
@@ -552,7 +552,7 @@ void VulkrApp::update()
 		frameData.commandBuffers[currentFrame][3]->end();
 	}
 
-	// This is outside of if statement above so that it could be conditionally added to the 
+	// This is outside of if statement above so that it could be conditionally added to the submit info buffer later in this method
 	VkCommandBufferSubmitInfo deferredShadingCommandBufferSubmitInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO };
 	deferredShadingCommandBufferSubmitInfo.pNext = nullptr;
 	deferredShadingCommandBufferSubmitInfo.commandBuffer = frameData.commandBuffers[currentFrame][3]->getHandle();
@@ -994,9 +994,9 @@ void VulkrApp::drawImGuiInterface()
 	// ImGui::ShowDemoWindow();
 }
 
-void VulkrApp::animateInstances()
+void VulkrApp::animateWusonInstances()
 {
-	const uint64_t startingIndex{ 2 };
+	const uint64_t startingIndex{ 2 }; // The first wuson instance is the third instance
 	const int64_t wusonInstanceCount{
 		std::count_if(objInstances.begin(), objInstances.end(), [this](ObjInstance i) { return i.objIndex == getObjModelIndex(defaultObjModelFilePath + "wuson.obj"); })
 	};
@@ -1919,16 +1919,16 @@ void VulkrApp::createMrtGeometryBufferRenderPass()
 void VulkrApp::createDeferredShadingRenderPass()
 {
 	std::vector<Attachment> attachments;
-	Attachment colorAttachment{}; // outputImage
-	colorAttachment.format = outputImageView->getFormat();
-	colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
-	colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-	colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-	colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-	colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-	colorAttachment.initialLayout = VK_IMAGE_LAYOUT_GENERAL;
-	colorAttachment.finalLayout = VK_IMAGE_LAYOUT_GENERAL;
-	attachments.push_back(colorAttachment);
+	Attachment outputImageAttachment{}; // outputImage
+	outputImageAttachment.format = outputImageView->getFormat();
+	outputImageAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+	outputImageAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	outputImageAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	outputImageAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	outputImageAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	outputImageAttachment.initialLayout = VK_IMAGE_LAYOUT_GENERAL;
+	outputImageAttachment.finalLayout = VK_IMAGE_LAYOUT_GENERAL;
+	attachments.push_back(outputImageAttachment);
 
 	VkAttachmentReference2 colorAttachmentRef{ VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2 };
 	colorAttachmentRef.pNext = nullptr;
@@ -3115,12 +3115,13 @@ void VulkrApp::createFramebuffers()
 	geometryBufferFramebufferClearValues[1].color = { 0.0f, 0.0f, 0.0f, 0.0f }; // normalBuffer
 	geometryBufferFramebufferClearValues[2].color = { 0.0f, 0.0f, 0.0f, 0.0f }; // uv0 buffer
 	geometryBufferFramebufferClearValues[3].color = { 0.0f, 0.0f, 0.0f, 0.0f }; // uv1 buffer
-	geometryBufferFramebufferClearValues[4].color = { 1.0f, 1.0f, 1.0f, 1.0f }; // color0 buffer
+	geometryBufferFramebufferClearValues[4].color = { 0.0f, 0.0f, 0.0f, 0.0f }; // color0 buffer
 	geometryBufferFramebufferClearValues[5].color = { 0.0f, 0.0f, 0.0f, 0.0f }; // materialIndex buffer
 	geometryBufferFramebufferClearValues[6].depthStencil = { 1.0f, 0u };
 
 	deferredShadingFramebufferClearValues.resize(2);
-	deferredShadingFramebufferClearValues[0].color = { 1.0f, 1.0f, 1.0f, 1.0f }; // outputImage
+	// outputImage; IMPORTANT: the background clear color is set in the deferredShading.frag method itself since we render a full quad in the deferred step hence the shader is executed for every output pixel
+	deferredShadingFramebufferClearValues[0].color = { 1.0f, 1.0f, 1.0f, 1.0f }; 
 	deferredShadingFramebufferClearValues[1].depthStencil = { 1.0f, 0u };
 }
 
@@ -3729,7 +3730,7 @@ void VulkrApp::createDescriptorPool()
 	std::vector<VkDescriptorPoolSize> poolSizes{}; // We are allocating more space than currenly used
 	poolSizes.resize(4);
 	poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-	poolSizes[0].descriptorCount = 10u;
+	poolSizes[0].descriptorCount = 1000u;
 	poolSizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 	poolSizes[1].descriptorCount = 10u;
 	poolSizes[2].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
@@ -4408,6 +4409,8 @@ void VulkrApp::createGltfInstance(const std::string &gltfFileName, glm::mat4 tra
 void VulkrApp::createSceneLights()
 {
 	LightData l1;
+	l1.type = 1;
+	l1.intensity = 190.0f;
 	l1.position = glm::vec3(-2.9f, 4.0f, 0.0f);
 	l1.rotation = glm::vec2(75.0f, 40.0f);
 	LightData l2;
@@ -4428,23 +4431,27 @@ void VulkrApp::createSceneLights()
 
 void VulkrApp::loadModels()
 {
-	const std::array<std::string, 4> objModelFiles{
+	const std::vector<std::string> objModelFiles{
 		"plane.obj",
 		"Medieval_building.obj",
 		"wuson.obj",
-		"cube.obj"
-		//"monkey_smooth.obj",
+		"cube.obj",
+		"monkey_smooth.obj"
 		//"lost_empire.obj",
 	};
 
 	// TODO: some glTF files (maybe with skinning and rigging?) are deformed, this needs to be investigated
-	const std::array<std::string, 6> gltfModelFiles{
+	const std::vector<std::string> gltfModelFiles{
 		"DamagedHelmet.gltf",
 		"CesiumMan.glb",
 		"ClearcoatWicker.glb",
 		"MosquitoInAmber.glb",
 		"WaterBottle.glb",
-		"SciFiHelmet.gltf"
+		"SciFiHelmet.gltf",
+		"the_odd_sphere.gltf",
+		"floor_stones_tilleable.gltf",
+		"flat_plane_ground_floor.gltf",
+		"cathedral.gltf"
 	};
 
 	// Load obj files
@@ -4513,15 +4520,15 @@ void VulkrApp::createSceneInstances()
 	}
 
 	// Specify obj instances
-
-	// The sphere instance index is hardcoded in the animate.comp file, so when you add or remove an instance, that must be updated
-	createObjInstance("plane.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(0, 0, 0)));
+	// TODO: Raytracing crashes whenever the wuson object is not the third instance. Investigate why.
+	// The sphere instance index is hardcoded in the animate.comp and in animateWusonInstances(), so when you add or remove an instance, that must be updated
+	createObjInstance("Medieval_building.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ 15, 0,0 }));
 	createObjInstance("Medieval_building.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ 5, 0,0 }));
 	// All wuson instances are assumed to be one after another for the transformation matrix calculations
 	createObjInstance("wuson.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 3)));
 	createObjInstance("wuson.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 7)));
 	createObjInstance("wuson.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 10)));
-	createObjInstance("Medieval_building.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ 15, 0,0 }));
+	//createObjInstance("plane.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(0, 0, 0)));
 	//createObjInstance("monkey_smooth.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3(1, 0, 3)));
 	//createObjInstance(lost_empire.obj", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ 5,-10,0 }));
 
@@ -4534,7 +4541,7 @@ void VulkrApp::createSceneInstances()
 
 	if (objInstances.size() > maxObjInstanceCount)
 	{
-		LOGEANDABORT("There are more obj instances than maxObjInstanceCount. You need to increase this value to support more instances");
+		LOGEANDABORT("There are more obj instances than maxObjInstanceCount. You need to increase this value to support more obj instances");
 	}
 
 	// Specify gltf instances
@@ -4544,11 +4551,17 @@ void VulkrApp::createSceneInstances()
 	createGltfInstance("MosquitoInAmber.glb", glm::translate(glm::mat4{ 1.0 }, glm::vec3{ -4, 3, 0 }));
 	createGltfInstance("WaterBottle.glb", glm::translate(glm::scale(glm::mat4{ 1.0 }, glm::vec3(4.0)), glm::vec3{ -2, 2, 0 }));
 	//createGltfInstance("SciFiHelmet.gltf", glm::translate(glm::scale(glm::mat4{ 1.0 }, glm::vec3(4.0)), glm::vec3{ -2, 1, 0 }));
-	createGltfInstance("DamagedHelmet.gltf", glm::translate(glm::scale(glm::mat4{ 1.0 }, glm::vec3(4.0)), glm::vec3{ -2, 1, 0 }));
+	createGltfInstance("SciFiHelmet.gltf", glm::translate(glm::scale(glm::mat4{ 1.0 }, glm::vec3(2.0)), glm::vec3{ -2, 1, 0 }));
+	createGltfInstance("the_odd_sphere.gltf", glm::translate(glm::scale(glm::mat4{ 1.0 }, glm::vec3(1.0)), glm::vec3{ -2, 1, 0 }));
+	createGltfInstance("floor_stones_tilleable.gltf", glm::translate(glm::scale(glm::mat4{ 1.0 }, glm::vec3(0.1)), glm::vec3{ 0, 0, 0 }));
+	//createGltfInstance("flat_plane_ground_floor.gltf", glm::translate(glm::scale(glm::mat4{ 1.0 }, glm::vec3(0.1)), glm::vec3{ 0, 0, 0 }));
+
+	// TODO: Rendering the cathedral using the deferred rendering method shows that materials are incorrected selected, investigation is required.
+	//createGltfInstance("cathedral.gltf", glm::translate(glm::scale(glm::mat4{ 1.0 }, glm::vec3(1.0)), glm::vec3{ 0, 4, 0 }));
 
 	if (gltfInstances.size() > maxGltfInstanceCount)
 	{
-		LOGEANDABORT("There are more gltf instances than maxGltfInstanceCount. You need to increase this value to support more instances");
+		LOGEANDABORT("There are more gltf instances than maxGltfInstanceCount. You need to increase this value to support more gltf instances");
 	}
 }
 
