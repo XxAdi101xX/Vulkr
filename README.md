@@ -4,6 +4,9 @@ A Vulkan rendering engine that I've taken upon building in order to solidify my 
 
 The engine runs on `Vulkan 1.3` using `VK_KHR_synchronization2` and the code is written for the `C++20` standard.
 
+![vulkr_helmet_models](https://github.com/user-attachments/assets/0e05f436-ae09-4942-ad00-b4f700c09c97)
+
+
 https://user-images.githubusercontent.com/18451835/173965410-b90e12f6-1137-4c0d-bb6b-b521f90e2a7d.mp4
 
 ## Features
@@ -21,8 +24,6 @@ https://user-images.githubusercontent.com/18451835/173965410-b90e12f6-1137-4c0d-
 https://user-images.githubusercontent.com/18451835/173991616-5825f922-1a45-4556-9cf3-51c6615e918b.mp4
 
 - A 2D fluid simulator that implements velocity & density advection, gaussian splat on mouse click + drag, and a projection steps that solve for the poisson pressure equation and subtracts the gradient of the pressure from the velocity field; implemented using the techniques mentioned in [Mark Harris' "Fluid Dynamics Simulation on the GPU" GPU Gems article](https://developer.nvidia.com/gpugems/gpugems/part-vi-beyond-triangles/chapter-38-fast-fluid-dynamics-simulation-gpu)
-
-https://user-images.githubusercontent.com/18451835/206916607-4497a86a-4377-497f-a8b3-40adfadd5b77.mp4
 
 ## Build
 This project requires the latest `Vulkan v1.3` SDK and the latest `CMake` installed (v3.10 or above) installed on the host's computer. All other third-party dependencies should be imported when cloning the project with the `--recurse-submodules` option. I developed Vulkr running `Windows 10, x64` using `Visual Studio 2022` and as such, an not be expected to work on Linux or MacOS. However, all third-party libraries used are cross platform and OS platform specific components like the windowing system could be supported in the future. 
