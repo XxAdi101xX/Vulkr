@@ -64,8 +64,8 @@ private:
 	VkInstance instance{ VK_NULL_HANDLE };
 	Platform &platform;
 
-	static const int32_t WIDTH{ 1280 };
-	static const int32_t HEIGHT{ 720 };
+	static const int32_t WIDTH{ 1920 };
+	static const int32_t HEIGHT{ 1080 };
 };
 
 } // namespace vulkr

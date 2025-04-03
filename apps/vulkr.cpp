@@ -5349,11 +5349,17 @@ void VulkrApp::createRaytracingDescriptorPool()
 	std::vector<VkDescriptorPoolSize> poolSizes{};
 	poolSizes.resize(2);
 	poolSizes[0].type = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
-	poolSizes[0].descriptorCount = 1;
+	poolSizes[0].descriptorCount = 10u;
 	poolSizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-	poolSizes[1].descriptorCount = 1;
+	poolSizes[1].descriptorCount = 1u;
 
-	m_rtDescPool = std::make_unique<DescriptorPool>(*device, poolSizes, 2u, 0);
+	uint32_t maxSets = 0u;
+	for (VkDescriptorPoolSize poolSize : poolSizes)
+	{
+		maxSets += poolSize.descriptorCount;
+	}
+
+	m_rtDescPool = std::make_unique<DescriptorPool>(*device, poolSizes, maxSets, 0);
 }
 
 void VulkrApp::createRaytracingDescriptorLayout()
