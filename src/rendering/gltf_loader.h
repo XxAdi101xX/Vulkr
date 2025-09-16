@@ -1,7 +1,7 @@
 /**
  * Vulkan glTF model and texture loading class based on tinyglTF (https://github.com/syoyo/tinygltf)
  *
- * Copyright (C) 2018-2022 by Sascha Willems - www.saschawillems.de
+ * Copyright (C) 2018-2024 by Sascha Willems - www.saschawillems.de
  *
  * This code is licensed under the MIT license (MIT) (http://opensource.org/licenses/MIT)
  *
@@ -21,6 +21,8 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
+
+#include "basisu_transcoder.h"
 
  // ERROR is already defined in wingdi.h and collides with a define in the Draco headers
 #if defined(_WIN32) && defined(ERROR) && defined(TINYGLTF_ENABLE_DRACO) 
@@ -47,7 +49,7 @@ class Image;
 namespace vulkr::gltf
 {
 
-struct Node; // Forward declaration
+struct Node;
 
 struct BoundingBox
 {
@@ -82,8 +84,7 @@ struct Texture
 	VkSampler sampler;
 	void updateDescriptor();
 	void destroy();
-	// Load a texture from a glTF image (stored as vector of chars loaded via stb_image) and generate a full mip chaing for it
-	void fromglTfImage(tinygltf::Image &gltfimage, TextureSampler textureSampler, vulkr::Device *device, vulkr::CommandPool *commandPool, VkQueue copyQueue);
+	void fromglTfImage(tinygltf::Image &gltfimage, std::string path, TextureSampler textureSampler, vulkr::Device *device, vulkr::CommandPool *commandPool, VkQueue copyQueue);
 };
 
 struct Material
@@ -95,11 +96,11 @@ struct Material
 	float roughnessFactor = 1.0f;
 	glm::vec4 baseColorFactor = glm::vec4(1.0f);
 	glm::vec4 emissiveFactor = glm::vec4(0.0f);
-	Texture *baseColorTexture;
-	Texture *metallicRoughnessTexture;
-	Texture *normalTexture;
-	Texture *occlusionTexture;
-	Texture *emissiveTexture;
+	vulkr::gltf::Texture *baseColorTexture;
+	vulkr::gltf::Texture *metallicRoughnessTexture;
+	vulkr::gltf::Texture *normalTexture;
+	vulkr::gltf::Texture *occlusionTexture;
+	vulkr::gltf::Texture *emissiveTexture;
 	bool doubleSided = false;
 	struct TexCoordSets
 	{
@@ -112,8 +113,8 @@ struct Material
 	} texCoordSets;
 	struct Extension
 	{
-		Texture *specularGlossinessTexture;
-		Texture *diffuseTexture;
+		vulkr::gltf::Texture *specularGlossinessTexture;
+		vulkr::gltf::Texture *diffuseTexture;
 		glm::vec4 diffuseFactor = glm::vec4(1.0f);
 		glm::vec3 specularFactor = glm::vec3(0.0f);
 	} extension;
@@ -133,7 +134,7 @@ struct Primitive
 	uint32_t firstIndex;
 	uint32_t indexCount;
 	uint32_t vertexCount;
-	Material &material;
+	vulkr::gltf::Material &material;
 	bool hasIndices;
 	BoundingBox bb;
 	Primitive(uint32_t firstIndex, uint32_t indexCount, uint32_t vertexCount, Material &material);
@@ -156,7 +157,8 @@ struct Mesh
 	{
 		glm::mat4 matrix;
 		glm::mat4 jointMatrix[MAX_NUM_JOINTS]{};
-		float jointcount{ 0 };
+		uint32_t jointcount{ 0u };
+		uint32_t index;
 	} uniformBlock;
 	Mesh(Device *device, glm::mat4 matrix);
 	~Mesh();
@@ -186,6 +188,9 @@ struct Node
 	glm::quat rotation{};
 	BoundingBox bvh;
 	BoundingBox aabb;
+	bool useCachedMatrix{ false };
+	glm::mat4 cachedLocalMatrix{ glm::mat4(1.0f) };
+	glm::mat4 cachedMatrix{ glm::mat4(1.0f) };
 	glm::mat4 localMatrix();
 	glm::mat4 getMatrix();
 	void update();
@@ -206,6 +211,11 @@ struct AnimationSampler
 	InterpolationType interpolation;
 	std::vector<float> inputs;
 	std::vector<glm::vec4> outputsVec4;
+	std::vector<float> outputs;
+	glm::vec4 cubicSplineInterpolation(size_t index, float time, uint32_t stride);
+	void translate(size_t index, float time, vulkr::gltf::Node *node);
+	void scale(size_t index, float time, vulkr::gltf::Node *node);
+	void rotate(size_t index, float time, vulkr::gltf::Node *node);
 };
 
 struct Animation
@@ -227,7 +237,7 @@ struct Model
 		glm::vec3 normal;
 		glm::vec2 uv0;
 		glm::vec2 uv1;
-		glm::vec4 joint0;
+		glm::uvec4 joint0;
 		glm::vec4 weight0;
 		glm::vec4 color;
 	};
@@ -262,8 +272,10 @@ struct Model
 		size_t vertexPos = 0;
 	};
 
+	std::string filePath;
+
 	void destroy(Device *device);
-	void loadNode(Node *parent, const tinygltf::Node &node, uint32_t nodeIndex, const tinygltf::Model &model, LoaderInfo &loaderInfo, float globalscale);
+	void loadNode(vulkr::gltf::Node *parent, const tinygltf::Node &node, uint32_t nodeIndex, const tinygltf::Model &model, LoaderInfo &loaderInfo, float globalscale);
 	void getNodeProps(const tinygltf::Node &node, const tinygltf::Model &model, size_t &vertexCount, size_t &indexCount);
 	void loadSkins(tinygltf::Model &gltfModel);
 	void loadTextures(tinygltf::Model &gltfModel, vulkr::Device *device, vulkr::CommandPool *commandPool, VkQueue transferQueue);

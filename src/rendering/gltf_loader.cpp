@@ -1,7 +1,7 @@
 /**
 * Vulkan glTF model and texture loading class based on tinyglTF (https://github.com/syoyo/tinygltf)
 *
-* Copyright (C) 2018-2022 by Sascha Willems - www.saschawillems.de
+* Copyright (C) 2018-2024 by Sascha Willems - www.saschawillems.de
 *
 * This code is licensed under the MIT license (MIT) (http://opensource.org/licenses/MIT)
 *
@@ -51,6 +51,21 @@ void flushCommandBuffer(vulkr::Device *device, vulkr::CommandBuffer *commandBuff
 
 	VK_CHECK(vkQueueSubmit2KHR(queue, 1u, &submitInfo, VK_NULL_HANDLE));
 	vkQueueWaitIdle(queue);
+}
+
+// We use a custom image loading function with tinyglTF, so we can do custom stuff loading ktx textures
+bool loadImageDataFunc(tinygltf::Image *image, const int imageIndex, std::string *error, std::string *warning, int req_width, int req_height, const unsigned char *bytes, int size, void *userData)
+{
+	// KTX files will be handled by our own code
+	if (image->uri.find_last_of(".") != std::string::npos)
+	{
+		if (image->uri.substr(image->uri.find_last_of(".") + 1) == "ktx2")
+		{
+			return true;
+		}
+	}
+
+	return tinygltf::LoadImageData(image, imageIndex, error, warning, req_width, req_height, bytes, size, userData);
 }
 
 // Bounding box
@@ -105,187 +120,186 @@ void Texture::destroy()
 	vkDestroySampler(device->getHandle(), sampler, nullptr);
 }
 
-void Texture::fromglTfImage(tinygltf::Image &gltfimage, TextureSampler textureSampler, vulkr::Device *device, vulkr::CommandPool *commandPool, VkQueue copyQueue)
+// Loads the image for this texture. Supports both glTF's web formats (jpg, png, embedded and external files) as well as external KTX2 files with basis universal texture compression
+void Texture::fromglTfImage(tinygltf::Image &gltfimage, std::string path, TextureSampler textureSampler, vulkr::Device *device, vulkr::CommandPool *commandPool, VkQueue copyQueue)
 {
 	std::unique_ptr<CommandBuffer> copyCommandBuffer = std::make_unique<CommandBuffer>(*commandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
 	copyCommandBuffer->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
 	this->device = device;
 
-	unsigned char *buffer = nullptr;
-	VkDeviceSize bufferSize = 0;
-	bool deleteBuffer = false;
-	if (gltfimage.component == 3)
+	// KTX2 files need to be handled explicitly
+	bool isKtx2 = false;
+	if (gltfimage.uri.find_last_of(".") != std::string::npos)
 	{
-		// Most devices don't support RGB only on Vulkan so convert if necessary
-		// TODO: Check actual format support and transform only if required
-		bufferSize = gltfimage.width * gltfimage.height * 4;
-		buffer = new unsigned char[bufferSize];
-		unsigned char *rgba = buffer;
-		unsigned char *rgb = &gltfimage.image[0];
-		for (int32_t i = 0; i < gltfimage.width * gltfimage.height; ++i)
+		if (gltfimage.uri.substr(gltfimage.uri.find_last_of(".") + 1) == "ktx2")
 		{
-			for (int32_t j = 0; j < 3; ++j)
-			{
-				rgba[j] = rgb[j];
-			}
-			rgba += 4;
-			rgb += 3;
+			isKtx2 = true;
 		}
-		deleteBuffer = true;
-	}
-	else
-	{
-		buffer = &gltfimage.image[0];
-		bufferSize = gltfimage.image.size();
 	}
 
 	VkFormat format = VK_FORMAT_R8G8B8A8_UNORM;
 
-	VkFormatProperties formatProperties;
-
-	width = gltfimage.width;
-	height = gltfimage.height;
-	mipLevels = static_cast<uint32_t>(floor(log2(std::max(width, height))) + 1.0);
-
-	vkGetPhysicalDeviceFormatProperties(device->getPhysicalDevice().getHandle(), format, &formatProperties);
-	assert(formatProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_BLIT_SRC_BIT);
-	assert(formatProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_BLIT_DST_BIT);
-
-
-	VkBufferCreateInfo bufferInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
-	bufferInfo.size = bufferSize;
-	bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-	bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-	VmaAllocationCreateInfo memoryInfo{};
-	memoryInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
-
-	std::unique_ptr<Buffer> stagingBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
-
-	stagingBuffer->update(buffer, bufferSize);
-
-	VkImageCreateInfo imageCreateInfo{};
-	imageCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-	imageCreateInfo.imageType = VK_IMAGE_TYPE_2D;
-	imageCreateInfo.format = format;
-	imageCreateInfo.mipLevels = mipLevels;
-	imageCreateInfo.arrayLayers = 1;
-	imageCreateInfo.samples = VK_SAMPLE_COUNT_1_BIT;
-	imageCreateInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-	imageCreateInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT;
-	imageCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-	imageCreateInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-	imageCreateInfo.extent = { width, height, 1 };
-	imageCreateInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-
-	VmaAllocationCreateInfo allocationInfo{};
-	allocationInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
-	if (VMA_MEMORY_USAGE_GPU_ONLY & VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT)
+	if (isKtx2)
 	{
-		allocationInfo.preferredFlags = VK_MEMORY_PROPERTY_LAZILY_ALLOCATED_BIT;
-	}
-	VK_CHECK(vmaCreateImage(device->getMemoryAllocator(), &imageCreateInfo, &allocationInfo, &image, &allocation, nullptr));
+		// Image is KTX2 using basis universal compression. Those images need to be loaded from disk and will be transcoded to a native GPU format
 
-	VkImageSubresourceRange subresourceRange = {};
-	subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-	subresourceRange.levelCount = 1;
-	subresourceRange.layerCount = 1;
+		basist::ktx2_transcoder ktxTranscoder;
+		const std::string filename = path + "\\" + gltfimage.uri;
+		std::ifstream ifs(filename, std::ios::binary | std::ios::in | std::ios::ate);
+		if (!ifs.is_open())
+		{
+			throw std::runtime_error("Could not load the requested image file " + filename);
+		}
 
-	{
-		VkImageMemoryBarrier2 imageMemoryBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
-		imageMemoryBarrier.pNext = nullptr;
-		imageMemoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-		imageMemoryBarrier.srcAccessMask = VK_ACCESS_2_NONE;
-		imageMemoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-		imageMemoryBarrier.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-		imageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-		imageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-		imageMemoryBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-		imageMemoryBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-		imageMemoryBarrier.image = image;
-		imageMemoryBarrier.subresourceRange = subresourceRange;
+		uint32_t inputDataSize = static_cast<uint32_t>(ifs.tellg());
+		char *inputData = new char[inputDataSize];
 
-		VkDependencyInfo dependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
-		dependencyInfo.pNext = nullptr;
-		dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-		dependencyInfo.memoryBarrierCount = 0u;
-		dependencyInfo.pMemoryBarriers = nullptr;
-		dependencyInfo.bufferMemoryBarrierCount = 0u;
-		dependencyInfo.pBufferMemoryBarriers = nullptr;
-		dependencyInfo.imageMemoryBarrierCount = 1u;
-		dependencyInfo.pImageMemoryBarriers = &imageMemoryBarrier;
-		vkCmdPipelineBarrier2KHR(copyCommandBuffer->getHandle(), &dependencyInfo);
-	}
+		ifs.seekg(0, std::ios::beg);
+		ifs.read(inputData, inputDataSize);
 
-	VkBufferImageCopy bufferCopyRegion = {};
-	bufferCopyRegion.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-	bufferCopyRegion.imageSubresource.mipLevel = 0;
-	bufferCopyRegion.imageSubresource.baseArrayLayer = 0;
-	bufferCopyRegion.imageSubresource.layerCount = 1;
-	bufferCopyRegion.imageExtent.width = width;
-	bufferCopyRegion.imageExtent.height = height;
-	bufferCopyRegion.imageExtent.depth = 1;
+		bool success = ktxTranscoder.init(inputData, inputDataSize);
+		if (!success)
+		{
+			throw std::runtime_error("Could not initialize ktx2 transcoder for image file " + filename);
+		}
 
-	vkCmdCopyBufferToImage(copyCommandBuffer->getHandle(), stagingBuffer->getHandle(), image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &bufferCopyRegion);
+		// Select target format based on device features (use uncompressed if none supported)
+		auto targetFormat = basist::transcoder_texture_format::cTFRGBA32;
 
-	{
-		VkImageMemoryBarrier2 imageMemoryBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
-		imageMemoryBarrier.pNext = nullptr;
-		imageMemoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-		imageMemoryBarrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-		imageMemoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-		imageMemoryBarrier.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
-		imageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-		imageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-		imageMemoryBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-		imageMemoryBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-		imageMemoryBarrier.image = image;
-		imageMemoryBarrier.subresourceRange = subresourceRange;
+		auto formatSupported = [device](VkFormat format) {
+			VkFormatProperties formatProperties;
+			vkGetPhysicalDeviceFormatProperties(device->getPhysicalDevice().getHandle(), format, &formatProperties);
+			return ((formatProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_TRANSFER_DST_BIT) && (formatProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT));
+			};
 
-		VkDependencyInfo dependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
-		dependencyInfo.pNext = nullptr;
-		dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-		dependencyInfo.memoryBarrierCount = 0u;
-		dependencyInfo.pMemoryBarriers = nullptr;
-		dependencyInfo.bufferMemoryBarrierCount = 0u;
-		dependencyInfo.pBufferMemoryBarriers = nullptr;
-		dependencyInfo.imageMemoryBarrierCount = 1u;
-		dependencyInfo.pImageMemoryBarriers = &imageMemoryBarrier;
-		vkCmdPipelineBarrier2KHR(copyCommandBuffer->getHandle(), &dependencyInfo);
-	}
+		if (device->getPhysicalDevice().getFeatures().textureCompressionBC)
+		{
+			// BC7 is the preferred block compression if available
+			if (formatSupported(VK_FORMAT_BC7_UNORM_BLOCK))
+			{
+				targetFormat = basist::transcoder_texture_format::cTFBC7_RGBA;
+				format = VK_FORMAT_BC7_UNORM_BLOCK;
+			}
+			else
+			{
+				if (formatSupported(VK_FORMAT_BC3_SRGB_BLOCK))
+				{
+					targetFormat = basist::transcoder_texture_format::cTFBC3_RGBA;
+					format = VK_FORMAT_BC3_SRGB_BLOCK;
+				}
+			}
+		}
+		// Adaptive scalable texture compression
+		if (device->getPhysicalDevice().getFeatures().textureCompressionASTC_LDR)
+		{
+			if (formatSupported(VK_FORMAT_ASTC_4x4_SRGB_BLOCK))
+			{
+				targetFormat = basist::transcoder_texture_format::cTFASTC_4x4_RGBA;
+				format = VK_FORMAT_ASTC_4x4_SRGB_BLOCK;
+			}
+		}
+		// Ericsson texture compression
+		if (device->getPhysicalDevice().getFeatures().textureCompressionETC2)
+		{
+			if (formatSupported(VK_FORMAT_ETC2_R8G8B8A8_SRGB_BLOCK))
+			{
+				targetFormat = basist::transcoder_texture_format::cTFETC2_RGBA;
+				format = VK_FORMAT_ETC2_R8G8B8A8_SRGB_BLOCK;
+			}
+		}
 
-	flushCommandBuffer(device, copyCommandBuffer.get(), copyQueue);
-	copyCommandBuffer.reset();
+		// @todo PowerVR texture compression support needs to be checked via an extension (VK_IMG_FORMAT_PVRTC_EXTENSION_NAME)
 
-	stagingBuffer.reset();
+		const bool targetFormatIsUncompressed = basist::basis_transcoder_format_is_uncompressed(targetFormat);
 
-	// Generate the mip chain (glTF uses jpg and png, so we need to create this manually)
-	std::unique_ptr<CommandBuffer> blitCommandBuffer = std::make_unique<CommandBuffer>(*commandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
-	blitCommandBuffer->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
-	for (uint32_t i = 1; i < mipLevels; i++)
-	{
-		VkImageBlit2 imageBlit{ VK_STRUCTURE_TYPE_IMAGE_BLIT_2 };
-		imageBlit.pNext = nullptr;
+		std::vector<basist::ktx2_image_level_info> levelInfos(ktxTranscoder.get_levels());
+		mipLevels = ktxTranscoder.get_levels();
 
-		imageBlit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-		imageBlit.srcSubresource.layerCount = 1;
-		imageBlit.srcSubresource.mipLevel = i - 1;
-		imageBlit.srcOffsets[1].x = int32_t(width >> (i - 1));
-		imageBlit.srcOffsets[1].y = int32_t(height >> (i - 1));
-		imageBlit.srcOffsets[1].z = 1;
+		// Query image level information that we need later on for several calculations
+		// We only support 2D images (no cube maps or layered images)
+		for (uint32_t i = 0; i < mipLevels; i++)
+		{
+			ktxTranscoder.get_image_level_info(levelInfos[i], i, 0, 0);
+		}
 
-		imageBlit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-		imageBlit.dstSubresource.layerCount = 1;
-		imageBlit.dstSubresource.mipLevel = i;
-		imageBlit.dstOffsets[1].x = int32_t(width >> i);
-		imageBlit.dstOffsets[1].y = int32_t(height >> i);
-		imageBlit.dstOffsets[1].z = 1;
+		width = levelInfos[0].m_orig_width;
+		height = levelInfos[0].m_orig_height;
 
-		VkImageSubresourceRange mipSubRange = {};
-		mipSubRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-		mipSubRange.baseMipLevel = i;
-		mipSubRange.levelCount = 1;
-		mipSubRange.layerCount = 1;
+		VkMemoryAllocateInfo memAllocInfo{};
+		memAllocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+		VkMemoryRequirements memReqs{};
+
+		// Create one staging buffer large enough to hold all uncompressed image levels
+		const uint32_t bytesPerBlockOrPixel = basist::basis_get_bytes_per_block_or_pixel(targetFormat);
+		uint32_t numBlocksOrPixels = 0;
+		VkDeviceSize totalBufferSize = 0;
+		for (uint32_t i = 0; i < mipLevels; i++)
+		{
+			// Size calculations differ for compressed/uncompressed formats
+			numBlocksOrPixels = targetFormatIsUncompressed ? levelInfos[i].m_orig_width * levelInfos[i].m_orig_height : levelInfos[i].m_total_blocks;
+			totalBufferSize += numBlocksOrPixels * bytesPerBlockOrPixel;
+		}
+
+		VkBufferCreateInfo bufferInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+		bufferInfo.size = totalBufferSize;
+		bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+		bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+		VmaAllocationCreateInfo memoryInfo{};
+		memoryInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
+
+		std::unique_ptr<Buffer> stagingBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
+
+		unsigned char *buffer = new unsigned char[totalBufferSize];
+		unsigned char *bufferPtr = &buffer[0];
+
+		success = ktxTranscoder.start_transcoding();
+		if (!success)
+		{
+			throw std::runtime_error("Could not start transcoding for image file " + filename);
+		}
+
+		// Transcode all mip levels into the staging buffer
+		for (uint32_t i = 0; i < mipLevels; i++)
+		{
+			// Size calculations differ for compressed/uncompressed formats
+			numBlocksOrPixels = targetFormatIsUncompressed ? levelInfos[i].m_orig_width * levelInfos[i].m_orig_height : levelInfos[i].m_total_blocks;
+			uint32_t outputSize = numBlocksOrPixels * bytesPerBlockOrPixel;
+			if (!ktxTranscoder.transcode_image_level(i, 0, 0, bufferPtr, numBlocksOrPixels, targetFormat, 0))
+			{
+				throw std::runtime_error("Could not transcode the requested image file " + filename);
+			}
+			bufferPtr += outputSize;
+		}
+
+		stagingBuffer->update(buffer, totalBufferSize);
+
+		VkImageCreateInfo imageCreateInfo{};
+		imageCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+		imageCreateInfo.imageType = VK_IMAGE_TYPE_2D;
+		imageCreateInfo.format = format;
+		imageCreateInfo.mipLevels = mipLevels;
+		imageCreateInfo.arrayLayers = 1;
+		imageCreateInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+		imageCreateInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+		imageCreateInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT;
+		imageCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+		imageCreateInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+		imageCreateInfo.extent = { width, height, 1 };
+		imageCreateInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+
+		VmaAllocationCreateInfo allocationInfo{};
+		allocationInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+		if (VMA_MEMORY_USAGE_GPU_ONLY & VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT)
+		{
+			allocationInfo.preferredFlags = VK_MEMORY_PROPERTY_LAZILY_ALLOCATED_BIT;
+		}
+		VK_CHECK(vmaCreateImage(device->getMemoryAllocator(), &imageCreateInfo, &allocationInfo, &image, &allocation, nullptr));
+
+		VkImageSubresourceRange subresourceRange = {};
+		subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		subresourceRange.levelCount = mipLevels;
+		subresourceRange.layerCount = 1;
 
 		{
 			VkImageMemoryBarrier2 imageMemoryBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
@@ -299,7 +313,7 @@ void Texture::fromglTfImage(tinygltf::Image &gltfimage, TextureSampler textureSa
 			imageMemoryBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 			imageMemoryBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 			imageMemoryBarrier.image = image;
-			imageMemoryBarrier.subresourceRange = mipSubRange; // That we're transitioning this for the specified mips level
+			imageMemoryBarrier.subresourceRange = subresourceRange;
 
 			VkDependencyInfo dependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
 			dependencyInfo.pNext = nullptr;
@@ -310,34 +324,329 @@ void Texture::fromglTfImage(tinygltf::Image &gltfimage, TextureSampler textureSa
 			dependencyInfo.pBufferMemoryBarriers = nullptr;
 			dependencyInfo.imageMemoryBarrierCount = 1u;
 			dependencyInfo.pImageMemoryBarriers = &imageMemoryBarrier;
-			vkCmdPipelineBarrier2KHR(blitCommandBuffer->getHandle(), &dependencyInfo);
+			vkCmdPipelineBarrier2KHR(copyCommandBuffer->getHandle(), &dependencyInfo);
 		}
 
+		// Transcode and copy all image levels
+		VkDeviceSize bufferOffset = 0;
+		for (uint32_t i = 0; i < mipLevels; i++)
+		{
+			// Size calculations differ for compressed/uncompressed formats
+			numBlocksOrPixels = targetFormatIsUncompressed ? levelInfos[i].m_orig_width * levelInfos[i].m_orig_height : levelInfos[i].m_total_blocks;
+			uint32_t outputSize = numBlocksOrPixels * bytesPerBlockOrPixel;
 
-		VkBlitImageInfo2 blitImageInfo{ VK_STRUCTURE_TYPE_BLIT_IMAGE_INFO_2 };
-		blitImageInfo.pNext = nullptr;
-		blitImageInfo.srcImage = image;
-		blitImageInfo.srcImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-		blitImageInfo.dstImage = image;
-		blitImageInfo.dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-		blitImageInfo.regionCount = 1u;
-		blitImageInfo.pRegions = &imageBlit;
-		blitImageInfo.filter = VK_FILTER_LINEAR;
-		vkCmdBlitImage2(blitCommandBuffer->getHandle(), &blitImageInfo);
+			VkBufferImageCopy bufferCopyRegion = {};
+			bufferCopyRegion.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+			bufferCopyRegion.imageSubresource.mipLevel = i;
+			bufferCopyRegion.imageSubresource.baseArrayLayer = 0;
+			bufferCopyRegion.imageSubresource.layerCount = 1;
+			bufferCopyRegion.imageExtent.width = levelInfos[i].m_orig_width;
+			bufferCopyRegion.imageExtent.height = levelInfos[i].m_orig_height;
+			bufferCopyRegion.imageExtent.depth = 1;
+			bufferCopyRegion.bufferOffset = bufferOffset;
+
+			vkCmdCopyBufferToImage(copyCommandBuffer->getHandle(), stagingBuffer->getHandle(), image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &bufferCopyRegion);
+
+			bufferOffset += outputSize;
+		}
 
 		{
 			VkImageMemoryBarrier2 imageMemoryBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
 			imageMemoryBarrier.pNext = nullptr;
-			imageMemoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+			imageMemoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
 			imageMemoryBarrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-			imageMemoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+			imageMemoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
 			imageMemoryBarrier.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
 			imageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
 			imageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
 			imageMemoryBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 			imageMemoryBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 			imageMemoryBarrier.image = image;
-			imageMemoryBarrier.subresourceRange = mipSubRange;
+			imageMemoryBarrier.subresourceRange = subresourceRange;
+
+			VkDependencyInfo dependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+			dependencyInfo.pNext = nullptr;
+			dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+			dependencyInfo.memoryBarrierCount = 0u;
+			dependencyInfo.pMemoryBarriers = nullptr;
+			dependencyInfo.bufferMemoryBarrierCount = 0u;
+			dependencyInfo.pBufferMemoryBarriers = nullptr;
+			dependencyInfo.imageMemoryBarrierCount = 1u;
+			dependencyInfo.pImageMemoryBarriers = &imageMemoryBarrier;
+			vkCmdPipelineBarrier2KHR(copyCommandBuffer->getHandle(), &dependencyInfo);
+		}
+
+		flushCommandBuffer(device, copyCommandBuffer.get(), copyQueue);
+		copyCommandBuffer.reset();
+
+		stagingBuffer.reset();
+
+		delete[] buffer;
+		delete[] inputData;
+	}
+	else
+	{
+		// Image is a basic glTF format like png or jpg and can be loaded directly via tinyglTF
+		unsigned char *buffer = nullptr;
+		VkDeviceSize bufferSize = 0;
+		bool deleteBuffer = false;
+
+		if (gltfimage.component == 3)
+		{
+			// Most devices don't support RGB only on Vulkan so convert if necessary
+			bufferSize = gltfimage.width * gltfimage.height * 4;
+			buffer = new unsigned char[bufferSize];
+			unsigned char *rgba = buffer;
+			unsigned char *rgb = &gltfimage.image[0];
+			for (int32_t i = 0; i < gltfimage.width * gltfimage.height; ++i)
+			{
+				for (int32_t j = 0; j < 3; ++j)
+				{
+					rgba[j] = rgb[j];
+				}
+				rgba += 4;
+				rgb += 3;
+			}
+			deleteBuffer = true;
+		}
+		else
+		{
+			buffer = &gltfimage.image[0];
+			bufferSize = gltfimage.image.size();
+		}
+
+		// PNG supports up to 64 bits
+		if (gltfimage.pixel_type == TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT)
+		{
+			format = VK_FORMAT_R16G16B16A16_UNORM;
+		}
+
+		width = gltfimage.width;
+		height = gltfimage.height;
+		mipLevels = static_cast<uint32_t>(floor(log2(std::max(width, height))) + 1.0);
+
+		VkFormatProperties formatProperties;
+		vkGetPhysicalDeviceFormatProperties(device->getPhysicalDevice().getHandle(), format, &formatProperties);
+		assert(formatProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_BLIT_SRC_BIT);
+		assert(formatProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_BLIT_DST_BIT);
+
+
+		VkBufferCreateInfo bufferInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+		bufferInfo.size = bufferSize;
+		bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+		bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+		VmaAllocationCreateInfo memoryInfo{};
+		memoryInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
+
+		std::unique_ptr<Buffer> stagingBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
+
+		stagingBuffer->update(buffer, bufferSize);
+
+		VkImageCreateInfo imageCreateInfo{};
+		imageCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+		imageCreateInfo.imageType = VK_IMAGE_TYPE_2D;
+		imageCreateInfo.format = format;
+		imageCreateInfo.mipLevels = mipLevels;
+		imageCreateInfo.arrayLayers = 1;
+		imageCreateInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+		imageCreateInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+		imageCreateInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT;
+		imageCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+		imageCreateInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+		imageCreateInfo.extent = { width, height, 1 };
+		imageCreateInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+
+		VmaAllocationCreateInfo allocationInfo{};
+		allocationInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+		if (VMA_MEMORY_USAGE_GPU_ONLY & VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT)
+		{
+			allocationInfo.preferredFlags = VK_MEMORY_PROPERTY_LAZILY_ALLOCATED_BIT;
+		}
+		VK_CHECK(vmaCreateImage(device->getMemoryAllocator(), &imageCreateInfo, &allocationInfo, &image, &allocation, nullptr));
+
+		VkImageSubresourceRange subresourceRange = {};
+		subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		subresourceRange.levelCount = 1;
+		subresourceRange.layerCount = 1;
+
+		{
+			VkImageMemoryBarrier2 imageMemoryBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+			imageMemoryBarrier.pNext = nullptr;
+			imageMemoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+			imageMemoryBarrier.srcAccessMask = VK_ACCESS_2_NONE;
+			imageMemoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+			imageMemoryBarrier.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+			imageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+			imageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+			imageMemoryBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			imageMemoryBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			imageMemoryBarrier.image = image;
+			imageMemoryBarrier.subresourceRange = subresourceRange;
+
+			VkDependencyInfo dependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+			dependencyInfo.pNext = nullptr;
+			dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+			dependencyInfo.memoryBarrierCount = 0u;
+			dependencyInfo.pMemoryBarriers = nullptr;
+			dependencyInfo.bufferMemoryBarrierCount = 0u;
+			dependencyInfo.pBufferMemoryBarriers = nullptr;
+			dependencyInfo.imageMemoryBarrierCount = 1u;
+			dependencyInfo.pImageMemoryBarriers = &imageMemoryBarrier;
+			vkCmdPipelineBarrier2KHR(copyCommandBuffer->getHandle(), &dependencyInfo);
+		}
+
+		VkBufferImageCopy bufferCopyRegion = {};
+		bufferCopyRegion.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		bufferCopyRegion.imageSubresource.mipLevel = 0;
+		bufferCopyRegion.imageSubresource.baseArrayLayer = 0;
+		bufferCopyRegion.imageSubresource.layerCount = 1;
+		bufferCopyRegion.imageExtent.width = width;
+		bufferCopyRegion.imageExtent.height = height;
+		bufferCopyRegion.imageExtent.depth = 1;
+
+		vkCmdCopyBufferToImage(copyCommandBuffer->getHandle(), stagingBuffer->getHandle(), image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &bufferCopyRegion);
+
+		{
+			VkImageMemoryBarrier2 imageMemoryBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+			imageMemoryBarrier.pNext = nullptr;
+			imageMemoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+			imageMemoryBarrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+			imageMemoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+			imageMemoryBarrier.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+			imageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+			imageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+			imageMemoryBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			imageMemoryBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			imageMemoryBarrier.image = image;
+			imageMemoryBarrier.subresourceRange = subresourceRange;
+
+			VkDependencyInfo dependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+			dependencyInfo.pNext = nullptr;
+			dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+			dependencyInfo.memoryBarrierCount = 0u;
+			dependencyInfo.pMemoryBarriers = nullptr;
+			dependencyInfo.bufferMemoryBarrierCount = 0u;
+			dependencyInfo.pBufferMemoryBarriers = nullptr;
+			dependencyInfo.imageMemoryBarrierCount = 1u;
+			dependencyInfo.pImageMemoryBarriers = &imageMemoryBarrier;
+			vkCmdPipelineBarrier2KHR(copyCommandBuffer->getHandle(), &dependencyInfo);
+		}
+
+		flushCommandBuffer(device, copyCommandBuffer.get(), copyQueue);
+		copyCommandBuffer.reset();
+
+		stagingBuffer.reset();
+
+		// Generate the mip chain (glTF uses jpg and png, so we need to create this manually)
+		std::unique_ptr<CommandBuffer> blitCommandBuffer = std::make_unique<CommandBuffer>(*commandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+		blitCommandBuffer->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
+		for (uint32_t i = 1; i < mipLevels; i++)
+		{
+			VkImageBlit2 imageBlit{ VK_STRUCTURE_TYPE_IMAGE_BLIT_2 };
+			imageBlit.pNext = nullptr;
+
+			imageBlit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+			imageBlit.srcSubresource.layerCount = 1;
+			imageBlit.srcSubresource.mipLevel = i - 1;
+			imageBlit.srcOffsets[1].x = int32_t(width >> (i - 1));
+			imageBlit.srcOffsets[1].y = int32_t(height >> (i - 1));
+			imageBlit.srcOffsets[1].z = 1;
+
+			imageBlit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+			imageBlit.dstSubresource.layerCount = 1;
+			imageBlit.dstSubresource.mipLevel = i;
+			imageBlit.dstOffsets[1].x = int32_t(width >> i);
+			imageBlit.dstOffsets[1].y = int32_t(height >> i);
+			imageBlit.dstOffsets[1].z = 1;
+
+			VkImageSubresourceRange mipSubRange = {};
+			mipSubRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+			mipSubRange.baseMipLevel = i;
+			mipSubRange.levelCount = 1;
+			mipSubRange.layerCount = 1;
+
+			{
+				VkImageMemoryBarrier2 imageMemoryBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+				imageMemoryBarrier.pNext = nullptr;
+				imageMemoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+				imageMemoryBarrier.srcAccessMask = VK_ACCESS_2_NONE;
+				imageMemoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+				imageMemoryBarrier.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+				imageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+				imageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+				imageMemoryBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+				imageMemoryBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+				imageMemoryBarrier.image = image;
+				imageMemoryBarrier.subresourceRange = mipSubRange; // That we're transitioning this for the specified mips level
+
+				VkDependencyInfo dependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+				dependencyInfo.pNext = nullptr;
+				dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+				dependencyInfo.memoryBarrierCount = 0u;
+				dependencyInfo.pMemoryBarriers = nullptr;
+				dependencyInfo.bufferMemoryBarrierCount = 0u;
+				dependencyInfo.pBufferMemoryBarriers = nullptr;
+				dependencyInfo.imageMemoryBarrierCount = 1u;
+				dependencyInfo.pImageMemoryBarriers = &imageMemoryBarrier;
+				vkCmdPipelineBarrier2KHR(blitCommandBuffer->getHandle(), &dependencyInfo);
+			}
+
+
+			VkBlitImageInfo2 blitImageInfo{ VK_STRUCTURE_TYPE_BLIT_IMAGE_INFO_2 };
+			blitImageInfo.pNext = nullptr;
+			blitImageInfo.srcImage = image;
+			blitImageInfo.srcImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+			blitImageInfo.dstImage = image;
+			blitImageInfo.dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+			blitImageInfo.regionCount = 1u;
+			blitImageInfo.pRegions = &imageBlit;
+			blitImageInfo.filter = VK_FILTER_LINEAR;
+			vkCmdBlitImage2(blitCommandBuffer->getHandle(), &blitImageInfo);
+
+			{
+				VkImageMemoryBarrier2 imageMemoryBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+				imageMemoryBarrier.pNext = nullptr;
+				imageMemoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+				imageMemoryBarrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+				imageMemoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+				imageMemoryBarrier.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+				imageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+				imageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+				imageMemoryBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+				imageMemoryBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+				imageMemoryBarrier.image = image;
+				imageMemoryBarrier.subresourceRange = mipSubRange;
+
+				VkDependencyInfo dependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+				dependencyInfo.pNext = nullptr;
+				dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+				dependencyInfo.memoryBarrierCount = 0u;
+				dependencyInfo.pMemoryBarriers = nullptr;
+				dependencyInfo.bufferMemoryBarrierCount = 0u;
+				dependencyInfo.pBufferMemoryBarriers = nullptr;
+				dependencyInfo.imageMemoryBarrierCount = 1u;
+				dependencyInfo.pImageMemoryBarriers = &imageMemoryBarrier;
+				vkCmdPipelineBarrier2KHR(blitCommandBuffer->getHandle(), &dependencyInfo);
+			}
+		}
+
+		subresourceRange.levelCount = mipLevels;
+		imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+		{
+			VkImageMemoryBarrier2 imageMemoryBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+			imageMemoryBarrier.pNext = nullptr;
+			imageMemoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+			imageMemoryBarrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+			imageMemoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+			imageMemoryBarrier.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+			imageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+			imageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+			imageMemoryBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			imageMemoryBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			imageMemoryBarrier.image = image;
+			imageMemoryBarrier.subresourceRange = subresourceRange;
 
 			VkDependencyInfo dependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
 			dependencyInfo.pNext = nullptr;
@@ -350,75 +659,42 @@ void Texture::fromglTfImage(tinygltf::Image &gltfimage, TextureSampler textureSa
 			dependencyInfo.pImageMemoryBarriers = &imageMemoryBarrier;
 			vkCmdPipelineBarrier2KHR(blitCommandBuffer->getHandle(), &dependencyInfo);
 		}
+
+		flushCommandBuffer(device, blitCommandBuffer.get(), copyQueue);
+		blitCommandBuffer.reset();
+
+		VkSamplerCreateInfo samplerInfo{};
+		samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+		samplerInfo.magFilter = textureSampler.magFilter;
+		samplerInfo.minFilter = textureSampler.minFilter;
+		samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+		samplerInfo.addressModeU = textureSampler.addressModeU;
+		samplerInfo.addressModeV = textureSampler.addressModeV;
+		samplerInfo.addressModeW = textureSampler.addressModeW;
+		samplerInfo.compareOp = VK_COMPARE_OP_NEVER;
+		samplerInfo.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;
+		samplerInfo.maxAnisotropy = 1.0;
+		samplerInfo.anisotropyEnable = VK_FALSE;
+		samplerInfo.maxLod = (float)mipLevels;
+		samplerInfo.maxAnisotropy = 8.0f;
+		samplerInfo.anisotropyEnable = VK_TRUE;
+		VK_CHECK(vkCreateSampler(device->getHandle(), &samplerInfo, nullptr, &sampler));
+
+		VkImageViewCreateInfo viewInfo{};
+		viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+		viewInfo.image = image;
+		viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+		viewInfo.format = format;
+		viewInfo.components = { VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_G, VK_COMPONENT_SWIZZLE_B, VK_COMPONENT_SWIZZLE_A };
+		viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		viewInfo.subresourceRange.layerCount = 1;
+		viewInfo.subresourceRange.levelCount = mipLevels;
+		VK_CHECK(vkCreateImageView(device->getHandle(), &viewInfo, nullptr, &view));
+
+		descriptor.sampler = sampler;
+		descriptor.imageView = view;
+		descriptor.imageLayout = imageLayout;
 	}
-
-	subresourceRange.levelCount = mipLevels;
-	imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-	{
-		VkImageMemoryBarrier2 imageMemoryBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
-		imageMemoryBarrier.pNext = nullptr;
-		imageMemoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-		imageMemoryBarrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-		imageMemoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-		imageMemoryBarrier.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
-		imageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-		imageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-		imageMemoryBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-		imageMemoryBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-		imageMemoryBarrier.image = image;
-		imageMemoryBarrier.subresourceRange = subresourceRange;
-
-		VkDependencyInfo dependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
-		dependencyInfo.pNext = nullptr;
-		dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-		dependencyInfo.memoryBarrierCount = 0u;
-		dependencyInfo.pMemoryBarriers = nullptr;
-		dependencyInfo.bufferMemoryBarrierCount = 0u;
-		dependencyInfo.pBufferMemoryBarriers = nullptr;
-		dependencyInfo.imageMemoryBarrierCount = 1u;
-		dependencyInfo.pImageMemoryBarriers = &imageMemoryBarrier;
-		vkCmdPipelineBarrier2KHR(blitCommandBuffer->getHandle(), &dependencyInfo);
-	}
-
-	flushCommandBuffer(device, blitCommandBuffer.get(), copyQueue);
-	blitCommandBuffer.reset();
-
-	VkSamplerCreateInfo samplerInfo{};
-	samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-	samplerInfo.magFilter = textureSampler.magFilter;
-	samplerInfo.minFilter = textureSampler.minFilter;
-	samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-	samplerInfo.addressModeU = textureSampler.addressModeU;
-	samplerInfo.addressModeV = textureSampler.addressModeV;
-	samplerInfo.addressModeW = textureSampler.addressModeW;
-	samplerInfo.compareOp = VK_COMPARE_OP_NEVER;
-	samplerInfo.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;
-	samplerInfo.maxAnisotropy = 1.0;
-	samplerInfo.anisotropyEnable = VK_FALSE;
-	samplerInfo.maxLod = (float)mipLevels;
-	samplerInfo.maxAnisotropy = 8.0f;
-	samplerInfo.anisotropyEnable = VK_TRUE;
-	VK_CHECK(vkCreateSampler(device->getHandle(), &samplerInfo, nullptr, &sampler));
-
-	VkImageViewCreateInfo viewInfo{};
-	viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-	viewInfo.image = image;
-	viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-	viewInfo.format = format;
-	viewInfo.components = { VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_G, VK_COMPONENT_SWIZZLE_B, VK_COMPONENT_SWIZZLE_A };
-	viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-	viewInfo.subresourceRange.layerCount = 1;
-	viewInfo.subresourceRange.levelCount = mipLevels;
-	VK_CHECK(vkCreateImageView(device->getHandle(), &viewInfo, nullptr, &view));
-
-	descriptor.sampler = sampler;
-	descriptor.imageView = view;
-	descriptor.imageLayout = imageLayout;
-
-	if (deleteBuffer)
-		delete[] buffer;
-
 }
 
 // Primitive
@@ -475,23 +751,38 @@ void Mesh::setBoundingBox(glm::vec3 min, glm::vec3 max)
 // Node
 glm::mat4 Node::localMatrix()
 {
-	return glm::translate(glm::mat4(1.0f), translation) * glm::mat4(rotation) * glm::scale(glm::mat4(1.0f), scale) * matrix;
+	if (!useCachedMatrix)
+	{
+		cachedLocalMatrix = glm::translate(glm::mat4(1.0f), translation) * glm::mat4(rotation) * glm::scale(glm::mat4(1.0f), scale) * matrix;
+	};
+	return cachedLocalMatrix;
 }
 
 glm::mat4 Node::getMatrix()
 {
-	glm::mat4 m = localMatrix();
-	Node *p = parent;
-	while (p)
+	// Use a simple caching algorithm to avoid having to recalculate matrices to often while traversing the node hierarchy
+	if (!useCachedMatrix)
 	{
-		m = p->localMatrix() * m;
-		p = p->parent;
+		glm::mat4 m = localMatrix();
+		vulkr::gltf::Node *p = parent;
+		while (p)
+		{
+			m = p->localMatrix() * m;
+			p = p->parent;
+		}
+		cachedMatrix = m;
+		useCachedMatrix = true;
+		return m;
 	}
-	return m;
+	else
+	{
+		return cachedMatrix;
+	}
 }
 
 void Node::update()
 {
+	useCachedMatrix = false;
 	if (mesh)
 	{
 		glm::mat4 m = getMatrix();
@@ -503,12 +794,12 @@ void Node::update()
 			size_t numJoints = std::min((uint32_t)skin->joints.size(), MAX_NUM_JOINTS);
 			for (size_t i = 0; i < numJoints; i++)
 			{
-				Node *jointNode = skin->joints[i];
+				vulkr::gltf::Node *jointNode = skin->joints[i];
 				glm::mat4 jointMat = jointNode->getMatrix() * skin->inverseBindMatrices[i];
 				jointMat = inverseTransform * jointMat;
 				mesh->uniformBlock.jointMatrix[i] = jointMat;
 			}
-			mesh->uniformBlock.jointcount = (float)numJoints;
+			mesh->uniformBlock.jointcount = numJoints;
 			mesh->uniformBuffer.buffer->update(&mesh->uniformBlock, sizeof(mesh->uniformBlock));
 		}
 		else
@@ -535,8 +826,128 @@ Node::~Node()
 	}
 }
 
-// Model
+// AnimationSampler
 
+// Cube spline interpolation function used for translate/scale/rotate with cubic spline animation samples
+// Details on how this works can be found in the specs https://github.com/KhronosGroup/glTF/tree/master/specification/2.0#appendix-c-spline-interpolation
+glm::vec4 AnimationSampler::cubicSplineInterpolation(size_t index, float time, uint32_t stride)
+{
+	float delta = inputs[index + 1] - inputs[index];
+	float t = (time - inputs[index]) / delta;
+	const size_t current = index * stride * 3;
+	const size_t next = (index + 1) * stride * 3;
+	const size_t A = 0;
+	const size_t V = stride * 1;
+	const size_t B = stride * 2;
+
+	float t2 = powf(t, 2);
+	float t3 = powf(t, 3);
+	glm::vec4 pt{ 0.0f };
+	for (uint32_t i = 0; i < stride; i++)
+	{
+		float p0 = outputs[current + i + V];			// starting point at t = 0
+		float m0 = delta * outputs[current + i + A];	// scaled starting tangent at t = 0
+		float p1 = outputs[next + i + V];				// ending point at t = 1
+		float m1 = delta * outputs[next + i + B];		// scaled ending tangent at t = 1
+		pt[i] = ((2.f * t3 - 3.f * t2 + 1.f) * p0) + ((t3 - 2.f * t2 + t) * m0) + ((-2.f * t3 + 3.f * t2) * p1) + ((t3 - t2) * m0);
+	}
+	return pt;
+}
+
+// Calculates the translation of this sampler for the given node at a given time point depending on the interpolation type
+void AnimationSampler::translate(size_t index, float time, vulkr::gltf::Node *node)
+{
+	switch (interpolation)
+	{
+	case AnimationSampler::InterpolationType::LINEAR:
+	{
+		float u = std::max(0.0f, time - inputs[index]) / (inputs[index + 1] - inputs[index]);
+		node->translation = glm::mix(outputsVec4[index], outputsVec4[index + 1], u);
+		break;
+	}
+	case AnimationSampler::InterpolationType::STEP:
+	{
+		node->translation = outputsVec4[index];
+		break;
+	}
+	case AnimationSampler::InterpolationType::CUBICSPLINE:
+	{
+		node->translation = cubicSplineInterpolation(index, time, 3);
+		break;
+	}
+	}
+}
+
+// Calculates the scale of this sampler for the given node at a given time point depending on the interpolation type
+void AnimationSampler::scale(size_t index, float time, vulkr::gltf::Node *node)
+{
+	switch (interpolation)
+	{
+	case AnimationSampler::InterpolationType::LINEAR:
+	{
+		float u = std::max(0.0f, time - inputs[index]) / (inputs[index + 1] - inputs[index]);
+		node->scale = glm::mix(outputsVec4[index], outputsVec4[index + 1], u);
+		break;
+	}
+	case AnimationSampler::InterpolationType::STEP:
+	{
+		node->scale = outputsVec4[index];
+		break;
+	}
+	case AnimationSampler::InterpolationType::CUBICSPLINE:
+	{
+		node->scale = cubicSplineInterpolation(index, time, 3);
+		break;
+	}
+	}
+}
+
+// Calculates the rotation of this sampler for the given node at a given time point depending on the interpolation type
+void AnimationSampler::rotate(size_t index, float time, vulkr::gltf::Node *node)
+{
+	switch (interpolation)
+	{
+	case AnimationSampler::InterpolationType::LINEAR:
+	{
+		float u = std::max(0.0f, time - inputs[index]) / (inputs[index + 1] - inputs[index]);
+		glm::quat q1;
+		q1.x = outputsVec4[index].x;
+		q1.y = outputsVec4[index].y;
+		q1.z = outputsVec4[index].z;
+		q1.w = outputsVec4[index].w;
+		glm::quat q2;
+		q2.x = outputsVec4[index + 1].x;
+		q2.y = outputsVec4[index + 1].y;
+		q2.z = outputsVec4[index + 1].z;
+		q2.w = outputsVec4[index + 1].w;
+		node->rotation = glm::normalize(glm::slerp(q1, q2, u));
+		break;
+	}
+	case AnimationSampler::InterpolationType::STEP:
+	{
+		glm::quat q1;
+		q1.x = outputsVec4[index].x;
+		q1.y = outputsVec4[index].y;
+		q1.z = outputsVec4[index].z;
+		q1.w = outputsVec4[index].w;
+		node->rotation = q1;
+		break;
+	}
+	case AnimationSampler::InterpolationType::CUBICSPLINE:
+	{
+		glm::vec4 rot = cubicSplineInterpolation(index, time, 4);
+		glm::quat q;
+		q.x = rot.x;
+		q.y = rot.y;
+		q.z = rot.z;
+		q.w = rot.w;
+		node->rotation = glm::normalize(q);
+		break;
+	}
+	}
+}
+
+// Model
 void Model::destroy(vulkr::Device *device)
 {
 	vertexBuffer.reset();
@@ -564,9 +975,9 @@ void Model::destroy(vulkr::Device *device)
 	skins.resize(0);
 };
 
-void Model::loadNode(Node *parent, const tinygltf::Node &node, uint32_t nodeIndex, const tinygltf::Model &model, LoaderInfo &loaderInfo, float globalscale)
+void Model::loadNode(vulkr::gltf::Node *parent, const tinygltf::Node &node, uint32_t nodeIndex, const tinygltf::Model &model, LoaderInfo &loaderInfo, float globalscale)
 {
-	Node *newNode = new Node{};
+	vulkr::gltf::Node *newNode = new Node{};
 	newNode->index = nodeIndex;
 	newNode->parent = parent;
 	newNode->name = node.name;
@@ -723,7 +1134,7 @@ void Model::loadNode(Node *parent, const tinygltf::Node &node, uint32_t nodeInde
 						case TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT:
 						{
 							const uint16_t *buf = static_cast<const uint16_t *>(bufferJoints);
-							vert.joint0 = glm::vec4(glm::make_vec4(&buf[v * jointByteStride]));
+							vert.joint0 = glm::uvec4(glm::make_vec4(&buf[v * jointByteStride]));
 							break;
 						}
 						case TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE:
@@ -840,7 +1251,7 @@ void Model::getNodeProps(const tinygltf::Node &node, const tinygltf::Model &mode
 		const tinygltf::Mesh mesh = model.meshes[node.mesh];
 		for (size_t i = 0; i < mesh.primitives.size(); i++)
 		{
-			auto primitive = mesh.primitives[i];
+			auto &primitive = mesh.primitives[i];
 			vertexCount += model.accessors[primitive.attributes.find("POSITION")->second].count;
 			if (primitive.indices > -1)
 			{
@@ -883,6 +1294,12 @@ void Model::loadSkins(tinygltf::Model &gltfModel)
 			memcpy(newSkin->inverseBindMatrices.data(), &buffer.data[accessor.byteOffset + bufferView.byteOffset], accessor.count * sizeof(glm::mat4));
 		}
 
+		if (newSkin->joints.size() > MAX_NUM_JOINTS)
+		{
+			std::cerr << "[WARNING] Skin " << newSkin->name << " has " << newSkin->joints.size() << " joints, which is higher than the supported maximum of " << MAX_NUM_JOINTS << "\n";
+			std::cerr << "[WARNING] glTF scene may display wrong/incomplete\n";
+		}
+
 		skins.push_back(newSkin);
 	}
 }
@@ -891,8 +1308,16 @@ void Model::loadTextures(tinygltf::Model &gltfModel, vulkr::Device *device, vulk
 {
 	for (tinygltf::Texture &tex : gltfModel.textures)
 	{
-		tinygltf::Image image = gltfModel.images[tex.source];
-		TextureSampler textureSampler;
+		int source = tex.source;
+		// If this texture uses the KHR_texture_basisu, we need to get the source index from the extension structure
+		if (tex.extensions.find("KHR_texture_basisu") != tex.extensions.end())
+		{
+			auto ext = tex.extensions.find("KHR_texture_basisu");
+			auto value = ext->second.Get("source");
+			source = value.Get<int>();
+		}
+		tinygltf::Image image = gltfModel.images[source];
+		vulkr::gltf::TextureSampler textureSampler;
 		if (tex.sampler == -1)
 		{
 			// No sampler specified, use a default one
@@ -906,8 +1331,8 @@ void Model::loadTextures(tinygltf::Model &gltfModel, vulkr::Device *device, vulk
 		{
 			textureSampler = textureSamplers[tex.sampler];
 		}
-		Texture texture;
-		texture.fromglTfImage(image, textureSampler, device, commandPool, transferQueue);
+		vulkr::gltf::Texture texture;
+		texture.fromglTfImage(image, filePath, textureSampler, device, commandPool, transferQueue);
 		textures.push_back(texture);
 	}
 }
@@ -956,7 +1381,7 @@ void Model::loadTextureSamplers(tinygltf::Model &gltfModel)
 {
 	for (tinygltf::Sampler smpl : gltfModel.samplers)
 	{
-		TextureSampler sampler{};
+		vulkr::gltf::TextureSampler sampler{};
 		sampler.minFilter = getVkFilterMode(smpl.minFilter);
 		sampler.magFilter = getVkFilterMode(smpl.magFilter);
 		sampler.addressModeU = getVkWrapMode(smpl.wrapS);
@@ -970,7 +1395,7 @@ void Model::loadMaterials(tinygltf::Model &gltfModel)
 {
 	for (tinygltf::Material &mat : gltfModel.materials)
 	{
-		Material material{};
+		vulkr::gltf::Material material{};
 		material.doubleSided = mat.doubleSided;
 		if (mat.values.find("baseColorTexture") != mat.values.end())
 		{
@@ -1032,7 +1457,6 @@ void Model::loadMaterials(tinygltf::Model &gltfModel)
 		}
 
 		// Extensions
-		// @TODO: Find out if there is a nicer way of reading these properties with recent tinygltf headers
 		if (mat.extensions.find("KHR_materials_pbrSpecularGlossiness") != mat.extensions.end())
 		{
 			auto ext = mat.extensions.find("KHR_materials_pbrSpecularGlossiness");
@@ -1043,6 +1467,7 @@ void Model::loadMaterials(tinygltf::Model &gltfModel)
 				auto texCoordSet = ext->second.Get("specularGlossinessTexture").Get("texCoord");
 				material.texCoordSets.specularGlossiness = texCoordSet.Get<int>();
 				material.pbrWorkflows.specularGlossiness = true;
+				material.pbrWorkflows.metallicRoughness = false;
 			}
 			if (ext->second.Has("diffuseTexture"))
 			{
@@ -1095,7 +1520,7 @@ void Model::loadAnimations(tinygltf::Model &gltfModel)
 {
 	for (tinygltf::Animation &anim : gltfModel.animations)
 	{
-		Animation animation{};
+		vulkr::gltf::Animation animation{};
 		animation.name = anim.name;
 		if (anim.name.empty())
 		{
@@ -1105,7 +1530,7 @@ void Model::loadAnimations(tinygltf::Model &gltfModel)
 		// Samplers
 		for (auto &samp : anim.samplers)
 		{
-			AnimationSampler sampler{};
+			vulkr::gltf::AnimationSampler sampler{};
 
 			if (samp.interpolation == "LINEAR")
 			{
@@ -1166,6 +1591,9 @@ void Model::loadAnimations(tinygltf::Model &gltfModel)
 					for (size_t index = 0; index < accessor.count; index++)
 					{
 						sampler.outputsVec4.push_back(glm::vec4(buf[index], 0.0f));
+						sampler.outputs.push_back(buf[index][0]);
+						sampler.outputs.push_back(buf[index][1]);
+						sampler.outputs.push_back(buf[index][2]);
 					}
 					break;
 				}
@@ -1175,6 +1603,10 @@ void Model::loadAnimations(tinygltf::Model &gltfModel)
 					for (size_t index = 0; index < accessor.count; index++)
 					{
 						sampler.outputsVec4.push_back(buf[index]);
+						sampler.outputs.push_back(buf[index][0]);
+						sampler.outputs.push_back(buf[index][1]);
+						sampler.outputs.push_back(buf[index][2]);
+						sampler.outputs.push_back(buf[index][3]);
 					}
 					break;
 				}
@@ -1192,7 +1624,7 @@ void Model::loadAnimations(tinygltf::Model &gltfModel)
 		// Channels
 		for (auto &source : anim.channels)
 		{
-			AnimationChannel channel{};
+			vulkr::gltf::AnimationChannel channel{};
 
 			if (source.target_path == "rotation")
 			{
@@ -1242,6 +1674,16 @@ void Model::loadFromFile(std::string filename, vulkr::Device *device, vulkr::Com
 		binary = (filename.substr(extpos + 1, filename.length() - extpos) == "glb");
 	}
 
+	size_t pos = filename.find_last_of('/');
+	if (pos == std::string::npos)
+	{
+		pos = filename.find_last_of('\\');
+	}
+	filePath = filename.substr(0, pos);
+
+	// @todo
+	gltfContext.SetImageLoader(loadImageDataFunc, nullptr);
+
 	bool fileLoaded = binary ? gltfContext.LoadBinaryFromFile(&gltfModel, &error, &warning, filename.c_str()) : gltfContext.LoadASCIIFromFile(&gltfModel, &error, &warning, filename.c_str());
 
 	LoaderInfo loaderInfo{};
@@ -1250,6 +1692,18 @@ void Model::loadFromFile(std::string filename, vulkr::Device *device, vulkr::Com
 
 	if (fileLoaded)
 	{
+		extensions = gltfModel.extensionsUsed;
+		for (auto &extension : extensions)
+		{
+			// If this model uses basis universal compressed textures, we need to transcode them
+			// So we need to initialize that transcoder once
+			if (extension == "KHR_texture_basisu")
+			{
+				std::cout << "Model uses KHR_texture_basisu, initializing basisu transcoder\n";
+				basist::basisu_transcoder_init();
+			}
+		}
+
 		loadTextureSamplers(gltfModel);
 		loadTextures(gltfModel, device, commandPool, transferQueue);
 		loadMaterials(gltfModel);
@@ -1276,6 +1730,7 @@ void Model::loadFromFile(std::string filename, vulkr::Device *device, vulkr::Com
 		}
 		loadSkins(gltfModel);
 
+		uint32_t meshIndex = 0;
 		for (auto node : linearNodes)
 		{
 			// Assign skins
@@ -1286,6 +1741,7 @@ void Model::loadFromFile(std::string filename, vulkr::Device *device, vulkr::Com
 			// Initial pose
 			if (node->mesh)
 			{
+				node->mesh->uniformBlock.index = meshIndex++;
 				node->update();
 			}
 		}
@@ -1295,8 +1751,6 @@ void Model::loadFromFile(std::string filename, vulkr::Device *device, vulkr::Com
 		LOGE("Could not load gltf file: {}", error);
 		std::abort();;
 	}
-
-	extensions = gltfModel.extensionsUsed;
 
 	size_t vertexBufferSize = vertexCount * sizeof(Vertex);
 	size_t indexBufferSize = indexCount * sizeof(uint32_t);
@@ -1419,6 +1873,8 @@ void Model::draw(VkCommandBuffer commandBuffer)
 
 void Model::calculateBoundingBox(Node *node, Node *parent)
 {
+	BoundingBox parentBvh = parent ? parent->bvh : BoundingBox(dimensions.min, dimensions.max);
+
 	if (node->mesh)
 	{
 		if (node->mesh->bb.valid)
@@ -1433,11 +1889,8 @@ void Model::calculateBoundingBox(Node *node, Node *parent)
 		}
 	}
 
-	if (parent != nullptr)
-	{
-		parent->bvh.min = glm::min(parent->bvh.min, node->bvh.min);
-		parent->bvh.max = glm::min(parent->bvh.max, node->bvh.max);
-	}
+	parentBvh.min = glm::min(parentBvh.min, node->bvh.min);
+	parentBvh.max = glm::min(parentBvh.max, node->bvh.max);
 
 	for (auto &child : node->children)
 	{
@@ -1505,32 +1958,14 @@ void Model::updateAnimation(uint32_t index, float time)
 					switch (channel.path)
 					{
 					case AnimationChannel::PathType::TRANSLATION:
-					{
-						glm::vec4 trans = glm::mix(sampler.outputsVec4[i], sampler.outputsVec4[i + 1], u);
-						channel.node->translation = glm::vec3(trans);
+						sampler.translate(i, time, channel.node);
 						break;
-					}
 					case AnimationChannel::PathType::SCALE:
-					{
-						glm::vec4 trans = glm::mix(sampler.outputsVec4[i], sampler.outputsVec4[i + 1], u);
-						channel.node->scale = glm::vec3(trans);
+						sampler.scale(i, time, channel.node);
 						break;
-					}
 					case AnimationChannel::PathType::ROTATION:
-					{
-						glm::quat q1;
-						q1.x = sampler.outputsVec4[i].x;
-						q1.y = sampler.outputsVec4[i].y;
-						q1.z = sampler.outputsVec4[i].z;
-						q1.w = sampler.outputsVec4[i].w;
-						glm::quat q2;
-						q2.x = sampler.outputsVec4[i + 1].x;
-						q2.y = sampler.outputsVec4[i + 1].y;
-						q2.z = sampler.outputsVec4[i + 1].z;
-						q2.w = sampler.outputsVec4[i + 1].w;
-						channel.node->rotation = glm::normalize(glm::slerp(q1, q2, u));
+						sampler.rotate(i, time, channel.node);
 						break;
-					}
 					}
 					updated = true;
 				}
