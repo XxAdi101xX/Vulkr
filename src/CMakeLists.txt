@@ -141,6 +141,7 @@ target_link_libraries(${PROJECT_NAME}
     stb
     tinyobjloader
     tinygltf
+    basis_universal
 )
 
 # Link platform specific libraries

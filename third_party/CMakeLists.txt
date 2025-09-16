@@ -142,3 +142,9 @@ add_library(tinygltf INTERFACE)
 set(TINYGLTF_DIR ${CMAKE_CURRENT_SOURCE_DIR}/tinygltf)
 target_sources(tinygltf INTERFACE ${TINYGLTF_DIR}/tiny_gltf.h ${TINYGLTF_DIR}/json.hpp)
 target_include_directories(tinygltf INTERFACE ${TINYGLTF_DIR})
+
+# Basis Universal
+add_library(basis_universal INTERFACE)
+set(BASISU_DIR ${CMAKE_CURRENT_SOURCE_DIR}/basis_universal)
+target_sources(basis_universal INTERFACE ${BASISU_DIR}/transcoder/basisu_transcoder.cpp ${BASISU_DIR}/zstd/zstd.c)
+target_include_directories(basis_universal INTERFACE ${BASISU_DIR}/transcoder ${BASISU_DIR}/zstd)
