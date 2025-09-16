@@ -193,7 +193,7 @@ vec3 diffuse(PBRInfo pbrInputs)
 }
 
 // The following equation models the Fresnel reflectance term of the spec equation (aka F())
-// Implementation of fresnel from [4], Equation 15
+// Implementation of Schlick's approximation of the Fresnel equations
 vec3 specularReflection(PBRInfo pbrInputs)
 {
 	return pbrInputs.reflectance0 + (pbrInputs.reflectance90 - pbrInputs.reflectance0) * pow(clamp(1.0 - pbrInputs.VdotH, 0.0, 1.0), 5.0);
