@@ -79,7 +79,7 @@ void main() {
         }
 
         // Diffuse
-        vec3 diffuse = computeDiffuse(mat, L, N);
+        vec3 diffuse = computeDiffuseLambertian(mat, L, N);
         if (mat.textureId >= 0)
         {
             uint txtId  = uint(mat.textureId + objResource.textureOffset);
@@ -88,7 +88,8 @@ void main() {
         }
 
         // Specular
-        vec3 specular = computeSpecular(mat, viewDir, L, N);
+        vec3 specular = computeSpecularCookTorrance(mat, viewDir, L, N);
+        //vec3 specular = computeSpecularBlinnPhong(mat, viewDir, L, N);
 
         // Result
         outputValue += vec3(lightIntensity * lightBuffer.lights[lightIndex].color * (diffuse + specular));

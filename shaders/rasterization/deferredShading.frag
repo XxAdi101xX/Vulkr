@@ -238,6 +238,7 @@ float convertMetallic(vec3 diffuse, vec3 specular, float maxSpecular) {
 	return clamp((-b + sqrt(D)) / (2.0 * a), 0.0, 1.0);
 }
 
+// TODO: unify cook-torrence BRDF calculations into common.glsl, which is where it's currently located for forward rendering and raytracing!! additionally, there are clear artifacts with deffered pass that require fixing
 void main()
 {
 	// Get info from geometry buffer

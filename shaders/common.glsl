@@ -80,20 +80,72 @@ struct GltfMaterial
 	float emissiveStrength;
 };
 
-vec3 computeDiffuse(WaveFrontMaterial mat, vec3 lightDir, vec3 normal)
-{
-    // Lambertian BRDF
-    float dotNL = max(dot(normal, lightDir), 0.0);
-    vec3  c     = mat.diffuse * dotNL;
-
-    if (mat.illum >= 1)
-    {
-        c += mat.ambient;
-    }
-    return c;
+// Trowbridge-Reitz (GGX) Normal Distribution Function (NDF)
+float D_TrowbridgeReitzGGX(vec3 N, vec3 H, float roughness) {
+    float a = roughness * roughness;
+    float a2 = a * a;
+    float NdotH = max(dot(N, H), 0.0);
+    float NdotH2 = NdotH * NdotH;
+    float denom = (NdotH2 * (a2 - 1.0) + 1.0);
+    denom = 3.14159265 * denom * denom;
+    return a2 / denom;
 }
 
-vec3 computeSpecular(WaveFrontMaterial mat, vec3 viewDir, vec3 lightDir, vec3 normal)
+// Geometry shadowing term (Schlick-GGX approximation)
+float G_SchlickGGX(float NdotV, float roughness) {
+    float r = roughness + 1.0;
+    float k = (r * r) / 8.0;
+    float denom = NdotV * (1.0 - k) + k;
+    return NdotV / denom;
+}
+
+// Smith geometry attenuation function combining light and view terms
+float G_Smith(vec3 N, vec3 V, vec3 L, float roughness) {
+    float NdotV = max(dot(N, V), 0.0);
+    float NdotL = max(dot(N, L), 0.0);
+    float ggx1 = G_SchlickGGX(NdotV, roughness);
+    float ggx2 = G_SchlickGGX(NdotL, roughness);
+    return ggx1 * ggx2;
+}
+
+// Fresnel reflectance term using Schlick's approximation
+vec3 F_Schlick(float cosTheta, vec3 F0) {
+    return F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
+}
+
+// Cook-Torrance specular microfacet BRDF implementation
+vec3 computeSpecularCookTorrance(WaveFrontMaterial mat, vec3 viewDir, vec3 lightDir, vec3 normal) {
+    if (mat.illum < 2) {
+        return vec3(0.0);
+    }
+
+    vec3 V = normalize(-viewDir);
+    vec3 L = normalize(lightDir);
+    vec3 N = normalize(normal);
+    vec3 H = normalize(V + L);
+
+    // Map shininess [4,256] to roughness [1.0, 0.05]
+    float roughness = clamp(1.0 - (mat.shininess - 4.0) / 252.0, 0.05, 1.0);
+
+    vec3 F0 = mat.specular;
+
+    float D = D_TrowbridgeReitzGGX(N, H, roughness);
+    float G = G_Smith(N, V, L, roughness);
+    vec3 F = F_Schlick(max(dot(H, V), 0.0), F0);
+
+    float NdotL = max(dot(N, L), 0.0);
+    float NdotV = max(dot(N, V), 0.0);
+
+    vec3 numerator = D * G * F;
+    float denominator = 4.0 * NdotV * NdotL + 0.001; // prevent division by zero
+
+    vec3 specular = numerator / denominator;
+
+    return specular * NdotL;
+}
+
+// Blinn-Phong specular BRDF component
+vec3 computeSpecularBlinnPhong(WaveFrontMaterial mat, vec3 viewDir, vec3 lightDir, vec3 normal)
 {
     if (mat.illum < 2)
     {
@@ -111,3 +163,18 @@ vec3 computeSpecular(WaveFrontMaterial mat, vec3 viewDir, vec3 lightDir, vec3 no
 
     return vec3(mat.specular * specular);
 }
+
+// Lambertian diffuse BRDF component 
+vec3 computeDiffuseLambertian(WaveFrontMaterial mat, vec3 lightDir, vec3 normal)
+{
+    // Lambertian BRDF
+    float dotNL = max(dot(normal, lightDir), 0.0);
+    vec3  c     = mat.diffuse * dotNL;
+
+    if (mat.illum >= 1)
+    {
+        c += mat.ambient;
+    }
+    return c;
+}
+

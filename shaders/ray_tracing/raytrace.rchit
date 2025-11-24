@@ -99,7 +99,7 @@ void main()
         WaveFrontMaterial mat = materials.m[materialIndex];
 
         // Diffuse
-        vec3 diffuse = computeDiffuse(mat, L, normal);
+        vec3 diffuse = computeDiffuseLambertian(mat, L, normal);
         if (mat.textureId >= 0)
         {
             uint txtId = uint(mat.textureId + objResource.textureOffset);
@@ -141,7 +141,8 @@ void main()
             else
             {
                 // Compute specular since we're not in the shadow
-                specular = computeSpecular(mat, gl_WorldRayDirectionEXT, L, normal);
+                specular = computeSpecularCookTorrance(mat, gl_WorldRayDirectionEXT, L, normal);
+                //specular = computeSpecularBlinnPhong(mat, gl_WorldRayDirectionEXT, L, normal);
             }
         }
 
