@@ -49,6 +49,7 @@ VulkrApp::~VulkrApp()
 	cleanupSwapchain();
 
 	textureSampler.reset();
+	gBufferSampler.reset();
 
 	globalDescriptorSetLayout.reset();
 	objectDescriptorSetLayout.reset();
@@ -320,6 +321,7 @@ void VulkrApp::prepare()
 	createMrtGeometryBufferPipeline();
 	createDeferredShadingPipeline();
 	createTextureSampler();
+	createGBufferSampler();
 	createUniformBuffers();
 	createSSBOs();
 	prepareParticleData();
@@ -2611,7 +2613,7 @@ void VulkrApp::createMrtGeometryBufferPipeline()
 	rasterizationState.depthClampEnable = VK_FALSE;
 	rasterizationState.rasterizerDiscardEnable = VK_FALSE;
 	rasterizationState.polygonMode = VK_POLYGON_MODE_FILL;
-	rasterizationState.cullMode = VK_CULL_MODE_BACK_BIT;
+	rasterizationState.cullMode = VK_CULL_MODE_NONE; // No culling required since we are rendering a full-screen quad in the geometry buffer pass
 	rasterizationState.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
 	rasterizationState.lineWidth = 1.0f;
 	rasterizationState.depthBiasEnable = VK_FALSE;
@@ -3121,7 +3123,7 @@ void VulkrApp::createFramebuffers()
 
 	deferredShadingFramebufferClearValues.resize(2);
 	// outputImage; IMPORTANT: the background clear color is set in the deferredShading.frag method itself since we render a full quad in the deferred step hence the shader is executed for every output pixel
-	deferredShadingFramebufferClearValues[0].color = { 1.0f, 1.0f, 1.0f, 1.0f }; 
+	deferredShadingFramebufferClearValues[0].color = { 1.0f, 1.0f, 1.0f, 1.0f };
 	deferredShadingFramebufferClearValues[1].depthStencil = { 1.0f, 0u };
 }
 
@@ -3367,6 +3369,28 @@ void VulkrApp::createTextureSampler()
 	samplerInfo.maxLod = 0.0f;
 
 	textureSampler = std::make_unique<Sampler>(*device, samplerInfo);
+}
+
+void VulkrApp::createGBufferSampler()
+{
+	VkSamplerCreateInfo samplerInfo{ VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
+	samplerInfo.magFilter = VK_FILTER_NEAREST;
+	samplerInfo.minFilter = VK_FILTER_NEAREST;
+	samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+	samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+	samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+	samplerInfo.anisotropyEnable = VK_FALSE;
+	samplerInfo.maxAnisotropy = device->getPhysicalDevice().getProperties().limits.maxSamplerAnisotropy;
+	samplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
+	samplerInfo.unnormalizedCoordinates = VK_FALSE;
+	samplerInfo.compareEnable = VK_FALSE;
+	samplerInfo.compareOp = VK_COMPARE_OP_ALWAYS;
+	samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+	samplerInfo.mipLodBias = 0.0f;
+	samplerInfo.minLod = 0.0f;
+	samplerInfo.maxLod = 0.0f;
+
+	gBufferSampler = std::make_unique<Sampler>(*device, samplerInfo);
 }
 
 void VulkrApp::copyBufferToBuffer(const Buffer &srcBuffer, const Buffer &dstBuffer, VkDeviceSize size)
@@ -3971,27 +3995,27 @@ void VulkrApp::createDescriptorSets()
 	setDebugUtilsObjectName(device->getHandle(), geometryBufferDescriptorSet->getHandle(), "geometryBufferDescriptorSet");
 
 	VkDescriptorImageInfo positionImageInfo{};
-	positionImageInfo.sampler = textureSampler->getHandle();
+	positionImageInfo.sampler = gBufferSampler->getHandle();
 	positionImageInfo.imageView = positionImageView->getHandle();
 	positionImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 	VkDescriptorImageInfo normalImageInfo{};
-	normalImageInfo.sampler = textureSampler->getHandle();
+	normalImageInfo.sampler = gBufferSampler->getHandle();
 	normalImageInfo.imageView = normalImageView->getHandle();
 	normalImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 	VkDescriptorImageInfo uv0ImageInfo{};
-	uv0ImageInfo.sampler = textureSampler->getHandle();
+	uv0ImageInfo.sampler = gBufferSampler->getHandle();
 	uv0ImageInfo.imageView = uv0ImageView->getHandle();
 	uv0ImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 	VkDescriptorImageInfo uv1ImageInfo{};
-	uv1ImageInfo.sampler = textureSampler->getHandle();
+	uv1ImageInfo.sampler = gBufferSampler->getHandle();
 	uv1ImageInfo.imageView = uv1ImageView->getHandle();
 	uv1ImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 	VkDescriptorImageInfo color0ImageInfo{};
-	color0ImageInfo.sampler = textureSampler->getHandle();
+	color0ImageInfo.sampler = gBufferSampler->getHandle();
 	color0ImageInfo.imageView = color0ImageView->getHandle();
 	color0ImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 	VkDescriptorImageInfo materialIndexImageInfo{};
-	materialIndexImageInfo.sampler = textureSampler->getHandle();
+	materialIndexImageInfo.sampler = gBufferSampler->getHandle();
 	materialIndexImageInfo.imageView = materialIndexImageView->getHandle();
 	materialIndexImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 	std::array<VkDescriptorImageInfo, 6> geometryDataImageInfos

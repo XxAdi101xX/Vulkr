@@ -98,7 +98,7 @@ constexpr uint32_t maxFramesInFlight{ 2u }; // Explanation on this how we got th
  * Command buffer 1: Used for setup before core rendering loop; we ensure all the setup is done before we use it again for the compute/offscreen pass
  * Command buffer 2: Used for the post processing
  * Command buffer 3: Used for image transfers
- * Command buffer 4: Used for geometry buffer pass 
+ * Command buffer 4: Used for geometry buffer pass
  */
 constexpr uint32_t commandBufferCountForFrame{ 4u };
 constexpr uint32_t taaDepth{ 128u };
@@ -435,6 +435,7 @@ private:
 
 	std::unique_ptr<ImageView> depthImageView{ nullptr };
 	std::unique_ptr<Sampler> textureSampler{ nullptr };
+	std::unique_ptr<Sampler> gBufferSampler{ nullptr };
 
 	std::unique_ptr<SemaphorePool> semaphorePool;
 	std::unique_ptr<FencePool> fencePool;
@@ -484,7 +485,7 @@ private:
 
 	// Main output image view; this image will be copied over to the swapchain image after all of the rendering logic is completed
 	std::unique_ptr<ImageView> outputImageView;
-	
+
 	// TAA related textures
 	std::unique_ptr<ImageView> copyOutputImageView;
 	std::unique_ptr<ImageView> historyImageView;
@@ -584,6 +585,7 @@ private:
 	void createDepthResources();
 	std::unique_ptr<Image> createTextureImage(const std::string &filename); // Reads a texture file and populate the texture image with the contents
 	void createTextureSampler();
+	void createGBufferSampler();
 	void loadTextureImages(const std::vector<std::string> &textureFiles);
 	void copyBufferToBuffer(const Buffer &srcBuffer, const Buffer &dstBuffer, VkDeviceSize size);
 	void createVertexBuffer(ObjModelRenderingData &objModelRenderingData, const ObjLoader &objLoader);
