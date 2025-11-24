@@ -21,6 +21,7 @@
  */
 
 #version 460
+#extension GL_EXT_nonuniform_qualifier : enable
 
 layout(constant_id = 0) const uint workGroupSize = 64u;
 layout(local_size_x_id = 0) in; // Maps to the constant_id = 0 specialization constant
@@ -62,5 +63,5 @@ void main()
 	vec2 distanceFromSplat = pushConstant.splatPosition - screenSpaceCoords;
 	vec3 splatValue = pushConstant.splatForce.xyz * gaussianSplat(distanceFromSplat, pushConstant.gridSize.x * pushConstant.splatRadius);
 
-	imageStore(fluidSimulationOutputTextureImage, imageIndex, vec4(texture(fluidVelocityInputTextureImage, uv).xyz + splatValue, 1.0f));
+	imageStore(fluidSimulationOutputTextureImage, imageIndex, vec4(texture(nonuniformEXT(fluidVelocityInputTextureImage), uv).xyz + splatValue, 1.0f));
 }

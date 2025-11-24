@@ -22,6 +22,7 @@
 
 #version 460
 #extension GL_EXT_debug_printf : enable
+#extension GL_EXT_nonuniform_qualifier : enable
 
 #include "../random.glsl"
 
@@ -61,7 +62,7 @@ void main()
 	imageIndex.y = int(globalInvocationId / pushConstant.gridSize.x);
 	vec2 screenSpaceCoords = imageIndex + 0.5f;
 	vec2 uv = screenSpaceCoords / pushConstant.gridSize;
-	vec4 inputImage = texture(fluidDensityInputTextureImage, uv);
+	vec4 inputImage = texture(nonuniformEXT(fluidDensityInputTextureImage), uv);
 
 	vec2 distanceFromSplat = pushConstant.splatPosition - screenSpaceCoords;
 	//vec3 splatValue = vec3(1.0f, 1.0f, 1.0f) * gaussianSplat(distanceFromSplat, pushConstant.gridSize.x * pushConstant.splatRadius);

@@ -19,6 +19,7 @@
 
 #version 460
 #extension GL_GOOGLE_include_directive : enable
+#extension GL_EXT_nonuniform_qualifier : enable
 
 #include "../common.glsl"
 
@@ -54,15 +55,15 @@ void main()
 	uint globalInvocationId = gl_GlobalInvocationID.x;
 	if (globalInvocationId >= pushConstant.particleCount) return;	
 
-	vec4 position = particles[globalInvocationId].position;
-	vec4 velocity = particles[globalInvocationId].velocity;
+	vec4 position = particles[nonuniformEXT(globalInvocationId)].position;
+	vec4 velocity = particles[nonuniformEXT(globalInvocationId)].velocity;
 	vec4 acceleration = vec4(0.0);
 
 	for (uint i = 0; i < pushConstant.particleCount; i += SHARED_DATA_SIZE)
 	{
 		if (i + gl_LocalInvocationID.x < pushConstant.particleCount)
 		{
-			sharedData[gl_LocalInvocationID.x] = particles[i + gl_LocalInvocationID.x].position;
+			sharedData[gl_LocalInvocationID.x] = particles[nonuniformEXT(i + gl_LocalInvocationID.x)].position;
 		}
 		else
 		{
@@ -81,12 +82,12 @@ void main()
 		barrier();
 	}
 
-	particles[globalInvocationId].velocity.xyz += pushConstant.deltaTime * TIME_FACTOR * acceleration.xyz;
+	particles[nonuniformEXT(globalInvocationId)].velocity.xyz += pushConstant.deltaTime * TIME_FACTOR * acceleration.xyz;
 
 	// Gradient texture position
-	particles[globalInvocationId].velocity.w += 0.1 * TIME_FACTOR * pushConstant.deltaTime;
-	if (particles[globalInvocationId].velocity.w > 1.0)
+	particles[nonuniformEXT(globalInvocationId)].velocity.w += 0.1 * TIME_FACTOR * pushConstant.deltaTime;
+	if (particles[nonuniformEXT(globalInvocationId)].velocity.w > 1.0)
 	{
-		particles[globalInvocationId].velocity.w -= 1.0;
+		particles[nonuniformEXT(globalInvocationId)].velocity.w -= 1.0;
 	}
 }

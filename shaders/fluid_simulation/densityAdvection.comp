@@ -21,7 +21,7 @@
  */
 
 #version 460
-//#extension GL_EXT_debug_printf : enable
+#extension GL_EXT_nonuniform_qualifier : enable
 
 layout(constant_id = 0) const uint workGroupSize = 64u;
 layout(local_size_x_id = 0) in; // Maps to the constant_id = 0 specialization constant
@@ -52,10 +52,10 @@ vec2 bilerp(sampler2D tex, vec2 p)
     ij.zw = ij.xy + 1.0f;
 
 	vec4 uv = ij / pushConstant.gridSize.xyxy;
-	vec2 tex11 = texture(tex, uv.xy).xy;
-	vec2 tex21 = texture(tex, uv.zy).xy;
-	vec2 tex12 = texture(tex, uv.xw).xy;
-	vec2 tex22 = texture(tex, uv.zw).xy;
+	vec2 tex11 = texture(nonuniformEXT(tex), uv.xy).xy;
+	vec2 tex21 = texture(nonuniformEXT(tex), uv.zy).xy;
+	vec2 tex12 = texture(nonuniformEXT(tex), uv.xw).xy;
+	vec2 tex22 = texture(nonuniformEXT(tex), uv.zw).xy;
 
 	vec2 t = p - ij.xy;
 
@@ -74,7 +74,7 @@ void main()
 	vec2 uv = screenSpaceCoords / pushConstant.gridSize;
 
 	float scale = 1.0f / pushConstant.gridScale;
-	vec2 pos = screenSpaceCoords - pushConstant.timestep * scale * texture(fluidVelocityInputTextureImage, uv).xy;
+	vec2 pos = screenSpaceCoords - pushConstant.timestep * scale * texture(nonuniformEXT(fluidVelocityInputTextureImage), uv).xy;
 
 	// Advect the fluid density
 	vec4 advectedDensity = vec4(bilerp(fluidDensityInputTextureImage, pos), 0.0f, 1.0f);
