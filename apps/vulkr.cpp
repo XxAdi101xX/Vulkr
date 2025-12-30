@@ -3756,11 +3756,11 @@ void VulkrApp::createDescriptorPool()
 	poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 	poolSizes[0].descriptorCount = 1000u;
 	poolSizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-	poolSizes[1].descriptorCount = 10u;
+	poolSizes[1].descriptorCount = 1000u;
 	poolSizes[2].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-	poolSizes[2].descriptorCount = 20u;
+	poolSizes[2].descriptorCount = 1000u;
 	poolSizes[3].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-	poolSizes[3].descriptorCount = 10u;
+	poolSizes[3].descriptorCount = 1000u;
 
 
 	uint32_t maxSets = 0u;
@@ -4475,7 +4475,9 @@ void VulkrApp::loadModels()
 		"the_odd_sphere.gltf",
 		"floor_stones_tilleable.gltf",
 		"flat_plane_ground_floor.gltf",
-		"cathedral.gltf"
+		"cathedral.gltf",
+		//"SubwayStation.gtlf",
+		"Countryside.gltf"
 	};
 
 	// Load obj files
@@ -4580,7 +4582,9 @@ void VulkrApp::createSceneInstances()
 	createGltfInstance("floor_stones_tilleable.gltf", glm::translate(glm::scale(glm::mat4{ 1.0 }, glm::vec3(0.1)), glm::vec3{ 0, 0, 0 }));
 	//createGltfInstance("flat_plane_ground_floor.gltf", glm::translate(glm::scale(glm::mat4{ 1.0 }, glm::vec3(0.1)), glm::vec3{ 0, 0, 0 }));
 
-	// TODO: Rendering the cathedral using the deferred rendering method shows that materials are incorrected selected, investigation is required.
+	// TODO: Rendering some gltf/glb assets below using deferred rendering method shows that UV material indexing is not working, investigation is required.
+	createGltfInstance("Countryside.gltf", glm::translate(glm::scale(glm::mat4{ 1.0 }, glm::vec3(1.0)), glm::vec3{ 0, 4, 20 }));
+	//createGltfInstance("SubwayStation.gltf", glm::translate(glm::scale(glm::mat4{ 1.0 }, glm::vec3(1.0)), glm::vec3{ 0, 4, 20 }));
 	//createGltfInstance("cathedral.gltf", glm::translate(glm::scale(glm::mat4{ 1.0 }, glm::vec3(1.0)), glm::vec3{ 0, 4, 0 }));
 
 	if (gltfInstances.size() > maxGltfInstanceCount)

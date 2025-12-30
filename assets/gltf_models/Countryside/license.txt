@@ -1,0 +1,11 @@
+Model Information:
+* title:	Countryside Scene Free
+* source:	https://sketchfab.com/3d-models/countryside-scene-free-d86d86d99991483c87339637d16401a7
+* author:	abhayexe (https://sketchfab.com/abhayexe)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Countryside Scene Free" (https://sketchfab.com/3d-models/countryside-scene-free-d86d86d99991483c87339637d16401a7) by abhayexe (https://sketchfab.com/abhayexe) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
