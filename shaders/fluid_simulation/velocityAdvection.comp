@@ -24,8 +24,8 @@
 #extension GL_EXT_debug_printf : enable
 #extension GL_EXT_nonuniform_qualifier : enable
 
-const uint workGroupSize = 64u;
-layout(local_size_x = 64) in; // fixed local size to avoid specialization constants not supported by some validators
+layout(constant_id = 0) const uint workGroupSize = 64u;
+layout(local_size_x_id = 0) in; // Maps to the constant_id = 0 specialization constant
 
 layout(set = 0, binding = 0) uniform sampler2D fluidVelocityInputTextureImage;
 // layout(set = 0, binding = 1) uniform sampler2D fluidVelocityDivergenceInputTextureImage;
