@@ -4877,6 +4877,7 @@ BlasInput VulkrApp::objectToVkGeometryKHR(size_t objModelIndex)
 	uint32_t maxPrimitiveCount = objModelRenderingDataList[objModelIndex].indicesCount / 3;
 
 	// Describe buffer as array of VertexObj.
+	// TODO: I don't think this is correct, there are validation errors if the vertex format is not R32G32B32_SFLOAT, and the VertexObj contains more data than just position
 	VkAccelerationStructureGeometryTrianglesDataKHR triangles{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR };
 	triangles.vertexFormat = VK_FORMAT_R32G32B32A32_SFLOAT;  // vec3 vertex position data.
 	triangles.vertexData.deviceAddress = vertexAddress;
@@ -5011,7 +5012,7 @@ void VulkrApp::buildBlas()
 	VmaAllocationCreateInfo memoryInfo{};
 	memoryInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 
-	std::unique_ptr<Buffer> scratchBuffer = std::make_unique<Buffer>(*device, bufferCreateInfo, memoryInfo);
+	std::unique_ptr<Buffer> scratchBuffer = std::make_unique<Buffer>(*device, bufferCreateInfo, memoryInfo, device->getPhysicalDevice().getAccelerationStructureProperties().minAccelerationStructureScratchOffsetAlignment);
 
 	VkBufferDeviceAddressInfo bufferDeviceAddressInfo{ VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO };
 	bufferDeviceAddressInfo.buffer = scratchBuffer->getHandle();
@@ -5254,8 +5255,7 @@ void VulkrApp::buildTlas(bool update)
 	bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
 	memoryInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 
-	m_instBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
-
+	m_instBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo, 16u); // As per validation layer, alignment should be at least 16 bytes when geometry.instances.arrayOfPointers is VK_FALSE
 	void *mappedData = stagingBuffer->map();
 	memcpy(mappedData, m_accelerationStructureInstances.data(), static_cast<size_t>(bufferSize));
 	stagingBuffer->unmap();
@@ -5327,7 +5327,7 @@ void VulkrApp::buildTlas(bool update)
 
 	memoryInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 
-	std::unique_ptr<Buffer> scratchBuffer = std::make_unique<Buffer>(*device, bufferCreateInfo, memoryInfo);
+	std::unique_ptr<Buffer> scratchBuffer = std::make_unique<Buffer>(*device, bufferCreateInfo, memoryInfo, device->getPhysicalDevice().getAccelerationStructureProperties().minAccelerationStructureScratchOffsetAlignment);
 	bufferDeviceAddressInfo.buffer = scratchBuffer->getHandle();
 	VkDeviceAddress scratchAddress = vkGetBufferDeviceAddress(device->getHandle(), &bufferDeviceAddressInfo);
 
@@ -5600,11 +5600,11 @@ void VulkrApp::createRaytracingShaderBindingTable()
 
 	VmaAllocationCreateInfo memoryInfo{};
 	memoryInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
-	std::unique_ptr<Buffer> stagingBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
+	std::unique_ptr<Buffer> stagingBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo, device->getPhysicalDevice().getRayTracingPipelineProperties().shaderGroupBaseAlignment);
 	bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_SHADER_BINDING_TABLE_BIT_KHR;
 	memoryInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 
-	m_rtSBTBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
+	m_rtSBTBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo, device->getPhysicalDevice().getRayTracingPipelineProperties().shaderGroupBaseAlignment);
 	setDebugUtilsObjectName(device->getHandle(), m_rtSBTBuffer->getHandle(), "SBT Buffer");
 
 	void *mappedData = stagingBuffer->map();
