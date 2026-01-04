@@ -2303,12 +2303,12 @@ void VulkrApp::createMainRasterizationPipeline()
 
 	std::vector<VkDynamicState> dynamicStates;
 
-	std::shared_ptr<ShaderSource> mainVertexShader = std::make_shared<ShaderSource>("rasterization/main.vert.spv");
+	std::shared_ptr<ShaderSource> mainVertexShader = std::make_shared<ShaderSource>("forward_rendering/forward_obj.vert.spv");
 	VkSpecializationInfo mainVertexShaderSpecializationInfo;
 	mainVertexShaderSpecializationInfo.mapEntryCount = 0;
 	mainVertexShaderSpecializationInfo.dataSize = 0;
 
-	std::shared_ptr<ShaderSource> mainFragmentShader = std::make_shared<ShaderSource>("rasterization/main.frag.spv");
+	std::shared_ptr<ShaderSource> mainFragmentShader = std::make_shared<ShaderSource>("forward_rendering/forward_obj.frag.spv");
 	struct SpecializationData
 	{
 		uint32_t maxLightCount;
@@ -2475,12 +2475,12 @@ void VulkrApp::createPbrRasterizationPipeline()
 
 	std::vector<VkDynamicState> dynamicStates;
 
-	std::shared_ptr<ShaderSource> vertexShader = std::make_shared<ShaderSource>("rasterization/pbr.vert.spv");
+	std::shared_ptr<ShaderSource> vertexShader = std::make_shared<ShaderSource>("forward_rendering/forward_gltf.vert.spv");
 	VkSpecializationInfo vertexShaderSpecializationInfo;
 	vertexShaderSpecializationInfo.mapEntryCount = 0;
 	vertexShaderSpecializationInfo.dataSize = 0;
 
-	std::shared_ptr<ShaderSource> fragmentShader = std::make_shared<ShaderSource>("rasterization/pbr.frag.spv");
+	std::shared_ptr<ShaderSource> fragmentShader = std::make_shared<ShaderSource>("forward_rendering/forward_gltf.frag.spv");
 	struct SpecializationData
 	{
 		uint32_t maxLightCount;
@@ -2649,12 +2649,12 @@ void VulkrApp::createMrtGeometryBufferPipeline()
 
 	std::vector<VkDynamicState> dynamicStates;
 
-	std::shared_ptr<ShaderSource> vertexShader = std::make_shared<ShaderSource>("rasterization/mrtGeometryBuffer.vert.spv");
+	std::shared_ptr<ShaderSource> vertexShader = std::make_shared<ShaderSource>("deferred_rendering/mrtGeometryBuffer.vert.spv");
 	VkSpecializationInfo vertexShaderSpecializationInfo;
 	vertexShaderSpecializationInfo.mapEntryCount = 0;
 	vertexShaderSpecializationInfo.dataSize = 0;
 
-	std::shared_ptr<ShaderSource> fragmentShader = std::make_shared<ShaderSource>("rasterization/mrtGeometryBuffer.frag.spv");
+	std::shared_ptr<ShaderSource> fragmentShader = std::make_shared<ShaderSource>("deferred_rendering/mrtGeometryBuffer.frag.spv");
 	VkSpecializationInfo fragmentShaderSpecializationInfo;
 	fragmentShaderSpecializationInfo.mapEntryCount = 0;
 	fragmentShaderSpecializationInfo.dataSize = 0;
@@ -2743,12 +2743,12 @@ void VulkrApp::createDeferredShadingPipeline()
 
 	std::vector<VkDynamicState> dynamicStates;
 
-	std::shared_ptr<ShaderSource> vertexShader = std::make_shared<ShaderSource>("rasterization/deferredShading.vert.spv");
+	std::shared_ptr<ShaderSource> vertexShader = std::make_shared<ShaderSource>("deferred_rendering/deferredShading.vert.spv");
 	VkSpecializationInfo vertexShaderSpecializationInfo;
 	vertexShaderSpecializationInfo.mapEntryCount = 0u;
 	vertexShaderSpecializationInfo.dataSize = 0ull;
 
-	std::shared_ptr<ShaderSource> fragmentShader = std::make_shared<ShaderSource>("rasterization/deferredShading.frag.spv");
+	std::shared_ptr<ShaderSource> fragmentShader = std::make_shared<ShaderSource>("deferred_rendering/deferredShading.frag.spv");
 	struct SpecializationData
 	{
 		uint32_t maxLightCount;

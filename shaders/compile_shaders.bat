@@ -1,11 +1,13 @@
-%VULKAN_SDK%/Bin/glslc.exe --target-env=vulkan1.3 rasterization/main.vert -o spv/rasterization/main.vert.spv -g
-%VULKAN_SDK%/Bin/glslc.exe --target-env=vulkan1.3 rasterization/main.frag -o spv/rasterization/main.frag.spv -g
-%VULKAN_SDK%/Bin/glslc.exe --target-env=vulkan1.3 rasterization/pbr.vert -o spv/rasterization/pbr.vert.spv -g
-%VULKAN_SDK%/Bin/glslc.exe --target-env=vulkan1.3 rasterization/pbr.frag -o spv/rasterization/pbr.frag.spv -g
-%VULKAN_SDK%/Bin/glslc.exe --target-env=vulkan1.3 rasterization/mrtGeometryBuffer.vert -o spv/rasterization/mrtGeometryBuffer.vert.spv -g
-%VULKAN_SDK%/Bin/glslc.exe --target-env=vulkan1.3 rasterization/mrtGeometryBuffer.frag -o spv/rasterization/mrtGeometryBuffer.frag.spv -g
-%VULKAN_SDK%/Bin/glslc.exe --target-env=vulkan1.3 rasterization/deferredShading.vert -o spv/rasterization/deferredShading.vert.spv -g
-%VULKAN_SDK%/Bin/glslc.exe --target-env=vulkan1.3 rasterization/deferredShading.frag -o spv/rasterization/deferredShading.frag.spv -g
+%VULKAN_SDK%/Bin/glslc.exe --target-env=vulkan1.3 forward_rendering/forward_obj.vert -o spv/forward_rendering/forward_obj.vert.spv -g
+%VULKAN_SDK%/Bin/glslc.exe --target-env=vulkan1.3 forward_rendering/forward_obj.frag -o spv/forward_rendering/forward_obj.frag.spv -g
+%VULKAN_SDK%/Bin/glslc.exe --target-env=vulkan1.3 forward_rendering/forward_gltf.vert -o spv/forward_rendering/forward_gltf.vert.spv -g
+%VULKAN_SDK%/Bin/glslc.exe --target-env=vulkan1.3 forward_rendering/forward_gltf.frag -o spv/forward_rendering/forward_gltf.frag.spv -g
+
+%VULKAN_SDK%/Bin/glslc.exe --target-env=vulkan1.3 deferred_rendering/mrtGeometryBuffer.vert -o spv/deferred_rendering/mrtGeometryBuffer.vert.spv -g
+%VULKAN_SDK%/Bin/glslc.exe --target-env=vulkan1.3 deferred_rendering/mrtGeometryBuffer.frag -o spv/deferred_rendering/mrtGeometryBuffer.frag.spv -g
+%VULKAN_SDK%/Bin/glslc.exe --target-env=vulkan1.3 deferred_rendering/deferredShading.vert -o spv/deferred_rendering/deferredShading.vert.spv -g
+%VULKAN_SDK%/Bin/glslc.exe --target-env=vulkan1.3 deferred_rendering/deferredShading.frag -o spv/deferred_rendering/deferredShading.frag.spv -g
+
 %VULKAN_SDK%/Bin/glslc.exe --target-env=vulkan1.3 post_processing/postProcess.vert -o spv/post_processing/postProcess.vert.spv -g
 %VULKAN_SDK%/Bin/glslc.exe --target-env=vulkan1.3 post_processing/postProcess.frag -o spv/post_processing/postProcess.frag.spv -g
 
