@@ -7,7 +7,7 @@
 #include "../random.glsl"
 
 layout(set = 0, binding = 0) uniform accelerationStructureEXT topLevelAS;
-layout(set = 0, binding = 1, rgba8_snorm) uniform image2D image;
+layout(set = 0, binding = 1, rgba8) uniform image2D image; // TODO this is incorrect, this image is BGRA8 but glsl ray tracing shaders don't support that. Standard fix is to store as rgba8 and bgra8 swapchain blit
 
 layout(location = 0) rayPayloadEXT RayPayload payload;
 
