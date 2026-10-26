@@ -148,3 +148,18 @@ add_library(basis_universal INTERFACE)
 set(BASISU_DIR ${CMAKE_CURRENT_SOURCE_DIR}/basis_universal)
 target_sources(basis_universal INTERFACE ${BASISU_DIR}/transcoder/basisu_transcoder.cpp ${BASISU_DIR}/zstd/zstd.c)
 target_include_directories(basis_universal INTERFACE ${BASISU_DIR}/transcoder ${BASISU_DIR}/zstd)
+
+# meshoptimizer
+add_subdirectory(meshoptimizer)
+set_property(TARGET meshoptimizer PROPERTY FOLDER "ThirdParty")
+
+# slang (shader compiler shipped with the Vulkan SDK)
+add_library(slang INTERFACE)
+set(SLANG_INCLUDE_DIR $ENV{VULKAN_SDK}/Include)
+find_library(SLANG_LIBRARY NAMES slang slang-compiler HINTS "$ENV{VULKAN_SDK}/Lib" "$ENV{VULKAN_SDK}/lib")
+if(NOT SLANG_LIBRARY)
+    message(FATAL_ERROR "Slang was not found in the Vulkan SDK; install a Vulkan SDK that ships Slang")
+endif()
+target_sources(slang INTERFACE ${SLANG_INCLUDE_DIR}/slang/slang.h ${SLANG_INCLUDE_DIR}/slang/slang-com-ptr.h)
+target_include_directories(slang INTERFACE ${SLANG_INCLUDE_DIR})
+target_link_libraries(slang INTERFACE ${SLANG_LIBRARY})

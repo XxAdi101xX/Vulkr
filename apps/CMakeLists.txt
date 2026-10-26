@@ -23,14 +23,30 @@
 cmake_minimum_required(VERSION 3.20)
 
 add_executable(vulkr_app)
-target_sources(vulkr_app PRIVATE vulkr.cpp vulkr.h)
+target_sources(vulkr_app PRIVATE vulkr/vulkr.cpp vulkr/vulkr.h)
 target_link_libraries(vulkr_app PRIVATE src)
 #target_compile_features(vulkr_app PRIVATE cxx_std_20)
 #set_target_properties(vulkr_app PROPERTIES CXX_EXTENSIONS OFF)
 
 add_executable(fluid_simulation)
-target_sources(fluid_simulation PRIVATE fluid_simulation.cpp fluid_simulation.h)
+target_sources(fluid_simulation PRIVATE fluid_simulation/fluid_simulation.cpp fluid_simulation/fluid_simulation.h)
 target_link_libraries(fluid_simulation PRIVATE src)
+
+add_executable(vulkr_mesh)
+target_sources(vulkr_mesh PRIVATE mesh/main.cpp mesh/mesh_app.cpp mesh/mesh_app.h)
+target_link_libraries(vulkr_mesh PRIVATE src meshoptimizer slang)
+
+# Slang is loaded from the DLLs that ship with the Vulkan SDK
+if(WIN32)
+    foreach(SLANG_DLL slang.dll slang-glslang.dll slang-rt.dll slang-glsl-module.dll)
+        if(EXISTS "$ENV{VULKAN_SDK}/Bin/${SLANG_DLL}")
+            add_custom_command(TARGET vulkr_mesh POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "$ENV{VULKAN_SDK}/Bin/${SLANG_DLL}"
+                    "$<TARGET_FILE_DIR:vulkr_mesh>")
+        endif()
+    endforeach()
+endif()
 #target_compile_features(fluid_simulation PRIVATE cxx_std_20)
 #set_target_properties(fluid_simulation PROPERTIES CXX_EXTENSIONS OFF)
 

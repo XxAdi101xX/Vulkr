@@ -23,6 +23,9 @@
 #include "physical_device.h"
 #include "common/logger.h"
 
+#include <algorithm>
+#include <cstring>
+
 namespace vulkr
 {
 
@@ -34,8 +37,20 @@ PhysicalDevice::PhysicalDevice(Instance &instance, VkPhysicalDevice gpu) :
 	vkGetPhysicalDeviceFeatures(gpu, &features);
 	vkGetPhysicalDeviceProperties(gpu, &properties);
 	vkGetPhysicalDeviceMemoryProperties(gpu, &memoryProperties);
+	// Check whether the mesh shader extension is available before querying the structures that belong to it
+	uint32_t deviceExtensionCount{ 0u };
+	vkEnumerateDeviceExtensionProperties(gpu, nullptr, &deviceExtensionCount, nullptr);
+	std::vector<VkExtensionProperties> deviceExtensions(deviceExtensionCount);
+	vkEnumerateDeviceExtensionProperties(gpu, nullptr, &deviceExtensionCount, deviceExtensions.data());
+	meshShaderSupported = std::any_of(deviceExtensions.begin(), deviceExtensions.end(),
+		[](const VkExtensionProperties &extension) { return strcmp(extension.extensionName, VK_EXT_MESH_SHADER_EXTENSION_NAME) == 0; });
+
 	// Requesting acceleration structure properties, ray tracing properties
 	rayTracingPipelineProperties.pNext = &accelerationStructureProperties;
+	if (meshShaderSupported)
+	{
+		accelerationStructureProperties.pNext = &meshShaderProperties;
+	}
 	VkPhysicalDeviceProperties2 properties2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2 };
 	properties2.pNext = &rayTracingPipelineProperties;
 	vkGetPhysicalDeviceProperties2(gpu, &properties2);
@@ -45,6 +60,10 @@ PhysicalDevice::PhysicalDevice(Instance &instance, VkPhysicalDevice gpu) :
 	accelerationStructureFeatures.pNext = &hostQueryResetFeatures;
 	rayTracingPipelineFeatures.pNext = &accelerationStructureFeatures;
 	bufferDeviceAddressFeatures.pNext = &rayTracingPipelineFeatures;
+	if (meshShaderSupported)
+	{
+		descriptorIndexingFeatures.pNext = &meshShaderFeatures;
+	}
 	VkPhysicalDeviceFeatures2 features2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
 	features2.pNext = &bufferDeviceAddressFeatures;
 	vkGetPhysicalDeviceFeatures2(gpu, &features2);
@@ -115,6 +134,21 @@ const VkPhysicalDeviceBufferDeviceAddressFeatures &PhysicalDevice::getBufferDevi
 const VkPhysicalDeviceDescriptorIndexingFeatures &PhysicalDevice::getDescriptorIndexingFeatures() const
 {
 	return descriptorIndexingFeatures;
+}
+
+const VkPhysicalDeviceMeshShaderFeaturesEXT &PhysicalDevice::getMeshShaderFeatures() const
+{
+	return meshShaderFeatures;
+}
+
+const VkPhysicalDeviceMeshShaderPropertiesEXT &PhysicalDevice::getMeshShaderProperties() const
+{
+	return meshShaderProperties;
+}
+
+bool PhysicalDevice::isMeshShaderSupported() const
+{
+	return meshShaderSupported;
 }
 
 const VkPhysicalDeviceMemoryProperties &PhysicalDevice::getMemoryProperties() const

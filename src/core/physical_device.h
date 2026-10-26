@@ -78,6 +78,15 @@ public:
 	/* Get the descriptor indexing features for the physical device */
 	const VkPhysicalDeviceDescriptorIndexingFeatures &getDescriptorIndexingFeatures() const;
 
+	/* Get the mesh shader features for the physical device */
+	const VkPhysicalDeviceMeshShaderFeaturesEXT &getMeshShaderFeatures() const;
+
+	/* Get the mesh shader properties for the physical device */
+	const VkPhysicalDeviceMeshShaderPropertiesEXT &getMeshShaderProperties() const;
+
+	/* Check whether VK_EXT_mesh_shader is supported by the physical device */
+	bool isMeshShaderSupported() const;
+
 	/* Get the memory properties for the physical device */
 	const VkPhysicalDeviceMemoryProperties &getMemoryProperties() const;
 
@@ -125,6 +134,15 @@ private:
 
 	/* The descriptor indexing features that the GPU supports */
 	VkPhysicalDeviceDescriptorIndexingFeatures descriptorIndexingFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES };
+
+	/* Whether VK_EXT_mesh_shader is available on the GPU */
+	bool meshShaderSupported{ false };
+
+	/* The mesh shader features that the GPU supports */
+	VkPhysicalDeviceMeshShaderFeaturesEXT meshShaderFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT };
+
+	/* The mesh shader limits of the GPU */
+	VkPhysicalDeviceMeshShaderPropertiesEXT meshShaderProperties{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_PROPERTIES_EXT };
 
 	/* The GPU memory properties */
 	VkPhysicalDeviceMemoryProperties memoryProperties;

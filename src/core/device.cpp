@@ -88,10 +88,14 @@ Device::Device(std::unique_ptr<PhysicalDevice> &&selectedPhysicalDevice, VkSurfa
 	// Enable synchronization2
 	VkPhysicalDeviceSynchronization2Features synchronization2Features{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES };
 	synchronization2Features.synchronization2 = VK_TRUE;
+	// Enable dynamic rendering; it is required core functionality in Vulkan 1.3 and lets us render without render passes
+	VkPhysicalDeviceDynamicRenderingFeatures dynamicRenderingFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES };
+	dynamicRenderingFeatures.dynamicRendering = VK_TRUE;
+	dynamicRenderingFeatures.pNext = &synchronization2Features;
 	// Enable maintenance4 features; required for usage of the LocalSizeId variable in compute shaders
 	VkPhysicalDeviceMaintenance4Features maintenance4Features{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_4_FEATURES };
 	maintenance4Features.maintenance4 = VK_TRUE;
-	maintenance4Features.pNext = &synchronization2Features;
+	maintenance4Features.pNext = &dynamicRenderingFeatures;
 	// Enabling the descriptor indexing features, host query reset features, acceleration structure features, ray tracing features and buffer device address features
 	VkPhysicalDeviceDescriptorIndexingFeatures descriptorIndexingFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES };
 	descriptorIndexingFeatures.shaderSampledImageArrayNonUniformIndexing = getPhysicalDevice().getDescriptorIndexingFeatures().shaderSampledImageArrayNonUniformIndexing;
@@ -115,9 +119,19 @@ Device::Device(std::unique_ptr<PhysicalDevice> &&selectedPhysicalDevice, VkSurfa
 	bufferDeviceAddressFeatures.bufferDeviceAddress = getPhysicalDevice().getBufferDeviceAddressFeatures().bufferDeviceAddress;
 	bufferDeviceAddressFeatures.pNext = &rayTracingPipelineFeatures;
 
+	// Enable the mesh shader features only when the application requested the VK_EXT_mesh_shader extension
+	const bool meshShaderExtensionEnabled{ isExtensionEnabled(VK_EXT_MESH_SHADER_EXTENSION_NAME) };
+	VkPhysicalDeviceMeshShaderFeaturesEXT meshShaderFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT };
+	if (meshShaderExtensionEnabled)
+	{
+		meshShaderFeatures.taskShader = getPhysicalDevice().getMeshShaderFeatures().taskShader;
+		meshShaderFeatures.meshShader = getPhysicalDevice().getMeshShaderFeatures().meshShader;
+		meshShaderFeatures.pNext = &bufferDeviceAddressFeatures;
+	}
+
 	VkPhysicalDeviceFeatures2 features2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
 	features2.features = this->physicalDevice->getRequestedFeatures(); // These features are specified in app.h
-	features2.pNext = &bufferDeviceAddressFeatures;
+	features2.pNext = meshShaderExtensionEnabled ? static_cast<void *>(&meshShaderFeatures) : static_cast<void *>(&bufferDeviceAddressFeatures);
 
 	VkDeviceCreateInfo createInfo{ VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
 	createInfo.queueCreateInfoCount = to_u32(queueCreateInfos.size());
