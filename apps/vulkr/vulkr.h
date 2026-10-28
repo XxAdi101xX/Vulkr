@@ -457,7 +457,9 @@ private:
 		std::array<VkSemaphore, maxFramesInFlight> geometryBufferPopulationFinishedSemaphores;
 		std::array<VkSemaphore, maxFramesInFlight> offscreenRenderingFinishedSemaphores;
 		std::array<VkSemaphore, maxFramesInFlight> postProcessRenderingFinishedSemaphores;
-		std::array<VkSemaphore, maxFramesInFlight> outputImageCopyFinishedSemaphores;
+		// One semaphore per swapchain image: a binary semaphore that was signalled for a presentation cannot be
+		// signalled again until that presentation has finished, which is only guaranteed once the image is re-acquired
+		std::vector<VkSemaphore> outputImageCopyFinishedSemaphores;
 		std::array<VkSemaphore, maxFramesInFlight> computeParticlesFinishedSemaphores;
 		std::array<VkFence, maxFramesInFlight> inFlightFences;
 

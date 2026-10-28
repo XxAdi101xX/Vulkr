@@ -791,7 +791,7 @@ void VulkrApp::update()
 
 	VkSemaphoreSubmitInfo outputImageTransferSemaphoreSubmitInfo{ VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
 	outputImageTransferSemaphoreSubmitInfo.pNext = nullptr;
-	outputImageTransferSemaphoreSubmitInfo.semaphore = frameData.outputImageCopyFinishedSemaphores[currentFrame];
+	outputImageTransferSemaphoreSubmitInfo.semaphore = frameData.outputImageCopyFinishedSemaphores[swapchainImageIndex];
 	outputImageTransferSemaphoreSubmitInfo.value = 0ull; // Optional: ignored since this isn't a timeline semaphore
 	outputImageTransferSemaphoreSubmitInfo.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
 	outputImageTransferSemaphoreSubmitInfo.deviceIndex = 0u; // replaces VkDeviceGroupSubmitInfo but we don't have that in our pNext chain so not used.
@@ -820,7 +820,7 @@ void VulkrApp::update()
 
 	VkPresentInfoKHR presentInfo{ VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
 	presentInfo.waitSemaphoreCount = 1u;
-	presentInfo.pWaitSemaphores = &frameData.outputImageCopyFinishedSemaphores[currentFrame];
+	presentInfo.pWaitSemaphores = &frameData.outputImageCopyFinishedSemaphores[swapchainImageIndex];
 
 	std::array<VkSwapchainKHR, 1> swapchains{ swapchain->getHandle() };
 	presentInfo.swapchainCount = to_u32(swapchains.size());
@@ -4307,13 +4307,21 @@ void VulkrApp::setupSynchronizationObjects()
 {
 	imagesInFlight.resize(swapchain->getImages().size(), VK_NULL_HANDLE);
 
+	// The semaphore that the output image copy signals and the presentation waits on is per swapchain image rather than
+	// per frame, because presentation may still be using a frame's semaphore by the time that frame comes around again
+	frameData.outputImageCopyFinishedSemaphores.resize(swapchain->getImages().size(), VK_NULL_HANDLE);
+	for (size_t i = 0; i < frameData.outputImageCopyFinishedSemaphores.size(); ++i)
+	{
+		frameData.outputImageCopyFinishedSemaphores[i] = semaphorePool->requestSemaphore();
+		setDebugUtilsObjectName(device->getHandle(), frameData.outputImageCopyFinishedSemaphores[i], "outputImageCopyFinishedSemaphores for swapchain image #" + std::to_string(i));
+	}
+
 	for (size_t i = 0; i < maxFramesInFlight; ++i)
 	{
 		frameData.imageAvailableSemaphores[i] = semaphorePool->requestSemaphore();
 		frameData.geometryBufferPopulationFinishedSemaphores[i] = semaphorePool->requestSemaphore();
 		frameData.offscreenRenderingFinishedSemaphores[i] = semaphorePool->requestSemaphore();
 		frameData.postProcessRenderingFinishedSemaphores[i] = semaphorePool->requestSemaphore();
-		frameData.outputImageCopyFinishedSemaphores[i] = semaphorePool->requestSemaphore();
 		frameData.computeParticlesFinishedSemaphores[i] = semaphorePool->requestSemaphore();
 
 		frameData.inFlightFences[i] = fencePool->requestFence();
@@ -4322,7 +4330,6 @@ void VulkrApp::setupSynchronizationObjects()
 		setDebugUtilsObjectName(device->getHandle(), frameData.geometryBufferPopulationFinishedSemaphores[i], "geometryBufferPopulationFinishedSemaphores for frame #" + std::to_string(i));
 		setDebugUtilsObjectName(device->getHandle(), frameData.offscreenRenderingFinishedSemaphores[i], "offscreenRenderingFinishedSemaphores for frame #" + std::to_string(i));
 		setDebugUtilsObjectName(device->getHandle(), frameData.postProcessRenderingFinishedSemaphores[i], "postProcessRenderingFinishedSemaphores for frame #" + std::to_string(i));
-		setDebugUtilsObjectName(device->getHandle(), frameData.outputImageCopyFinishedSemaphores[i], "outputImageCopyFinishedSemaphores for frame #" + std::to_string(i));
 		setDebugUtilsObjectName(device->getHandle(), frameData.computeParticlesFinishedSemaphores[i], "computeParticlesFinishedSemaphores for frame #" + std::to_string(i));
 	}
 }
