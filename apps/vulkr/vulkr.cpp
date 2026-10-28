@@ -413,6 +413,37 @@ void VulkrApp::update()
 	// Begin command buffer for offscreen pass
 	frameData.commandBuffers[currentFrame][0]->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
 
+	// The depth image is shared by both frames in flight and every render pass clears it, so discard its previous contents
+	// and order the layout transition after all of the work submitted before this frame, including the previous frame's depth store
+	VkImageAspectFlags depthAspectMask = isDepthStencilFormat(depthImageView->getFormat())
+		? VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT
+		: VK_IMAGE_ASPECT_DEPTH_BIT;
+
+	VkImageMemoryBarrier2 transitionDepthLayoutBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+	transitionDepthLayoutBarrier.pNext = nullptr;
+	transitionDepthLayoutBarrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+	transitionDepthLayoutBarrier.srcAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+	transitionDepthLayoutBarrier.dstStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
+	transitionDepthLayoutBarrier.dstAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+	transitionDepthLayoutBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	transitionDepthLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+	transitionDepthLayoutBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	transitionDepthLayoutBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	transitionDepthLayoutBarrier.image = depthImageView->getImage()->getHandle();
+	transitionDepthLayoutBarrier.subresourceRange = { depthAspectMask, 0u, 1u, 0u, 1u };
+
+	VkDependencyInfo depthDependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+	depthDependencyInfo.pNext = nullptr;
+	depthDependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+	depthDependencyInfo.memoryBarrierCount = 0u;
+	depthDependencyInfo.pMemoryBarriers = nullptr;
+	depthDependencyInfo.bufferMemoryBarrierCount = 0u;
+	depthDependencyInfo.pBufferMemoryBarriers = nullptr;
+	depthDependencyInfo.imageMemoryBarrierCount = 1u;
+	depthDependencyInfo.pImageMemoryBarriers = &transitionDepthLayoutBarrier;
+
+	vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame][0]->getHandle(), &depthDependencyInfo);
+
 	// Invoke compute shader to compute particle positions and velocity
 	computeParticles();
 
@@ -1599,7 +1630,7 @@ void VulkrApp::createMainRenderPass()
 	depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
 	depthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 	depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-	depthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	depthAttachment.initialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 	depthAttachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 	attachments.push_back(depthAttachment);
 
@@ -1684,7 +1715,7 @@ void VulkrApp::createPostRenderPass()
 	depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
 	depthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 	depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-	depthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	depthAttachment.initialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 	depthAttachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 	attachments.push_back(depthAttachment);
 
@@ -1859,7 +1890,7 @@ void VulkrApp::createMrtGeometryBufferRenderPass()
 	depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
 	depthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 	depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-	depthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	depthAttachment.initialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 	depthAttachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 	attachments.push_back(depthAttachment);
 
@@ -1946,7 +1977,7 @@ void VulkrApp::createDeferredShadingRenderPass()
 	depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
 	depthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 	depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-	depthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	depthAttachment.initialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 	depthAttachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 	attachments.push_back(depthAttachment);
 
@@ -4884,9 +4915,10 @@ BlasInput VulkrApp::objectToVkGeometryKHR(size_t objModelIndex)
 	uint32_t maxPrimitiveCount = objModelRenderingDataList[objModelIndex].indicesCount / 3;
 
 	// Describe buffer as array of VertexObj.
-	// TODO: I don't think this is correct, there are validation errors if the vertex format is not R32G32B32_SFLOAT, and the VertexObj contains more data than just position
+	// VertexObj starts with a tightly packed vec3 position, so the geometry is described as R32G32B32_SFLOAT with the full vertex stride;
+	// VK_FORMAT_R32G32B32A32_SFLOAT is not supported for acceleration structure vertex buffers on all vendors
 	VkAccelerationStructureGeometryTrianglesDataKHR triangles{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR };
-	triangles.vertexFormat = VK_FORMAT_R32G32B32A32_SFLOAT;  // vec3 vertex position data.
+	triangles.vertexFormat = VK_FORMAT_R32G32B32_SFLOAT;  // vec3 vertex position data.
 	triangles.vertexData.deviceAddress = vertexAddress;
 	triangles.vertexStride = sizeof(VertexObj);
 	// Describe index data (32-bit unsigned int)
@@ -5064,10 +5096,11 @@ void VulkrApp::buildBlas()
 		// Building the AS
 		vkCmdBuildAccelerationStructuresKHR(cmdBuf->getHandle(), 1, &buildInfos[idx], pBuildOffset.data());
 
-		// Since the scratch buffer is reused across builds, we need a barrier to ensure one build is finished before starting the next one
+		// Since the scratch buffer is reused across builds, we need a barrier to ensure one build is finished before starting the next one.
+		// The next build writes to the scratch buffer, so the destination access is a write, not a read
 		VkMemoryBarrier2 memoryBarrier{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
 		memoryBarrier.srcAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
-		memoryBarrier.dstAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR;
+		memoryBarrier.dstAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
 		memoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
 		memoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
 

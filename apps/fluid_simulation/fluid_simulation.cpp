@@ -329,7 +329,9 @@ void FluidSimulation::update()
 	// Prepare the current swapchain as a transfer destination
 	VkImageMemoryBarrier2 transitionSwapchainLayoutBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
 	transitionSwapchainLayoutBarrier.pNext = nullptr;
-	transitionSwapchainLayoutBarrier.srcStageMask = VK_PIPELINE_STAGE_2_NONE; // We have a semaphore that synchronizes the post processing pass with all of the things happening on frameData.commandBuffers[currentFrame][2]->getHandle()
+	// The image was handed to us by vkAcquireNextImageKHR, whose semaphore is waited on at COLOR_ATTACHMENT_OUTPUT and TRANSFER stages,
+	// so the layout transition has to be ordered against all of them instead of using a NONE source scope
+	transitionSwapchainLayoutBarrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
 	transitionSwapchainLayoutBarrier.srcAccessMask = VK_ACCESS_2_NONE;
 	transitionSwapchainLayoutBarrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
 	transitionSwapchainLayoutBarrier.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
