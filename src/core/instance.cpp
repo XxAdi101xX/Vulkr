@@ -42,26 +42,30 @@ Instance::Instance(std::string applicationName)
 	}
 #endif // VULKR_DEBUG
 
-	VkApplicationInfo appInfo{ VK_STRUCTURE_TYPE_APPLICATION_INFO };
-	appInfo.pApplicationName = applicationName.c_str();
-	appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
-	appInfo.pEngineName = "Vulkr";
-	appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
-	appInfo.apiVersion = VK_API_VERSION_1_3;
-
-	VkInstanceCreateInfo instanceCreateInfo{ VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO };
-	instanceCreateInfo.pApplicationInfo = &appInfo;
-
 	std::vector<const char *> extensions = getRequiredInstanceExtensions();
-	instanceCreateInfo.enabledExtensionCount = to_u32(extensions.size());
-	instanceCreateInfo.ppEnabledExtensionNames = extensions.data();
+
+	VkApplicationInfo appInfo{
+		.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
+		.pApplicationName = applicationName.c_str(),
+		.applicationVersion = VK_MAKE_VERSION(1, 0, 0),
+		.pEngineName = "Vulkr",
+		.engineVersion = VK_MAKE_VERSION(1, 0, 0),
+		.apiVersion = VK_API_VERSION_1_4,
+	};
+
+	VkInstanceCreateInfo instanceCreateInfo{
+		.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
+		.pApplicationInfo = &appInfo,
+		.enabledExtensionCount = to_u32(extensions.size()),
+		.ppEnabledExtensionNames = extensions.data(),
+	};
 
 #ifdef VULKR_DEBUG
 	instanceCreateInfo.enabledLayerCount = to_u32(requiredValidationLayers.size());
 	instanceCreateInfo.ppEnabledLayerNames = requiredValidationLayers.data();
 
+	// VK_VALIDATION_FEATURE_ENABLE_GPU_ASSISTED_EXT and VK_VALIDATION_FEATURE_ENABLE_DEBUG_PRINTF_EXT can not be enabled at the same time
 	std::array<VkValidationFeatureEnableEXT, 3> validationFeatureToEnable{
-		// VK_VALIDATION_FEATURE_ENABLE_GPU_ASSISTED_EXT and VK_VALIDATION_FEATURE_ENABLE_DEBUG_PRINTF_EXT can not be enabled at the same time
 #if 0
 		VK_VALIDATION_FEATURE_ENABLE_GPU_ASSISTED_EXT,
 #else
@@ -70,20 +74,22 @@ Instance::Instance(std::string applicationName)
 		VK_VALIDATION_FEATURE_ENABLE_BEST_PRACTICES_EXT,
 		VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT,
 	};
-	VkValidationFeaturesEXT validationFeatures{ VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT };
-	validationFeatures.enabledValidationFeatureCount = to_u32(validationFeatureToEnable.size());
-	validationFeatures.pEnabledValidationFeatures = validationFeatureToEnable.data();
 
-	VkDebugUtilsMessengerCreateInfoEXT debugUtilsCreateInfo = { VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT };
-	debugUtilsCreateInfo.messageSeverity = /*VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | */VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
-	debugUtilsCreateInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
-	debugUtilsCreateInfo.pfnUserCallback = debugUtilsMessengerCallback;
-	debugUtilsCreateInfo.pNext = &validationFeatures;
+	VkValidationFeaturesEXT validationFeatures{
+		.sType = VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT,
+		.enabledValidationFeatureCount = to_u32(validationFeatureToEnable.size()),
+		.pEnabledValidationFeatures = validationFeatureToEnable.data(),
+	};
 
-	instanceCreateInfo.pNext = (VkDebugUtilsMessengerCreateInfoEXT *)&debugUtilsCreateInfo;
-#else
-	instanceCreateInfo.enabledLayerCount = 0;
-	instanceCreateInfo.pNext = nullptr;
+	VkDebugUtilsMessengerCreateInfoEXT debugUtilsCreateInfo{
+		.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
+		.pNext = &validationFeatures,
+		.messageSeverity = /*VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | */VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT,
+		.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT,
+		.pfnUserCallback = debugUtilsMessengerCallback,
+	};
+
+	instanceCreateInfo.pNext = &debugUtilsCreateInfo;
 #endif // VULKR_DEBUG
 
 	VK_CHECK(vkCreateInstance(&instanceCreateInfo, nullptr, &instance));

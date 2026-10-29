@@ -77,69 +77,100 @@ Device::Device(std::unique_ptr<PhysicalDevice> &&selectedPhysicalDevice, VkSurfa
 		// Populate queueCreateInfos
 		queuePriorities[queueFamilyIndex].resize(queueFamilyProperties.queueCount, 1.0f);
 
-		VkDeviceQueueCreateInfo queueCreateInfo{ VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO };
-		queueCreateInfo.queueFamilyIndex = queueFamilyIndex;
-		queueCreateInfo.queueCount = queueFamilyProperties.queueCount;
-		queueCreateInfo.pQueuePriorities = queuePriorities[queueFamilyIndex].data();
-
-		queueCreateInfos.emplace_back(queueCreateInfo);
+		queueCreateInfos.emplace_back(VkDeviceQueueCreateInfo{
+			.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+			.queueFamilyIndex = queueFamilyIndex,
+			.queueCount = queueFamilyProperties.queueCount,
+			.pQueuePriorities = queuePriorities[queueFamilyIndex].data(),
+		});
 	}
 
-	// Enable synchronization2
-	VkPhysicalDeviceSynchronization2Features synchronization2Features{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES };
-	synchronization2Features.synchronization2 = VK_TRUE;
-	// Enable dynamic rendering; it is required core functionality in Vulkan 1.3 and lets us render without render passes
-	VkPhysicalDeviceDynamicRenderingFeatures dynamicRenderingFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES };
-	dynamicRenderingFeatures.dynamicRendering = VK_TRUE;
-	dynamicRenderingFeatures.pNext = &synchronization2Features;
-	// Enable maintenance4 features; required for usage of the LocalSizeId variable in compute shaders
-	VkPhysicalDeviceMaintenance4Features maintenance4Features{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_4_FEATURES };
-	maintenance4Features.maintenance4 = VK_TRUE;
-	maintenance4Features.pNext = &dynamicRenderingFeatures;
-	// Enabling the descriptor indexing features, host query reset features, acceleration structure features, ray tracing features and buffer device address features
-	VkPhysicalDeviceDescriptorIndexingFeatures descriptorIndexingFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES };
-	descriptorIndexingFeatures.shaderSampledImageArrayNonUniformIndexing = getPhysicalDevice().getDescriptorIndexingFeatures().shaderSampledImageArrayNonUniformIndexing;
-	descriptorIndexingFeatures.runtimeDescriptorArray = getPhysicalDevice().getDescriptorIndexingFeatures().runtimeDescriptorArray;
-	descriptorIndexingFeatures.pNext = &maintenance4Features;
-	VkPhysicalDeviceHostQueryResetFeatures hostQueryResetFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_HOST_QUERY_RESET_FEATURES };
-	hostQueryResetFeatures.hostQueryReset = getPhysicalDevice().getHostQueryResetFeatures().hostQueryReset;
-	hostQueryResetFeatures.pNext = &descriptorIndexingFeatures;
-	VkPhysicalDeviceAccelerationStructureFeaturesKHR accelerationStructureFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR };
-	accelerationStructureFeatures.accelerationStructure = getPhysicalDevice().getAccelerationStructureFeatures().accelerationStructure;
-	// accelerationStructureFeatures.accelerationStructureHostCommands = getPhysicalDevice().getAccelerationStructureFeatures().accelerationStructureHostCommands;
-	// accelerationStructureFeatures.accelerationStructureIndirectBuild = getPhysicalDevice().getAccelerationStructureFeatures().accelerationStructureIndirectBuild;
-	accelerationStructureFeatures.descriptorBindingAccelerationStructureUpdateAfterBind = getPhysicalDevice().getAccelerationStructureFeatures().descriptorBindingAccelerationStructureUpdateAfterBind;
-	accelerationStructureFeatures.pNext = &hostQueryResetFeatures;
-	VkPhysicalDeviceRayTracingPipelineFeaturesKHR rayTracingPipelineFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR };
-	rayTracingPipelineFeatures.rayTracingPipeline = getPhysicalDevice().getRayTracingPipelineFeatures().rayTracingPipeline;
-	rayTracingPipelineFeatures.rayTracingPipelineTraceRaysIndirect = getPhysicalDevice().getRayTracingPipelineFeatures().rayTracingPipelineTraceRaysIndirect;
-	rayTracingPipelineFeatures.rayTraversalPrimitiveCulling = getPhysicalDevice().getRayTracingPipelineFeatures().rayTraversalPrimitiveCulling;
-	rayTracingPipelineFeatures.pNext = &accelerationStructureFeatures;
-	VkPhysicalDeviceBufferDeviceAddressFeatures bufferDeviceAddressFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES };
-	bufferDeviceAddressFeatures.bufferDeviceAddress = getPhysicalDevice().getBufferDeviceAddressFeatures().bufferDeviceAddress;
-	bufferDeviceAddressFeatures.pNext = &rayTracingPipelineFeatures;
+	// The engine targets Vulkan 1.3, so every feature that was promoted into 1.2/1.3 core is guaranteed to be supported and is
+	// requested unconditionally; copying the queried support flags would silently leave a required feature disabled
+	VkPhysicalDeviceVulkan13Features vulkan13Features{
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
+		.synchronization2 = VK_TRUE,
+		// Dynamic rendering lets us render without render passes
+		.dynamicRendering = VK_TRUE,
+		// Maintenance4 is required for usage of the LocalSizeId variable in compute shaders
+		.maintenance4 = VK_TRUE,
+	};
 
-	// Enable the mesh shader features only when the application requested the VK_EXT_mesh_shader extension
+	VkPhysicalDeviceVulkan12Features vulkan12Features{
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
+		.pNext = &vulkan13Features,
+		.descriptorIndexing = VK_TRUE,
+		.shaderSampledImageArrayNonUniformIndexing = VK_TRUE,
+		.descriptorBindingVariableDescriptorCount = VK_TRUE,
+		.runtimeDescriptorArray = VK_TRUE,
+		.hostQueryReset = VK_TRUE,
+		.bufferDeviceAddress = VK_TRUE,
+	};
+
+	// Acceleration structure, ray tracing and mesh shader features come from extensions, so those structures are only chained in
+	// when the application enabled the matching extension (the Device constructor aborts earlier if a requested extension is missing)
+	VkPhysicalDeviceAccelerationStructureFeaturesKHR accelerationStructureFeatures{
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR,
+		.accelerationStructure = VK_TRUE,
+	};
+
+	VkPhysicalDeviceRayTracingPipelineFeaturesKHR rayTracingPipelineFeatures{
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR,
+		.rayTracingPipeline = VK_TRUE,
+	};
+
+	VkPhysicalDeviceMeshShaderFeaturesEXT meshShaderFeatures{
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT,
+		.taskShader = VK_TRUE,
+		.meshShader = VK_TRUE,
+	};
+
+	const bool accelerationStructureExtensionEnabled{ isExtensionEnabled(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME) };
+	// The ray tracing pipeline extension depends on the acceleration structure extension
+	const bool rayTracingPipelineExtensionEnabled{ accelerationStructureExtensionEnabled && isExtensionEnabled(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME) };
 	const bool meshShaderExtensionEnabled{ isExtensionEnabled(VK_EXT_MESH_SHADER_EXTENSION_NAME) };
-	VkPhysicalDeviceMeshShaderFeaturesEXT meshShaderFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT };
+
+	// Build the pNext chain from the extension features back to the core ones
+	void *featureChain = &vulkan12Features;
+	if (accelerationStructureExtensionEnabled)
+	{
+		accelerationStructureFeatures.pNext = featureChain;
+		featureChain = &accelerationStructureFeatures;
+	}
+	if (rayTracingPipelineExtensionEnabled)
+	{
+		rayTracingPipelineFeatures.pNext = featureChain;
+		featureChain = &rayTracingPipelineFeatures;
+	}
 	if (meshShaderExtensionEnabled)
 	{
-		meshShaderFeatures.taskShader = getPhysicalDevice().getMeshShaderFeatures().taskShader;
-		meshShaderFeatures.meshShader = getPhysicalDevice().getMeshShaderFeatures().meshShader;
-		meshShaderFeatures.pNext = &bufferDeviceAddressFeatures;
+		meshShaderFeatures.pNext = featureChain;
+		featureChain = &meshShaderFeatures;
 	}
 
-	VkPhysicalDeviceFeatures2 features2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
-	features2.features = this->physicalDevice->getRequestedFeatures(); // These features are specified in app.h
-	features2.pNext = meshShaderExtensionEnabled ? static_cast<void *>(&meshShaderFeatures) : static_cast<void *>(&bufferDeviceAddressFeatures);
+	// The Vulkan 1.0 features that the engine requires; all of them are core features that desktop GPUs support
+	VkPhysicalDeviceFeatures engineVulkan10Features{
+		.geometryShader = VK_TRUE,
+		.samplerAnisotropy = VK_TRUE,
+		.fragmentStoresAndAtomics = VK_TRUE,
+		.shaderInt64 = VK_TRUE,
+	};
 
-	VkDeviceCreateInfo createInfo{ VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
-	createInfo.queueCreateInfoCount = to_u32(queueCreateInfos.size());
-	createInfo.pQueueCreateInfos = queueCreateInfos.data();
-	createInfo.enabledExtensionCount = to_u32(enabledExtensions.size());
-	createInfo.ppEnabledExtensionNames = enabledExtensions.data();
-	// createInfo.pEnabledFeatures = &this->physicalDevice->getRequestedFeatures(); // We are enabling the features through feature2
-	createInfo.pNext = &features2;
+	VkPhysicalDeviceFeatures2 features2{
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+		.pNext = featureChain,
+		.features = engineVulkan10Features,
+	};
+
+	VkDeviceCreateInfo createInfo{
+		.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
+		.pNext = &features2,
+		.queueCreateInfoCount = to_u32(queueCreateInfos.size()),
+		.pQueueCreateInfos = queueCreateInfos.data(),
+		// pEnabledFeatures is left null because the features are enabled through the pNext chain above
+		.enabledExtensionCount = to_u32(enabledExtensions.size()),
+		.ppEnabledExtensionNames = enabledExtensions.data(),
+	};
 
 	// Create the device
 	VK_CHECK(vkCreateDevice(this->physicalDevice->getHandle(), &createInfo, nullptr, &handle));
@@ -161,31 +192,36 @@ Device::Device(std::unique_ptr<PhysicalDevice> &&selectedPhysicalDevice, VkSurfa
 	volkLoadDevice(handle);
 
 	// Setup VMA
-	VmaVulkanFunctions vmaVulkanFunctions{};
-	vmaVulkanFunctions.vkGetInstanceProcAddr = vkGetInstanceProcAddr;
-	vmaVulkanFunctions.vkGetDeviceProcAddr = vkGetDeviceProcAddr;
-	vmaVulkanFunctions.vkGetPhysicalDeviceProperties = vkGetPhysicalDeviceProperties;
-	vmaVulkanFunctions.vkGetPhysicalDeviceMemoryProperties = vkGetPhysicalDeviceMemoryProperties;
-	vmaVulkanFunctions.vkAllocateMemory = vkAllocateMemory;
-	vmaVulkanFunctions.vkFreeMemory = vkFreeMemory;
-	vmaVulkanFunctions.vkMapMemory = vkMapMemory;
-	vmaVulkanFunctions.vkUnmapMemory = vkUnmapMemory;
-	vmaVulkanFunctions.vkFlushMappedMemoryRanges = vkFlushMappedMemoryRanges;
-	vmaVulkanFunctions.vkInvalidateMappedMemoryRanges = vkInvalidateMappedMemoryRanges;
-	vmaVulkanFunctions.vkBindBufferMemory = vkBindBufferMemory;
-	vmaVulkanFunctions.vkBindImageMemory = vkBindImageMemory;
-	vmaVulkanFunctions.vkGetBufferMemoryRequirements = vkGetBufferMemoryRequirements;
-	vmaVulkanFunctions.vkGetImageMemoryRequirements = vkGetImageMemoryRequirements;
-	vmaVulkanFunctions.vkCreateBuffer = vkCreateBuffer;
-	vmaVulkanFunctions.vkDestroyBuffer = vkDestroyBuffer;
-	vmaVulkanFunctions.vkCreateImage = vkCreateImage;
-	vmaVulkanFunctions.vkDestroyImage = vkDestroyImage;
-	vmaVulkanFunctions.vkCmdCopyBuffer = vkCmdCopyBuffer;
+	VmaVulkanFunctions vmaVulkanFunctions{
+		.vkGetInstanceProcAddr = vkGetInstanceProcAddr,
+		.vkGetDeviceProcAddr = vkGetDeviceProcAddr,
+		.vkGetPhysicalDeviceProperties = vkGetPhysicalDeviceProperties,
+		.vkGetPhysicalDeviceMemoryProperties = vkGetPhysicalDeviceMemoryProperties,
+		.vkAllocateMemory = vkAllocateMemory,
+		.vkFreeMemory = vkFreeMemory,
+		.vkMapMemory = vkMapMemory,
+		.vkUnmapMemory = vkUnmapMemory,
+		.vkFlushMappedMemoryRanges = vkFlushMappedMemoryRanges,
+		.vkInvalidateMappedMemoryRanges = vkInvalidateMappedMemoryRanges,
+		.vkBindBufferMemory = vkBindBufferMemory,
+		.vkBindImageMemory = vkBindImageMemory,
+		.vkGetBufferMemoryRequirements = vkGetBufferMemoryRequirements,
+		.vkGetImageMemoryRequirements = vkGetImageMemoryRequirements,
+		.vkCreateBuffer = vkCreateBuffer,
+		.vkDestroyBuffer = vkDestroyBuffer,
+		.vkCreateImage = vkCreateImage,
+		.vkDestroyImage = vkDestroyImage,
+		.vkCmdCopyBuffer = vkCmdCopyBuffer,
+	};
 
-	VmaAllocatorCreateInfo allocatorInfo{};
-	allocatorInfo.physicalDevice = this->physicalDevice->getHandle();
-	allocatorInfo.device = handle;
-	allocatorInfo.instance = this->physicalDevice->getInstance().getHandle();
+	// VK_KHR_buffer_device_address has been core as of vulkan 1.2
+	VmaAllocatorCreateInfo allocatorInfo{
+		.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT,
+		.physicalDevice = this->physicalDevice->getHandle(),
+		.device = handle,
+		.pVulkanFunctions = &vmaVulkanFunctions,
+		.instance = this->physicalDevice->getInstance().getHandle(),
+	};
 
 	if (canGetMemoryRequirements && supportsDedicatedAllocation)
 	{
@@ -199,11 +235,6 @@ Device::Device(std::unique_ptr<PhysicalDevice> &&selectedPhysicalDevice, VkSurfa
 	vmaVulkanFunctions.vkGetPhysicalDeviceMemoryProperties2KHR = vkGetPhysicalDeviceMemoryProperties2KHR;
 	vmaVulkanFunctions.vkGetDeviceBufferMemoryRequirements = vkGetDeviceBufferMemoryRequirements;
 	vmaVulkanFunctions.vkGetDeviceImageMemoryRequirements = vkGetDeviceImageMemoryRequirements;
-
-	// VK_KHR_buffer_device_address has been core as of vulkan 1.2
-	allocatorInfo.flags |= VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
-
-	allocatorInfo.pVulkanFunctions = &vmaVulkanFunctions;
 
 	VK_CHECK(vmaCreateAllocator(&allocatorInfo, &memoryAllocator));
 }

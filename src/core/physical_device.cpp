@@ -51,21 +51,21 @@ PhysicalDevice::PhysicalDevice(Instance &instance, VkPhysicalDevice gpu) :
 	{
 		accelerationStructureProperties.pNext = &meshShaderProperties;
 	}
-	VkPhysicalDeviceProperties2 properties2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2 };
-	properties2.pNext = &rayTracingPipelineProperties;
+	VkPhysicalDeviceProperties2 properties2{
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
+		.pNext = &rayTracingPipelineProperties,
+	};
 	vkGetPhysicalDeviceProperties2(gpu, &properties2);
 
-	// Requesting host query reset features, buffer device address features, raytracing features and acceleration structure features
-	hostQueryResetFeatures.pNext = &descriptorIndexingFeatures;
-	accelerationStructureFeatures.pNext = &hostQueryResetFeatures;
+	// Requesting the Vulkan 1.2 and 1.3 features, plus the extension features (acceleration structure, ray tracing, mesh shaders)
+	meshShaderFeatures.pNext = &rayTracingPipelineFeatures;
 	rayTracingPipelineFeatures.pNext = &accelerationStructureFeatures;
-	bufferDeviceAddressFeatures.pNext = &rayTracingPipelineFeatures;
-	if (meshShaderSupported)
-	{
-		descriptorIndexingFeatures.pNext = &meshShaderFeatures;
-	}
-	VkPhysicalDeviceFeatures2 features2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
-	features2.pNext = &bufferDeviceAddressFeatures;
+	accelerationStructureFeatures.pNext = &vulkan12Features;
+	vulkan12Features.pNext = &vulkan13Features;
+	VkPhysicalDeviceFeatures2 features2{
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+		.pNext = meshShaderSupported ? static_cast<void *>(&meshShaderFeatures) : static_cast<void *>(&rayTracingPipelineFeatures),
+	};
 	vkGetPhysicalDeviceFeatures2(gpu, &features2);
 
 	uint32_t queueFamilyPropertiesCount{ 0u };
@@ -89,11 +89,6 @@ Instance &PhysicalDevice::getInstance() const
 const VkPhysicalDeviceFeatures &PhysicalDevice::getFeatures() const
 {
 	return features;
-}
-
-const VkPhysicalDeviceFeatures &PhysicalDevice::getRequestedFeatures() const
-{
-	return requestedFeatures;
 }
 
 const VkPhysicalDeviceProperties &PhysicalDevice::getProperties() const
@@ -121,19 +116,14 @@ const VkPhysicalDeviceAccelerationStructureFeaturesKHR &PhysicalDevice::getAccel
 	return accelerationStructureFeatures;
 }
 
-const VkPhysicalDeviceHostQueryResetFeatures &PhysicalDevice::getHostQueryResetFeatures() const
+const VkPhysicalDeviceVulkan12Features &PhysicalDevice::getVulkan12Features() const
 {
-	return hostQueryResetFeatures;
+	return vulkan12Features;
 }
 
-const VkPhysicalDeviceBufferDeviceAddressFeatures &PhysicalDevice::getBufferDeviceAddressFeatures() const
+const VkPhysicalDeviceVulkan13Features &PhysicalDevice::getVulkan13Features() const
 {
-	return bufferDeviceAddressFeatures;
-}
-
-const VkPhysicalDeviceDescriptorIndexingFeatures &PhysicalDevice::getDescriptorIndexingFeatures() const
-{
-	return descriptorIndexingFeatures;
+	return vulkan13Features;
 }
 
 const VkPhysicalDeviceMeshShaderFeaturesEXT &PhysicalDevice::getMeshShaderFeatures() const
@@ -171,11 +161,6 @@ VkBool32 PhysicalDevice::isPresentSupported(VkSurfaceKHR surface, uint32_t queue
 	}
 
 	return presentSupported;
-}
-
-void PhysicalDevice::setRequestedFeatures(VkPhysicalDeviceFeatures &requestedFeatures)
-{
-	this->requestedFeatures = requestedFeatures;
 }
 
 } // namespace vulkr

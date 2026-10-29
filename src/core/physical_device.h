@@ -51,9 +51,6 @@ public:
 	/* Get all the physical device features supported */
 	const VkPhysicalDeviceFeatures &getFeatures() const;
 
-	/* Get the physical device features that were requested by the application */
-	const VkPhysicalDeviceFeatures &getRequestedFeatures() const;
-
 	/* Get the properties for the physical device */
 	const VkPhysicalDeviceProperties &getProperties() const;
 
@@ -69,14 +66,11 @@ public:
 	/* Get the acceleration structure features for the physical device */
 	const VkPhysicalDeviceAccelerationStructureFeaturesKHR &getAccelerationStructureFeatures() const;
 
-	/* Get the host query reset features for the physical device */
-	const VkPhysicalDeviceHostQueryResetFeatures &getHostQueryResetFeatures() const;
+	/* Get the Vulkan 1.2 features for the physical device (descriptor indexing, host query reset, buffer device address) */
+	const VkPhysicalDeviceVulkan12Features &getVulkan12Features() const;
 
-	/* Get the ray tracing pipeline properties for the physical device */
-	const VkPhysicalDeviceBufferDeviceAddressFeatures &getBufferDeviceAddressFeatures() const;
-
-	/* Get the descriptor indexing features for the physical device */
-	const VkPhysicalDeviceDescriptorIndexingFeatures &getDescriptorIndexingFeatures() const;
+	/* Get the Vulkan 1.3 features for the physical device (synchronization2, dynamic rendering, maintenance4) */
+	const VkPhysicalDeviceVulkan13Features &getVulkan13Features() const;
 
 	/* Get the mesh shader features for the physical device */
 	const VkPhysicalDeviceMeshShaderFeaturesEXT &getMeshShaderFeatures() const;
@@ -95,9 +89,6 @@ public:
 
 	/* Check whether a queue family supports presentation */
 	VkBool32 isPresentSupported(VkSurfaceKHR surface, uint32_t queue_family_index) const;
-
-	/* Set the requested features */
-	void setRequestedFeatures(VkPhysicalDeviceFeatures &requestedFeatures);
 private:
 	/* The physical device handle */
 	VkPhysicalDevice handle{ VK_NULL_HANDLE };
@@ -108,41 +99,35 @@ private:
 	/* The features that the GPU supports */
 	VkPhysicalDeviceFeatures features{};
 
-	/* The requested features to be enabled within the logical device */
-	VkPhysicalDeviceFeatures requestedFeatures{};
-
 	/* The GPU properties */
 	VkPhysicalDeviceProperties properties;
 
 	/* The GPU ray tracing pipeline properties */
-	VkPhysicalDeviceRayTracingPipelinePropertiesKHR  rayTracingPipelineProperties{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_PROPERTIES_KHR };
+	VkPhysicalDeviceRayTracingPipelinePropertiesKHR  rayTracingPipelineProperties{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_PROPERTIES_KHR };
 
 	/* The GPU ray tracing pipeline features */
-	VkPhysicalDeviceRayTracingPipelineFeaturesKHR rayTracingPipelineFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR };
+	VkPhysicalDeviceRayTracingPipelineFeaturesKHR rayTracingPipelineFeatures{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR };
 
 	/* The GPU acceleration structure properties */
-	VkPhysicalDeviceAccelerationStructurePropertiesKHR accelerationStructureProperties{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR };
+	VkPhysicalDeviceAccelerationStructurePropertiesKHR accelerationStructureProperties{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR };
 
 	/* The GPU acceleration structure features */
-	VkPhysicalDeviceAccelerationStructureFeaturesKHR accelerationStructureFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR };
+	VkPhysicalDeviceAccelerationStructureFeaturesKHR accelerationStructureFeatures{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR };
 
-	/* The GPU host query rest features */
-	VkPhysicalDeviceHostQueryResetFeatures hostQueryResetFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_HOST_QUERY_RESET_FEATURES };
+	/* The Vulkan 1.2 features that the GPU supports; these were promoted from extensions and are queried as one struct */
+	VkPhysicalDeviceVulkan12Features vulkan12Features{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
 
-	/* The buffer device address features that the GPU supports */
-	VkPhysicalDeviceBufferDeviceAddressFeatures bufferDeviceAddressFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES };
-
-	/* The descriptor indexing features that the GPU supports */
-	VkPhysicalDeviceDescriptorIndexingFeatures descriptorIndexingFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES };
+	/* The Vulkan 1.3 features that the GPU supports; these were promoted from extensions and are queried as one struct */
+	VkPhysicalDeviceVulkan13Features vulkan13Features{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
 
 	/* Whether VK_EXT_mesh_shader is available on the GPU */
 	bool meshShaderSupported{ false };
 
 	/* The mesh shader features that the GPU supports */
-	VkPhysicalDeviceMeshShaderFeaturesEXT meshShaderFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT };
+	VkPhysicalDeviceMeshShaderFeaturesEXT meshShaderFeatures{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT };
 
 	/* The mesh shader limits of the GPU */
-	VkPhysicalDeviceMeshShaderPropertiesEXT meshShaderProperties{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_PROPERTIES_EXT };
+	VkPhysicalDeviceMeshShaderPropertiesEXT meshShaderProperties{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_PROPERTIES_EXT };
 
 	/* The GPU memory properties */
 	VkPhysicalDeviceMemoryProperties memoryProperties;

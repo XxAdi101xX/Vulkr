@@ -1533,14 +1533,7 @@ void VulkrApp::createSurface()
 
 void VulkrApp::createDevice()
 {
-	VkPhysicalDeviceFeatures deviceFeatures{};
-	deviceFeatures.fragmentStoresAndAtomics = VK_TRUE;
-	deviceFeatures.geometryShader = VK_TRUE;
-	deviceFeatures.samplerAnisotropy = VK_TRUE;
-	deviceFeatures.shaderInt64 = VK_TRUE;
-
 	std::unique_ptr<PhysicalDevice> physicalDevice = m_instance->getSuitablePhysicalDevice();
-	physicalDevice->setRequestedFeatures(deviceFeatures);
 
 	m_workGroupSize = std::min(64u, physicalDevice->getProperties().limits.maxComputeWorkGroupSize[0]);
 	m_shadedMemorySize = std::min(1024u, physicalDevice->getProperties().limits.maxComputeSharedMemorySize);
