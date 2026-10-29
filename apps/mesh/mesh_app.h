@@ -22,13 +22,20 @@
 
 #pragma once
 
+ // STL Libraries
 #include <string>
 #include <vector>
 
+// Platform files
 #include "platform/application.h"
 
 namespace vulkr
 {
+
+/* Forward declaration */
+class Instance;
+class Device;
+class Queue;
 
 /* Mesh shader application: dynamic rendering, synchronization2, buffer device address,
    descriptor indexing and mesh shaders. The overrides of prepare(), update() and finish()
@@ -40,6 +47,8 @@ public:
 
 	~MeshApp();
 
+	virtual void prepare() override;
+
 	virtual void update() override;
 private:
 	/* IMPORTANT NOTICE: Device features are enabled through the pNext chain in src/core/device.cpp; the mesh
@@ -48,6 +57,11 @@ private:
 		VK_KHR_SWAPCHAIN_EXTENSION_NAME,
 		VK_EXT_MESH_SHADER_EXTENSION_NAME,
 	};
+
+	std::unique_ptr<Instance> m_instance{ nullptr };
+	VkSurfaceKHR m_surface{ VK_NULL_HANDLE };
+	std::unique_ptr<Device> m_device{ nullptr };
+	Queue *m_generalQueue{ nullptr };
 };
 
 } // namespace vulkr
