@@ -2,7 +2,7 @@
 
 A Vulkan rendering engine that I've taken upon building in order to solidify my knowledge of Vulkan and graphics programming as a whole by implementing interesting graphics features and applications.
 
-The engine runs on `Vulkan 1.3` using `VK_KHR_synchronization2` and the code is written for the `C++20` standard.
+The engine runs on `Vulkan 1.4` using `VK_KHR_synchronization2` and the code is written for the `C++20` standard.
 
 ![vulkr_helmet_models](https://github.com/user-attachments/assets/0e05f436-ae09-4942-ad00-b4f700c09c97)
 
