@@ -32,8 +32,7 @@ class Device;
 class Buffer
 {
 public:
-	Buffer(Device &device, VkBufferCreateInfo bufferInfo, VmaAllocationCreateInfo memoryInfo);
-	Buffer(Device &device, VkBufferCreateInfo bufferInfo, VmaAllocationCreateInfo memoryInfo, VkDeviceSize minAlignment);
+	Buffer(Device &device, VkBufferCreateInfo bufferInfo, VmaAllocationCreateInfo memoryInfo, VkDeviceSize minAlignment = 0);
 	~Buffer();
 
 	Buffer(Buffer &&other);

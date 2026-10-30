@@ -20,6 +20,8 @@
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+#include <algorithm>
+
 #include "buffer.h"
 #include "device.h"
 #include "command_buffer.h"
@@ -27,26 +29,17 @@
 namespace vulkr
 {
 
-Buffer::Buffer(Device &device, VkBufferCreateInfo bufferInfo, VmaAllocationCreateInfo memoryInfo) :
-	device{ device },
-	size{ bufferInfo.size }
-{
-	// Creates the buffer, allocates the appropriate memory to it and binds the buffer with the memory
-	VK_CHECK(vmaCreateBuffer(device.getMemoryAllocator(), &bufferInfo, &memoryInfo, &handle, &allocation, &allocationInfo));
-
-	persistent = (memoryInfo.flags & VMA_ALLOCATION_CREATE_MAPPED_BIT) != 0;
-	if (persistent)
-	{
-		mappedData = static_cast<uint8_t *>(allocationInfo.pMappedData);
-	}
-}
-
 Buffer::Buffer(Device &device, VkBufferCreateInfo bufferInfo, VmaAllocationCreateInfo memoryInfo, VkDeviceSize minAlignment) :
 	device{ device },
 	size{ bufferInfo.size }
 {
+	// Raises the alignment VMA uses when placing the buffer inside a memory block. Needed for acceleration structure scratch
+	// buffers, acceleration structure instance buffers and shader binding tables; VmaAllocationCreateInfo::minAlignment
+	// replaces the deprecated vmaCreateBufferWithAlignment
+	memoryInfo.minAlignment = std::max(memoryInfo.minAlignment, minAlignment);
+
 	// Creates the buffer, allocates the appropriate memory to it and binds the buffer with the memory
-	VK_CHECK(vmaCreateBufferWithAlignment(device.getMemoryAllocator(), &bufferInfo, &memoryInfo, minAlignment, &handle, &allocation, &allocationInfo));
+	VK_CHECK(vmaCreateBuffer(device.getMemoryAllocator(), &bufferInfo, &memoryInfo, &handle, &allocation, &allocationInfo));
 
 	persistent = (memoryInfo.flags & VMA_ALLOCATION_CREATE_MAPPED_BIT) != 0;
 	if (persistent)

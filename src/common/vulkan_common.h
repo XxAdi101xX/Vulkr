@@ -25,8 +25,9 @@
 #include <iostream>
 #include <cstdlib>
 
-#include <vk_mem_alloc.h>
+#define VMA_VULKAN_VERSION 1004000
 #include <volk.h>
+#include <vk_mem_alloc.h>
 
 #include "logger.h"
 

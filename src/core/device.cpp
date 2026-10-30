@@ -53,17 +53,6 @@ Device::Device(std::unique_ptr<PhysicalDevice> &&selectedPhysicalDevice, VkSurfa
 		enabledExtensions.emplace_back(requestedExtension);
 	}
 
-	// Enable dedicated allocations if it's available to us
-	bool canGetMemoryRequirements = isExtensionSupported("VK_KHR_get_memory_requirements2");
-	bool supportsDedicatedAllocation = isExtensionSupported("VK_KHR_dedicated_allocation");
-	if (canGetMemoryRequirements && supportsDedicatedAllocation)
-	{
-		enabledExtensions.push_back("VK_KHR_get_memory_requirements2");
-		enabledExtensions.push_back("VK_KHR_dedicated_allocation");
-
-		LOGI("Dedicated allocation enabled");
-	}
-
 	// Prepare the device queues
 	uint32_t queueFamilyPropertiesCount{ to_u32(this->physicalDevice->getQueueFamilyProperties().size()) };
 	std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
@@ -85,8 +74,6 @@ Device::Device(std::unique_ptr<PhysicalDevice> &&selectedPhysicalDevice, VkSurfa
 		});
 	}
 
-	// The engine targets Vulkan 1.3, so every feature that was promoted into 1.2/1.3 core is guaranteed to be supported and is
-	// requested unconditionally; copying the queried support flags would silently leave a required feature disabled
 	VkPhysicalDeviceVulkan13Features vulkan13Features{
 		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
 		.synchronization2 = VK_TRUE,
@@ -192,49 +179,20 @@ Device::Device(std::unique_ptr<PhysicalDevice> &&selectedPhysicalDevice, VkSurfa
 	volkLoadDevice(handle);
 
 	// Setup VMA
-	VmaVulkanFunctions vmaVulkanFunctions{
-		.vkGetInstanceProcAddr = vkGetInstanceProcAddr,
-		.vkGetDeviceProcAddr = vkGetDeviceProcAddr,
-		.vkGetPhysicalDeviceProperties = vkGetPhysicalDeviceProperties,
-		.vkGetPhysicalDeviceMemoryProperties = vkGetPhysicalDeviceMemoryProperties,
-		.vkAllocateMemory = vkAllocateMemory,
-		.vkFreeMemory = vkFreeMemory,
-		.vkMapMemory = vkMapMemory,
-		.vkUnmapMemory = vkUnmapMemory,
-		.vkFlushMappedMemoryRanges = vkFlushMappedMemoryRanges,
-		.vkInvalidateMappedMemoryRanges = vkInvalidateMappedMemoryRanges,
-		.vkBindBufferMemory = vkBindBufferMemory,
-		.vkBindImageMemory = vkBindImageMemory,
-		.vkGetBufferMemoryRequirements = vkGetBufferMemoryRequirements,
-		.vkGetImageMemoryRequirements = vkGetImageMemoryRequirements,
-		.vkCreateBuffer = vkCreateBuffer,
-		.vkDestroyBuffer = vkDestroyBuffer,
-		.vkCreateImage = vkCreateImage,
-		.vkDestroyImage = vkDestroyImage,
-		.vkCmdCopyBuffer = vkCmdCopyBuffer,
-	};
-
-	// VK_KHR_buffer_device_address has been core as of vulkan 1.2
+	VmaVulkanFunctions vmaVulkanFunctions{};
 	VmaAllocatorCreateInfo allocatorInfo{
+		// Buffer device address has been core since Vulkan 1.2 and is required by the ray tracing paths
 		.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT,
 		.physicalDevice = this->physicalDevice->getHandle(),
 		.device = handle,
 		.pVulkanFunctions = &vmaVulkanFunctions,
 		.instance = this->physicalDevice->getInstance().getHandle(),
+		// Matches VkApplicationInfo::apiVersion; VMA fetches the matching entry points instead of the Vulkan 1.0 fallbacks
+		.vulkanApiVersion = VK_API_VERSION_1_4,
 	};
 
-	if (canGetMemoryRequirements && supportsDedicatedAllocation)
-	{
-		allocatorInfo.flags |= VMA_ALLOCATOR_CREATE_KHR_DEDICATED_ALLOCATION_BIT;
-		vmaVulkanFunctions.vkGetBufferMemoryRequirements2KHR = vkGetBufferMemoryRequirements2KHR;
-		vmaVulkanFunctions.vkGetImageMemoryRequirements2KHR = vkGetImageMemoryRequirements2KHR;
-	}
-
-	vmaVulkanFunctions.vkBindBufferMemory2KHR = vkBindBufferMemory2KHR;
-	vmaVulkanFunctions.vkBindImageMemory2KHR = vkBindImageMemory2KHR;
-	vmaVulkanFunctions.vkGetPhysicalDeviceMemoryProperties2KHR = vkGetPhysicalDeviceMemoryProperties2KHR;
-	vmaVulkanFunctions.vkGetDeviceBufferMemoryRequirements = vkGetDeviceBufferMemoryRequirements;
-	vmaVulkanFunctions.vkGetDeviceImageMemoryRequirements = vkGetDeviceImageMemoryRequirements;
+	// Fills every function pointer from volk's tables for the version and flags above
+	VK_CHECK(vmaImportVulkanFunctionsFromVolk(&allocatorInfo, &vmaVulkanFunctions));
 
 	VK_CHECK(vmaCreateAllocator(&allocatorInfo, &memoryAllocator));
 }
