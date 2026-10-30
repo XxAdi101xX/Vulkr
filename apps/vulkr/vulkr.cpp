@@ -96,11 +96,11 @@ VulkrApp::~VulkrApp()
 		frameData.commandPools[i].reset();
 	}
 
-	imguiPool.reset();
-
 	ImGui_ImplVulkan_Shutdown();
 	ImGui_ImplGlfw_Shutdown();
 	ImGui::DestroyContext();
+
+	imguiPool.reset();
 
 	device.reset();
 
@@ -4674,8 +4674,9 @@ void VulkrApp::initializeImGui()
 	// Initialize imgui for glfw
 	ImGui_ImplGlfw_InitForVulkan(platform.getWindow().getHandle(), true);
 
-	// Initilialize imgui for Vulkan
+	// Initialize imgui for Vulkan
 	ImGui_ImplVulkan_InitInfo initInfo = {};
+	initInfo.ApiVersion = VK_API_VERSION_1_4;
 	initInfo.Instance = m_instance->getHandle();
 	initInfo.PhysicalDevice = device->getPhysicalDevice().getHandle();
 	initInfo.Device = device->getHandle();
@@ -4683,42 +4684,16 @@ void VulkrApp::initializeImGui()
 	initInfo.Queue = m_graphicsQueue->getHandle();
 	initInfo.PipelineCache = VK_NULL_HANDLE;
 	initInfo.DescriptorPool = imguiPool->getHandle();
-	initInfo.Subpass = 0u;
+	initInfo.PipelineInfoMain.RenderPass = postRenderPass.renderPass->getHandle();
+	initInfo.PipelineInfoMain.Subpass = 0u;
+	initInfo.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
 	initInfo.MinImageCount = swapchain->getProperties().imageCount;
 	initInfo.ImageCount = swapchain->getProperties().imageCount;
-	initInfo.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
 	initInfo.Allocator = device->getAllocationCallbacks(); // TODO pass VMA here; figure out if this solution works
 	initInfo.CheckVkResultFn = checkVkResult;
 
-	ImGui_ImplVulkan_LoadFunctions(loadFunction); // TODO figure out how to integrate with volk
-	ImGui_ImplVulkan_Init(&initInfo, postRenderPass.renderPass->getHandle());
-
-	std::unique_ptr<CommandBuffer> commandBuffer = std::make_unique<CommandBuffer>(*frameData.commandPools[currentFrame], VK_COMMAND_BUFFER_LEVEL_PRIMARY);
-	commandBuffer->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
-
-	ImGui_ImplVulkan_CreateFontsTexture(commandBuffer->getHandle());
-
-	commandBuffer->end();
-
-	VkCommandBufferSubmitInfo commandBufferSubmitInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO };
-	commandBufferSubmitInfo.pNext = nullptr;
-	commandBufferSubmitInfo.commandBuffer = commandBuffer->getHandle();
-	commandBufferSubmitInfo.deviceMask = 0u;
-
-	VkSubmitInfo2 submitInfo = { VK_STRUCTURE_TYPE_SUBMIT_INFO_2 };
-	submitInfo.pNext = nullptr;
-	submitInfo.waitSemaphoreInfoCount = 0u;
-	submitInfo.pWaitSemaphoreInfos = nullptr;
-	submitInfo.commandBufferInfoCount = 1u;
-	submitInfo.pCommandBufferInfos = &commandBufferSubmitInfo;
-	submitInfo.signalSemaphoreInfoCount = 0u;
-	submitInfo.pSignalSemaphoreInfos = nullptr;
-
-	VK_CHECK(vkQueueSubmit2KHR(m_graphicsQueue->getHandle(), 1u, &submitInfo, VK_NULL_HANDLE));
-	vkQueueWaitIdle(m_graphicsQueue->getHandle());
-
-	// Clear font data on CPU
-	ImGui_ImplVulkan_DestroyFontUploadObjects();
+	ImGui_ImplVulkan_LoadFunctions(VK_API_VERSION_1_4, loadFunction);
+	ImGui_ImplVulkan_Init(&initInfo);
 }
 
 void VulkrApp::resetFrameSinceViewChange()
