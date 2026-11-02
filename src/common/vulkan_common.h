@@ -31,6 +31,10 @@
 
 #include "logger.h"
 
+/* The Vulkan API version the engine targets: the instance requests it and the shader toolchain derives its SPIR-V
+   revision from it (Vulkan 1.4 still caps at SPIR-V 1.6) */
+inline constexpr uint32_t vulkanApiVersion{ VK_API_VERSION_1_4 };
+
 #ifdef _DEBUG // Visual Studio defines this for debug builds and NDEBUG for non-debug builds
 	#define VULKR_DEBUG /* Enable the validation layers and all debugging messages */
 #endif
@@ -70,3 +74,8 @@ VkFormat getSupportedDepthFormat(
 		VK_FORMAT_D24_UNORM_S8_UINT
 	}
 );
+
+/* Get the SPIR-V profile name that shader compilers use for the given Vulkan API version. The revisions follow the API
+   version: 1.0 -> spirv_1_0, 1.1 -> spirv_1_3, 1.2 -> spirv_1_5 and 1.3 or newer -> spirv_1_6, because Vulkan 1.3
+   raised the limit to SPIR-V 1.6 and Vulkan 1.4 did not raise it further */
+const char *getSpirvProfileName(uint32_t apiVersion);

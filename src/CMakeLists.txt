@@ -105,6 +105,7 @@ set(RENDERING_FILES
     rendering/camera_controller.h
     rendering/gltf_loader.h
     rendering/obj_loader.h
+    rendering/slang_shader_compiler.h
     # Source Files
     rendering/subpass.cpp
     rendering/shader_module.cpp
@@ -113,6 +114,7 @@ set(RENDERING_FILES
     rendering/camera_controller.cpp
     rendering/gltf_loader.cpp
     rendering/obj_loader.cpp
+    rendering/slang_shader_compiler.cpp
 )
 
 source_group("common\\" FILES ${COMMON_FILES})
@@ -142,6 +144,7 @@ target_link_libraries(${PROJECT_NAME}
     tinyobjloader
     tinygltf
     basis_universal
+    slang
 )
 
 # Link platform specific libraries

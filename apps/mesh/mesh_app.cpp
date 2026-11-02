@@ -22,11 +22,15 @@
 
 #include "mesh_app.h"
 
+#include <iterator>
 #include <limits>
+#include <utility>
 
 #include "common/logger.h"
 #include "common/helpers.h"
 #include "platform/platform.h"
+
+#include "rendering/slang_shader_compiler.h"
 
 #include "core/command_buffer.h"
 #include "core/command_pool.h"
@@ -94,6 +98,85 @@ void MeshApp::prepare()
 
 	createSwapchainImageViews();
 	createFrameData();
+	createPipeline();
+}
+
+void MeshApp::createPipeline()
+{
+	// Compile the mesh and fragment entry points with Slang at runtime
+	m_slangCompiler = std::make_unique<SlangShaderCompiler>();
+
+	const std::vector<std::pair<std::string, VkShaderStageFlagBits>> entryPoints{
+		{ "meshMain", VK_SHADER_STAGE_MESH_BIT_EXT },
+		{ "fragMain", VK_SHADER_STAGE_FRAGMENT_BIT },
+	};
+	const std::vector<VkPipelineShaderStageCreateInfo> shaderStages = m_slangCompiler->compile(*m_device, "../../shaders/mesh/triangle.slang", entryPoints);
+
+	VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo{
+		.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+		// TODO: Add bindless descriptor set layout for the fragment shader to use a push constant for the triangle color
+	};
+	VK_CHECK(vkCreatePipelineLayout(m_device->getHandle(), &pipelineLayoutCreateInfo, nullptr, &m_pipelineLayout));
+
+	// Dynamic rendering replaces the render pass of the pipeline
+	VkPipelineRenderingCreateInfo renderingCreateInfo{
+		.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
+		.colorAttachmentCount = 1u,
+		.pColorAttachmentFormats = &m_swapchain->getProperties().surfaceFormat.format,
+	};
+
+	VkPipelineViewportStateCreateInfo viewportState{
+		.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+		.viewportCount = 1u,
+		.scissorCount = 1u,
+	};
+
+	VkPipelineRasterizationStateCreateInfo rasterizationState{
+		.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+		.polygonMode = VK_POLYGON_MODE_FILL,
+		.cullMode = VK_CULL_MODE_NONE,
+		.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
+		.lineWidth = 1.0f,
+	};
+
+	VkPipelineMultisampleStateCreateInfo multisampleState{
+		.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+		.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT,
+	};
+
+	VkPipelineColorBlendAttachmentState colorBlendAttachment{
+		.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
+	};
+	VkPipelineColorBlendStateCreateInfo colorBlendState{
+		.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+		.attachmentCount = 1u,
+		.pAttachments = &colorBlendAttachment,
+	};
+
+	const VkDynamicState dynamicStates[]{ VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+	VkPipelineDynamicStateCreateInfo dynamicState{
+		.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
+		.dynamicStateCount = to_u32(std::size(dynamicStates)),
+		.pDynamicStates = dynamicStates,
+	};
+
+	VkGraphicsPipelineCreateInfo pipelineCreateInfo{
+		.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+		.pNext = &renderingCreateInfo,
+		.stageCount = to_u32(shaderStages.size()),
+		.pStages = shaderStages.data(),
+		// pVertexInputState and pInputAssemblyState stay null since a mesh shader pipeline has no vertex buffers
+		.pViewportState = &viewportState,
+		.pRasterizationState = &rasterizationState,
+		.pMultisampleState = &multisampleState,
+		.pColorBlendState = &colorBlendState,
+		.pDynamicState = &dynamicState,
+		.layout = m_pipelineLayout,
+		.renderPass = VK_NULL_HANDLE,
+	};
+	VK_CHECK(vkCreateGraphicsPipelines(m_device->getHandle(), VK_NULL_HANDLE, 1u, &pipelineCreateInfo, nullptr, &m_pipeline));
+
+	LOGI("Created the mesh shader pipeline");
 }
 
 void MeshApp::createSwapchainImageViews()
@@ -265,6 +348,25 @@ void MeshApp::recordCommandBuffer()
 		.pColorAttachments = &colorAttachment,
 	};
 	vkCmdBeginRendering(commandBuffer, &renderingInfo);
+
+	const VkExtent2D swapchainExtent = m_swapchain->getProperties().imageExtent;
+	const VkViewport viewport{
+		.x = 0.0f,
+		.y = 0.0f,
+		.width = static_cast<float>(swapchainExtent.width),
+		.height = static_cast<float>(swapchainExtent.height),
+		.minDepth = 0.0f,
+		.maxDepth = 1.0f,
+	};
+	const VkRect2D scissor{ { 0, 0 }, swapchainExtent };
+
+	vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline);
+	vkCmdSetViewport(commandBuffer, 0u, 1u, &viewport);
+	vkCmdSetScissor(commandBuffer, 0u, 1u, &scissor);
+
+	// One workgroup, which the mesh shader turns into a single triangle
+	vkCmdDrawMeshTasksEXT(commandBuffer, 1u, 1u, 1u);
+
 	vkCmdEndRendering(commandBuffer);
 
 	// Hand the image back to the presentation engine
@@ -305,6 +407,24 @@ void MeshApp::cleanup()
 	}
 
 	m_device->waitIdle();
+
+	if (m_pipeline != VK_NULL_HANDLE)
+	{
+		vkDestroyPipeline(m_device->getHandle(), m_pipeline, nullptr);
+		m_pipeline = VK_NULL_HANDLE;
+	}
+
+	if (m_pipelineLayout != VK_NULL_HANDLE)
+	{
+		vkDestroyPipelineLayout(m_device->getHandle(), m_pipelineLayout, nullptr);
+		m_pipelineLayout = VK_NULL_HANDLE;
+	}
+
+	if (m_slangCompiler != nullptr)
+	{
+		m_slangCompiler->destroyShaderModules(*m_device);
+		m_slangCompiler.reset();
+	}
 
 	for (VkImageView imageView : m_swapchainImageViews)
 	{

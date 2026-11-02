@@ -121,3 +121,29 @@ VkFormat getSupportedDepthFormat(VkPhysicalDevice physicalDeviceHandle, bool dep
 
 	throw std::runtime_error("Failed to find a supported format");
 }
+
+const char *getSpirvProfileName(uint32_t apiVersion)
+{
+	if (VK_VERSION_MAJOR(apiVersion) != 1u)
+	{
+		LOGEANDABORT("Unsupported Vulkan API version {}", apiVersion);
+	}
+
+	// The SPIR-V revision is bounded by the Vulkan API version the application targets
+	switch (VK_VERSION_MINOR(apiVersion))
+	{
+	case 0u:
+		return "spirv_1_0";
+	case 1u:
+		return "spirv_1_3";
+	case 2u:
+		return "spirv_1_5";
+	case 3u:
+		return "spirv_1_6";
+	case 4u:
+		// Vulkan 1.4 did not raise the SPIR-V revision limit beyond 1.6
+		return "spirv_1_6";
+	default:
+		LOGEANDABORT("Unsupported Vulkan API version {}", apiVersion);
+	}
+}

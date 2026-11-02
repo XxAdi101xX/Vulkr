@@ -42,6 +42,7 @@ class FencePool;
 class Instance;
 class Queue;
 class SemaphorePool;
+class SlangShaderCompiler;
 class Swapchain;
 
 /* Mesh shader application: dynamic rendering, synchronization2, buffer device address,
@@ -84,6 +85,8 @@ private:
 
 	void createFrameData();
 
+	void createPipeline();
+
 	void recordCommandBuffer();
 
 	void cleanup();
@@ -97,6 +100,11 @@ private:
 	/* The Swapchain owns the swapchain images, the app owns their views and the per image present semaphores */
 	std::vector<VkImageView> m_swapchainImageViews;
 	std::vector<VkSemaphore> m_renderFinishedSemaphores;
+
+	/* Runtime compiled shaders and the mesh shader pipeline that uses them */
+	std::unique_ptr<SlangShaderCompiler> m_slangCompiler{ nullptr };
+	VkPipelineLayout m_pipelineLayout{ VK_NULL_HANDLE };
+	VkPipeline m_pipeline{ VK_NULL_HANDLE };
 
 	std::unique_ptr<FencePool> m_fencePool{ nullptr };
 	std::unique_ptr<SemaphorePool> m_semaphorePool{ nullptr };

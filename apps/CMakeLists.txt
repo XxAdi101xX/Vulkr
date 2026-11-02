@@ -34,7 +34,7 @@ target_link_libraries(fluid_simulation PRIVATE src)
 
 add_executable(vulkr_mesh)
 target_sources(vulkr_mesh PRIVATE mesh/main.cpp mesh/mesh_app.cpp mesh/mesh_app.h)
-target_link_libraries(vulkr_mesh PRIVATE src meshoptimizer slang)
+target_link_libraries(vulkr_mesh PRIVATE src meshoptimizer)
 
 # Slang is loaded from the DLLs that ship with the Vulkan SDK
 if(WIN32)
