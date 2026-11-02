@@ -92,7 +92,7 @@ PFN_vkVoidFunction loadFunction(const char *function_name, void *user_data) { re
 namespace vulkr
 {
 
-constexpr uint32_t maxFramesInFlight{ 2u }; // Explanation on this how we got this number: https://software.intel.com/content/www/us/en/develop/articles/practical-approach-to-vulkan-part-1.html
+constexpr uint32_t maxFramesInFlight{ 2u };
 
 /*
  * Command buffer 1: Used for setup before core rendering loop; we ensure all the setup is done before we use it again for the compute/offscreen pass

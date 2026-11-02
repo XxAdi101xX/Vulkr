@@ -110,34 +110,28 @@ const std::vector<std::unique_ptr<Image>> &Swapchain::getImages() const
 
 void Swapchain::create(uint32_t graphicsQueueFamilyIndex, uint32_t presentQueueFamilyIndex)
 {
-	VkSwapchainCreateInfoKHR createInfo{ VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR };
-	createInfo.surface = surface;
-	createInfo.minImageCount = properties.imageCount;
-	createInfo.imageFormat = properties.surfaceFormat.format;
-	createInfo.imageColorSpace = properties.surfaceFormat.colorSpace;
-	createInfo.imageExtent = properties.imageExtent;
-	createInfo.imageArrayLayers = properties.imageArraylayers;
-	createInfo.imageUsage = properties.imageUsage;
-
-	// Check whether our graphics queue can support present and populate info accordingly
 	uint32_t queueFamilyIndices[] = { graphicsQueueFamilyIndex, presentQueueFamilyIndex };
+	const bool queueFamiliesDiffer = graphicsQueueFamilyIndex != presentQueueFamilyIndex;
 
-	if (graphicsQueueFamilyIndex != presentQueueFamilyIndex)
-	{
-		createInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
-		createInfo.queueFamilyIndexCount = 2u;
-		createInfo.pQueueFamilyIndices = queueFamilyIndices;
-	}
-	else
-	{
-		createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
-	}
-
-	createInfo.preTransform = properties.preTransform;
-	createInfo.compositeAlpha = properties.compositeAlpha;
-	createInfo.presentMode = properties.presentMode;
-	createInfo.clipped = properties.clipped;
-	createInfo.oldSwapchain = properties.oldSwapchain;
+	// Share the swapchain images between the graphics and present queues when they are not the same queue family
+	VkSwapchainCreateInfoKHR createInfo{
+		.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
+		.surface = surface,
+		.minImageCount = properties.imageCount,
+		.imageFormat = properties.surfaceFormat.format,
+		.imageColorSpace = properties.surfaceFormat.colorSpace,
+		.imageExtent = properties.imageExtent,
+		.imageArrayLayers = properties.imageArraylayers,
+		.imageUsage = properties.imageUsage,
+		.imageSharingMode = queueFamiliesDiffer ? VK_SHARING_MODE_CONCURRENT : VK_SHARING_MODE_EXCLUSIVE,
+		.queueFamilyIndexCount = queueFamiliesDiffer ? 2u : 0u,
+		.pQueueFamilyIndices = queueFamiliesDiffer ? queueFamilyIndices : nullptr,
+		.preTransform = properties.preTransform,
+		.compositeAlpha = properties.compositeAlpha,
+		.presentMode = properties.presentMode,
+		.clipped = properties.clipped,
+		.oldSwapchain = properties.oldSwapchain,
+	};
 
 	VK_CHECK(vkCreateSwapchainKHR(device.getHandle(), &createInfo, nullptr, &handle));
 
@@ -151,7 +145,11 @@ void Swapchain::create(uint32_t graphicsQueueFamilyIndex, uint32_t presentQueueF
 	images.reserve(imageCount);
 	for (uint32_t i = 0; i < imageCount; ++i)
 	{
-		VkExtent3D extent{ properties.imageExtent.width, properties.imageExtent.height, 1 };
+		VkExtent3D extent{
+			.width = properties.imageExtent.width,
+			.height = properties.imageExtent.height,
+			.depth = 1u,
+		};
 		images.emplace_back(std::make_unique<Image>(this->device, imageHandles[i], extent, properties.surfaceFormat.format, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT));
 	}
 }

@@ -22,7 +22,9 @@
 
 #pragma once
 
- // STL Libraries
+// STL Libraries
+#include <array>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -33,9 +35,14 @@ namespace vulkr
 {
 
 /* Forward declaration */
-class Instance;
+class CommandBuffer;
+class CommandPool;
 class Device;
+class FencePool;
+class Instance;
 class Queue;
+class SemaphorePool;
+class Swapchain;
 
 /* Mesh shader application: dynamic rendering, synchronization2, buffer device address,
    descriptor indexing and mesh shaders. The overrides of prepare(), update() and finish()
@@ -50,7 +57,22 @@ public:
 	virtual void prepare() override;
 
 	virtual void update() override;
+
+	virtual void recreateSwapchain() override;
 private:
+	/* Number of frames that can be recorded and submitted while an earlier frame is still in flight */
+	static constexpr uint32_t maxFramesInFlight{ 2u };
+
+	/* Per frame recording and synchronisation objects; the acquire semaphore belongs to a frame, while the render
+	   finished semaphores belong to a swapchain image so that they are never signalled while still being presented */
+	struct FrameData
+	{
+		std::unique_ptr<CommandPool> commandPool;
+		std::shared_ptr<CommandBuffer> commandBuffer;
+		VkFence inFlightFence{ VK_NULL_HANDLE };
+		VkSemaphore imageAvailableSemaphore{ VK_NULL_HANDLE };
+	};
+
 	/* IMPORTANT NOTICE: Device features are enabled through the pNext chain in src/core/device.cpp; the mesh
 	   shader features are only chained in when VK_EXT_mesh_shader is requested through this list */
 	const std::vector<const char *> deviceExtensions{
@@ -58,10 +80,30 @@ private:
 		VK_EXT_MESH_SHADER_EXTENSION_NAME,
 	};
 
+	void createSwapchainImageViews();
+
+	void createFrameData();
+
+	void recordCommandBuffer();
+
+	void cleanup();
+
 	std::unique_ptr<Instance> m_instance{ nullptr };
 	VkSurfaceKHR m_surface{ VK_NULL_HANDLE };
 	std::unique_ptr<Device> m_device{ nullptr };
 	Queue *m_generalQueue{ nullptr };
+	std::unique_ptr<Swapchain> m_swapchain{ nullptr };
+
+	/* The Swapchain owns the swapchain images, the app owns their views and the per image present semaphores */
+	std::vector<VkImageView> m_swapchainImageViews;
+	std::vector<VkSemaphore> m_renderFinishedSemaphores;
+
+	std::unique_ptr<FencePool> m_fencePool{ nullptr };
+	std::unique_ptr<SemaphorePool> m_semaphorePool{ nullptr };
+	std::array<FrameData, maxFramesInFlight> m_frames{};
+
+	uint32_t m_currentFrame{ 0u };
+	uint32_t m_swapchainImageIndex{ 0u };
 };
 
 } // namespace vulkr
