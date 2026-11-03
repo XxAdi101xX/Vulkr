@@ -41,7 +41,7 @@ layout(push_constant) uniform FluidSimulationPushConstant
 	vec3 splatForce;
 	float splatRadius;
 	vec2 splatPosition;
-	float dissipation;
+	float retentionPerStep;
 	int blank; // padding
 } pushConstant;
 
@@ -76,13 +76,13 @@ void main()
 	float scale = 1.0f / pushConstant.gridScale;
 	vec2 pos = screenSpaceCoords - pushConstant.timestep * scale * texture(nonuniformEXT(fluidVelocityInputTextureImage), uv).xy;
 
-	// Dissipation is defined per 1/60 s step, so scale it by how many steps this frame advances to keep
-	// the decay rate independent of the frame rate
-	float dissipation = pow(pushConstant.dissipation, pushConstant.timestep);
+	// retentionPerStep is defined per 1/60 s step, so scale it by how many steps this frame advances to
+	// keep the decay rate independent of the frame rate
+	float frameDecay = pow(pushConstant.retentionPerStep, pushConstant.timestep);
 
 	// Advect the fluid velocity
-	vec4 advectedVelocity = vec4(dissipation * bilerp(fluidVelocityInputTextureImage, pos), 0.0f, 1.0f);
+	vec4 advectedVelocity = vec4(frameDecay * bilerp(fluidVelocityInputTextureImage, pos), 0.0f, 1.0f);
 	imageStore(fluidSimulationOutputTextureImage, imageIndex, advectedVelocity);
 
-	//debugPrintfEXT("splatradius is %f", pushConstant.dissipation);
+	//debugPrintfEXT("splatradius is %f", pushConstant.retentionPerStep);
 }

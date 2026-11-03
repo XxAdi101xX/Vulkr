@@ -40,7 +40,7 @@ layout(push_constant) uniform FluidSimulationPushConstant
 	vec3 splatForce;
 	float splatRadius;
 	vec2 splatPosition;
-	float dissipation;
+	float retentionPerStep;
 	int blank; // padding
 } pushConstant;
 

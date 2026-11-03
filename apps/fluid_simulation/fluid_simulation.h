@@ -82,7 +82,7 @@ struct FluidSimulationPushConstant
 	glm::vec3 splatForce{ glm::vec3(0.0f) };
 	float splatRadius{ 0.60f };
 	glm::vec2 splatPosition{ glm::vec2(0.0f) };
-	float dissipation{ 0.99f }; // Fraction of velocity and density retained per simulation step
+	float retentionPerStep{ 0.99f }; // Fraction of velocity and density retained per 1/60 s simulation step
 	int blank{ 0 }; // padding
 } fluidSimulationPushConstant;
 
