@@ -59,12 +59,14 @@ void main()
  vec2 yOffset = vec2(0.0f, 1.0f / pushConstant.gridSize.y);
 
  float pressureRightX = texture(nonuniformEXT(fluidPressureInputTextureImage), uv + xOffset).x;
- float pressureLeftX = texture(nonuniformEXT(fluidPressureInputTextureImage), uv - xOffset).x; // Top is at y = 0
- float pressureTopY = texture(nonuniformEXT(fluidPressureInputTextureImage), uv - yOffset).y;
- float pressureBotY = texture(nonuniformEXT(fluidPressureInputTextureImage), uv + yOffset).y;
+ float pressureLeftX = texture(nonuniformEXT(fluidPressureInputTextureImage), uv - xOffset).x;
+ // The pressure is solved into the x channel of the texture; image y increases downwards, so the
+ // vertical derivative is (below - above)
+ float pressureTopY = texture(nonuniformEXT(fluidPressureInputTextureImage), uv - yOffset).x; // Top is at y = 0
+ float pressureBotY = texture(nonuniformEXT(fluidPressureInputTextureImage), uv + yOffset).x;
 
  float scale = 0.5f / pushConstant.gridScale;
- vec2 gradient = vec2(pressureRightX - pressureLeftX, pressureTopY - pressureBotY);
+ vec2 gradient = vec2(pressureRightX - pressureLeftX, pressureBotY - pressureTopY);
 
  vec2 newVelocity = texture(nonuniformEXT(fluidVelocityInputTextureImage), uv).xy;
  newVelocity -= (scale * gradient);

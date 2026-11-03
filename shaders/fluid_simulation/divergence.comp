@@ -60,11 +60,13 @@ void main()
 
     float velocityRightX = texture(nonuniformEXT(fluidVelocityInputTextureImage), uv + xOffset).x;
     float velocityLeftX = texture(nonuniformEXT(fluidVelocityInputTextureImage), uv - xOffset).x;
+    // Image y increases downwards and the velocity is stored in that same frame (a positive y moves
+    // the field down the screen), so the vertical derivative is (below - above) to match (right - left)
     float velocityTopY = texture(nonuniformEXT(fluidVelocityInputTextureImage), uv - yOffset).y; // Top is at y = 0
     float velocityBotY = texture(nonuniformEXT(fluidVelocityInputTextureImage), uv + yOffset).y;
 
     float scale =  0.5f / pushConstant.gridScale;
-    float divergence = scale * (velocityRightX - velocityLeftX + velocityTopY - velocityBotY);
+    float divergence = scale * (velocityRightX - velocityLeftX + velocityBotY - velocityTopY);
 
     imageStore(fluidSimulationOutputTextureImage, imageIndex, vec4(divergence, 0.0f, 0.0f, 1.0f));
 }
