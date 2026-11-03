@@ -1362,7 +1362,7 @@ std::unique_ptr<Image> FluidSimulation::createTextureImageWithInitialValue(uint3
 	std::unique_ptr<Buffer> stagingBuffer = std::make_unique<Buffer>(*device, bufferInfo, memoryInfo);
 
 	// Initialize the texture with the initial values
-	const float initalValue = 0.1f;
+	const float initalValue = 0.0f;
 
 	std::vector<float> initialTextureData(imageSize, initalValue);
 	stagingBuffer->update(initialTextureData.data(), initialTextureData.size(), 0u);

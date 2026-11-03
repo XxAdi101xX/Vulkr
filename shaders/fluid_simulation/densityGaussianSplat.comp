@@ -24,8 +24,6 @@
 #extension GL_EXT_debug_printf : enable
 #extension GL_EXT_nonuniform_qualifier : enable
 
-#include "../random.glsl"
-
 layout(constant_id = 0) const uint workGroupSize = 64u;
 layout(local_size_x_id = 0) in; // Maps to the constant_id = 0 specialization constant
 
@@ -52,6 +50,13 @@ float gaussianSplat(vec2 p, float r)
     return exp(-dot(p, p) / r);
 }
 
+// hsv (hue in turns, saturation and value in [0,1]) to rgb; with s = v = 1 the brightest channel is 1
+vec3 hsvToRgb(vec3 hsv)
+{
+    vec3 p = abs(fract(hsv.x + vec3(0.0f, 2.0f / 3.0f, 1.0f / 3.0f)) * 6.0f - 3.0f);
+    return hsv.z * mix(vec3(1.0f), clamp(p - 1.0f, 0.0f, 1.0f), hsv.y);
+}
+
 void main() 
 {
 	uint globalInvocationId = gl_GlobalInvocationID.x;
@@ -64,13 +69,18 @@ void main()
 	vec2 uv = screenSpaceCoords / pushConstant.gridSize;
 	vec4 inputImage = texture(nonuniformEXT(fluidDensityInputTextureImage), uv);
 
-	vec2 distanceFromSplat = pushConstant.splatPosition - screenSpaceCoords;
-	//vec3 splatValue = vec3(1.0f, 1.0f, 1.0f) * gaussianSplat(distanceFromSplat, pushConstant.gridSize.x * pushConstant.splatRadius);
-	uint seed1 = uint(inputImage.x);
-	vec3 splatValue = vec3(1.0, rnd(seed1), rnd(seed1)) * gaussianSplat(distanceFromSplat, pushConstant.gridSize.x * pushConstant.splatRadius);
+	vec3 splatColour = hsvToRgb(vec3(fract(3.0f * dot(uv, vec2(0.75f, 0.25f))), 1.0f, 1.0f));
 
-	imageStore(fluidSimulationOutputTextureImage, imageIndex, vec4(inputImage.xyz + splatValue, 1.0f)); 
-	//debugPrintfEXT("splatvalue: %1.5v3f", splatValue);
-	//debugPrintfEXT("splatvalue x: %f", splatValue.x);
+	vec2 distanceFromSplat = pushConstant.splatPosition - screenSpaceCoords;
+	const float splatGain = 0.5f; // injected brightness at the centre of the splat
+	vec3 colour = inputImage.rgb + splatColour * (splatGain * gaussianSplat(distanceFromSplat, pushConstant.gridSize.x * pushConstant.splatRadius));
+
+	// Clamp the brightness while preserving the hue. The blit to the swapchain clips every channel on
+	// its own, which turns a saturated colour white as soon as any channel passes 1
+	float maxChannel = max(colour.r, max(colour.g, colour.b));
+	colour /= max(1.0f, maxChannel);
+
+	imageStore(fluidSimulationOutputTextureImage, imageIndex, vec4(colour, 1.0f));
+	//debugPrintfEXT("splatcolour: %1.5v3f", splatColour);
 	//debugPrintfEXT("gaussian: %f", gaussianSplat(distanceFromSplat, pushConstant.gridSize.x * pushConstant.splatRadius));
 }
