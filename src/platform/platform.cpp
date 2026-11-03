@@ -41,6 +41,7 @@ void Platform::initialize(std::unique_ptr<Application> &&applicationToOwn)
 #endif
 
 	spdlog::set_pattern(LOGGER_FORMAT);
+	spdlog::flush_on(spdlog::level::err);
 	LOGI("Logger initialized");
 
 	window = std::make_unique<Window>(*this, this->application->getName());

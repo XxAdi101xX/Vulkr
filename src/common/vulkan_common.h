@@ -25,19 +25,26 @@
 #include <iostream>
 #include <cstdlib>
 
-#define VMA_VULKAN_VERSION 1004000
-#include <volk.h>
-#include <vk_mem_alloc.h>
-
 #include "logger.h"
-
-/* The Vulkan API version the engine targets: the instance requests it and the shader toolchain derives its SPIR-V
-   revision from it (Vulkan 1.4 still caps at SPIR-V 1.6) */
-inline constexpr uint32_t vulkanApiVersion{ VK_API_VERSION_1_4 };
 
 #ifdef _DEBUG // Visual Studio defines this for debug builds and NDEBUG for non-debug builds
 	#define VULKR_DEBUG /* Enable the validation layers and all debugging messages */
 #endif
+
+/* Route VMA's internal assertions through the logger. A plain assert() writes straight to stderr and carries no tag, so
+   a fatal VMA check is easy to miss in the middle of the log; this way it is tagged as an error and reports the file and
+   line inside vk_mem_alloc.h */
+#define VMA_VULKAN_VERSION 1004000
+#ifdef VULKR_DEBUG
+	#define VMA_ASSERT(expr) VULKR_ASSERT_IMPL(expr)
+	#define VMA_ASSERT_LEAK(expr) VULKR_ASSERT_IMPL(expr)
+#endif
+#include <volk.h>
+#include <vk_mem_alloc.h>
+
+/* The Vulkan API version the engine targets: the instance requests it and the shader toolchain derives its SPIR-V
+   revision from it (Vulkan 1.4 still caps at SPIR-V 1.6) */
+inline constexpr uint32_t vulkanApiVersion{ VK_API_VERSION_1_4 };
 
  //#define RENDERDOC_DEBUG /* Disable extensions unsupported by RenderDoc (like raytracing) in order to use it to debug this application */
 

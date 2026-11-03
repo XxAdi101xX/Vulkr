@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <cstdlib>
+
 #include <spdlog/fmt/fmt.h>
 #include <spdlog/spdlog.h>
 
@@ -31,5 +33,26 @@
 	do                                                                             \
 	{                                                                              \
 		spdlog::error("[{}:{}] {}", __FILE__, __LINE__, fmt::format(__VA_ARGS__)); \
+		spdlog::default_logger()->flush();                                         \
 		std::abort();                                                              \
 	} while (0);
+
+/* Assertion that reports through the logger: unlike assert(), the failure is tagged like every other error and carries
+   the file and line, and the sink is flushed before aborting so the message survives a crash. Libraries whose
+   assertions can be redirected (VMA) point their own macros at VULKR_ASSERT_IMPL */
+#define VULKR_ASSERT_IMPL(expr)                                                   \
+	do                                                                            \
+	{                                                                             \
+		if (!(expr))                                                              \
+		{                                                                         \
+			spdlog::error("[{}:{}] Assertion failed: {}", __FILE__, __LINE__, #expr); \
+			spdlog::default_logger()->flush();                                    \
+			std::abort();                                                         \
+		}                                                                         \
+	} while (0);
+
+#if defined(VULKR_DEBUG) || defined(_DEBUG)
+	#define VULKR_ASSERT(expr) VULKR_ASSERT_IMPL(expr)
+#else
+	#define VULKR_ASSERT(expr) ((void)0)
+#endif
