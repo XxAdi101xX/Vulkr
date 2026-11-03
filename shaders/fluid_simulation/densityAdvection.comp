@@ -45,17 +45,17 @@ layout(push_constant) uniform FluidSimulationPushConstant
 } pushConstant;
 
 
-vec2 bilerp(sampler2D tex, vec2 p)
+vec3 bilerp(sampler2D tex, vec2 p)
 {
     vec4 ij;
     ij.xy = floor(p - 0.5f) + 0.5f;
     ij.zw = ij.xy + 1.0f;
 
 	vec4 uv = ij / pushConstant.gridSize.xyxy;
-	vec2 tex11 = texture(nonuniformEXT(tex), uv.xy).xy;
-	vec2 tex21 = texture(nonuniformEXT(tex), uv.zy).xy;
-	vec2 tex12 = texture(nonuniformEXT(tex), uv.xw).xy;
-	vec2 tex22 = texture(nonuniformEXT(tex), uv.zw).xy;
+	vec3 tex11 = texture(nonuniformEXT(tex), uv.xy).xyz;
+	vec3 tex21 = texture(nonuniformEXT(tex), uv.zy).xyz;
+	vec3 tex12 = texture(nonuniformEXT(tex), uv.xw).xyz;
+	vec3 tex22 = texture(nonuniformEXT(tex), uv.zw).xyz;
 
 	vec2 t = p - ij.xy;
 
@@ -76,8 +76,12 @@ void main()
 	float scale = 1.0f / pushConstant.gridScale;
 	vec2 pos = screenSpaceCoords - pushConstant.timestep * scale * texture(nonuniformEXT(fluidVelocityInputTextureImage), uv).xy;
 
-	// Advect the fluid density
-	vec4 advectedDensity = vec4(bilerp(fluidDensityInputTextureImage, pos), 0.0f, 1.0f);
+	// dissipation is defined per 1/60 s step, so scale it by how many steps this frame advances to keep
+	// the fade rate independent of the frame rate
+	float dissipation = pow(pushConstant.dissipation, pushConstant.timestep);
+
+	// Advect the smoke colour and fade it out
+	vec4 advectedDensity = vec4(dissipation * bilerp(fluidDensityInputTextureImage, pos), 1.0f);
 	imageStore(fluidSimulationOutputTextureImage, imageIndex, advectedDensity);
 
 	//imageStore(fluidSimulationOutputTextureImage, imageIndex, vec4((sin(pushConstant.timestep* 10) + 1.0f) / 2.0f, 0.0f, 0.0f, 1.0f));
