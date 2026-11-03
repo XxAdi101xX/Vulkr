@@ -82,8 +82,14 @@ struct FluidSimulationPushConstant
 	glm::vec3 splatForce{ glm::vec3(0.0f) };
 	float splatRadius{ 0.60f };
 	glm::vec2 splatPosition{ glm::vec2(0.0f) };
-	float retentionPerStep{ 0.99f }; // Fraction of velocity and density retained per 1/60 s simulation step
-	int blank{ 0 }; // padding
+	float velocityRetentionPerStep{ 0.99f }; // Fraction of velocity retained per 1/60 s simulation step
+	int visualizationMode{ 0 }; // FluidVisualizationMode; which field the visualization pass maps to colour
+	float splatGain{ 0.5f }; // Brightness injected at the centre of a density splat
+	float maxSpeed{ 20.0f }; // Velocity in cells per step that maps to full brightness/saturation in the velocity views
+	float pressureRange{ 1.0f }; // |pressure| that maps to full colour in the pressure view
+	float divergenceRange{ 0.5f }; // |divergence| that maps to full colour in the divergence view
+	float curlRange{ 0.5f }; // |curl| that maps to full colour in the curl view
+	float densityRetentionPerStep{ 0.995f }; // Fraction of the smoke colour retained per 1/60 s simulation step; slower than velocity because the smoke is also carried away and diluted by advection
 } fluidSimulationPushConstant;
 
 struct PipelineData

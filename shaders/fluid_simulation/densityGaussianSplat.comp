@@ -41,8 +41,14 @@ layout(push_constant) uniform FluidSimulationPushConstant
 	vec3 splatForce;
 	float splatRadius;
 	vec2 splatPosition;
-	float retentionPerStep;
-	int blank; // padding
+	float velocityRetentionPerStep;
+	int visualizationMode;
+	float splatGain;
+	float maxSpeed;
+	float pressureRange;
+	float divergenceRange;
+	float curlRange;
+	float densityRetentionPerStep;
 } pushConstant;
 
 float gaussianSplat(vec2 p, float r)
@@ -72,8 +78,7 @@ void main()
 	vec3 splatColour = hsvToRgb(vec3(fract(3.0f * dot(uv, vec2(0.75f, 0.25f))), 1.0f, 1.0f));
 
 	vec2 distanceFromSplat = pushConstant.splatPosition - screenSpaceCoords;
-	const float splatGain = 0.5f; // injected brightness at the centre of the splat
-	vec3 colour = inputImage.rgb + splatColour * (splatGain * gaussianSplat(distanceFromSplat, pushConstant.gridSize.x * pushConstant.splatRadius));
+	vec3 colour = inputImage.rgb + splatColour * (pushConstant.splatGain * gaussianSplat(distanceFromSplat, pushConstant.gridSize.x * pushConstant.splatRadius));
 
 	// Clamp the brightness while preserving the hue. The blit to the swapchain clips every channel on
 	// its own, which turns a saturated colour white as soon as any channel passes 1

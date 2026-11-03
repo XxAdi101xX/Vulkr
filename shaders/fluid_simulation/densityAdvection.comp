@@ -40,8 +40,14 @@ layout(push_constant) uniform FluidSimulationPushConstant
 	vec3 splatForce;
 	float splatRadius;
 	vec2 splatPosition;
-	float retentionPerStep;
-	int blank; // padding
+	float velocityRetentionPerStep;
+	int visualizationMode;
+	float splatGain;
+	float maxSpeed;
+	float pressureRange;
+	float divergenceRange;
+	float curlRange;
+	float densityRetentionPerStep;
 } pushConstant;
 
 
@@ -78,7 +84,7 @@ void main()
 
 	// retentionPerStep is defined per 1/60 s step, so scale it by how many steps this frame advances to
 	// keep the fade rate independent of the frame rate
-	float frameDecay = pow(pushConstant.retentionPerStep, pushConstant.timestep);
+	float frameDecay = pow(pushConstant.densityRetentionPerStep, pushConstant.timestep);
 
 	// Advect the smoke colour and fade it out
 	vec4 advectedDensity = vec4(frameDecay * bilerp(fluidDensityInputTextureImage, pos), 1.0f);

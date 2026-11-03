@@ -28,3 +28,4 @@
 %VULKAN_SDK%/Bin/glslc.exe --target-env=vulkan1.4 fluid_simulation/divergence.comp -o spv/fluid_simulation/divergence.comp.spv -g
 %VULKAN_SDK%/Bin/glslc.exe --target-env=vulkan1.4 fluid_simulation/jacobi.comp -o spv/fluid_simulation/jacobi.comp.spv -g
 %VULKAN_SDK%/Bin/glslc.exe --target-env=vulkan1.4 fluid_simulation/gradient.comp -o spv/fluid_simulation/gradient.comp.spv -g
+%VULKAN_SDK%/Bin/glslc.exe --target-env=vulkan1.4 fluid_simulation/visualization.comp -o spv/fluid_simulation/visualization.comp.spv -g

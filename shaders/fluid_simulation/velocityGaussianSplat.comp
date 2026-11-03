@@ -40,8 +40,14 @@ layout(push_constant) uniform FluidSimulationPushConstant
 	vec3 splatForce;
 	float splatRadius;
 	vec2 splatPosition;
-	float retentionPerStep;
-	int blank; // padding
+	float velocityRetentionPerStep;
+	int visualizationMode;
+	float splatGain;
+	float maxSpeed;
+	float pressureRange;
+	float divergenceRange;
+	float curlRange;
+	float densityRetentionPerStep;
 } pushConstant;
 
 float gaussianSplat(vec2 p, float r)

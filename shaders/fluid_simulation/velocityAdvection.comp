@@ -41,8 +41,14 @@ layout(push_constant) uniform FluidSimulationPushConstant
 	vec3 splatForce;
 	float splatRadius;
 	vec2 splatPosition;
-	float retentionPerStep;
-	int blank; // padding
+	float velocityRetentionPerStep;
+	int visualizationMode;
+	float splatGain;
+	float maxSpeed;
+	float pressureRange;
+	float divergenceRange;
+	float curlRange;
+	float densityRetentionPerStep;
 } pushConstant;
 
 vec2 bilerp(sampler2D tex, vec2 p)
@@ -78,7 +84,7 @@ void main()
 
 	// retentionPerStep is defined per 1/60 s step, so scale it by how many steps this frame advances to
 	// keep the decay rate independent of the frame rate
-	float frameDecay = pow(pushConstant.retentionPerStep, pushConstant.timestep);
+	float frameDecay = pow(pushConstant.velocityRetentionPerStep, pushConstant.timestep);
 
 	// Advect the fluid velocity
 	vec4 advectedVelocity = vec4(frameDecay * bilerp(fluidVelocityInputTextureImage, pos), 0.0f, 1.0f);
