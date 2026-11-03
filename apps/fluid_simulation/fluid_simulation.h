@@ -35,6 +35,7 @@
 #include "core/swapchain.h"
 #include "core/image_view.h"
 #include "core/render_pass.h"
+#include "core/framebuffer.h"
 #include "core/descriptor_set_layout.h"
 #include "core/descriptor_pool.h"
 #include "core/descriptor_set.h"
@@ -66,6 +67,15 @@
 #include <iostream>
 #include <algorithm>
 
+// Dear ImGui
+#include <imgui.h>
+#include <backends/imgui_impl_glfw.h>
+#include <backends/imgui_impl_vulkan.h>
+
+// Required for imgui integration, might be able to remove this if there's an alternate integration with volk
+VkInstance g_instanceHandle;
+PFN_vkVoidFunction loadFunction(const char *function_name, void *user_data) { return vkGetInstanceProcAddr(g_instanceHandle, function_name); }
+
 namespace vulkr
 {
 constexpr uint32_t maxFramesInFlight{ 2u }; // Explanation on this how we got this number: https://software.intel.com/content/www/us/en/develop/articles/practical-approach-to-vulkan-part-1.html
@@ -91,6 +101,18 @@ struct FluidSimulationPushConstant
 	float curlRange{ 0.5f }; // |curl| that maps to full colour in the curl view
 	float densityRetentionPerStep{ 0.995f }; // Fraction of the smoke colour retained per 1/60 s simulation step; slower than velocity because the smoke is also carried away and diluted by advection
 } fluidSimulationPushConstant;
+
+// Order must match the VISUALIZATION_MODE_* constants in visualization.comp
+enum class FluidVisualizationMode : int32_t
+{
+	Smoke = 0,
+	VelocityDirection,
+	VelocityMagnitude,
+	Pressure,
+	Divergence,
+	Curl,
+	Count
+};
 
 struct PipelineData
 {
@@ -168,10 +190,12 @@ private:
 	std::unique_ptr<ImageView> fluidPressureInputImageView;
 	std::unique_ptr<ImageView> fluidDensityInputImageView;
 	std::unique_ptr<ImageView> fluidSimulationOutputImageView; // Generic backbuffer for all of the fluid simulation stages
+	std::unique_ptr<ImageView> visualizationOutputImageView; // Colour-mapped view of the field selected by visualizationMode; the ImGui overlay is drawn into it before it is blitted to the swapchain
 
 	// Descriptor sets
 	std::unique_ptr<DescriptorSet> fluidSimulationInputDescriptorSet;
 	std::unique_ptr<DescriptorSet> fluidSimulationOutputDescriptorSet;
+	std::unique_ptr<DescriptorSet> visualizationOutputDescriptorSet;
 
 	size_t currentFrame{ 0 };
 
@@ -187,7 +211,31 @@ private:
 		PipelineData computeFluidVelocityDivergence;
 		PipelineData computeJacobi;
 		PipelineData computeGradientSubtraction;
+		PipelineData computeVisualization;
 	} pipelines;
+
+	// Which field the visualization pass maps to colour
+	FluidVisualizationMode visualizationMode{ FluidVisualizationMode::Smoke };
+
+	// Tunables exposed in the overlay; the rest live in fluidSimulationPushConstant
+	int jacobiIterationCount{ 40 };
+	float splatForceScale{ 1.0f };
+
+	struct RenderPassData
+	{
+		std::unique_ptr<RenderPass> renderPass{ nullptr };
+		std::vector<Subpass> subpasses;
+		std::vector<VkAttachmentReference2> inputAttachments;
+		std::vector<VkAttachmentReference2> colorAttachments;
+		std::vector<VkAttachmentReference2> resolveAttachments;
+		std::vector<VkAttachmentReference2> depthStencilAttachments;
+		std::vector<uint32_t> preserveAttachments;
+	};
+
+	// ImGui overlay, drawn into visualizationOutputImageView
+	std::unique_ptr<DescriptorPool> imguiDescriptorPool{ nullptr };
+	RenderPassData imguiRenderPass;
+	std::unique_ptr<Framebuffer> imguiFramebuffer{ nullptr };
 
 	// Used to draw fluids onto screen
 	MouseInput activeMouseInput{ MouseInput::None };
@@ -209,6 +257,7 @@ private:
 	void createFluidVelocityDivergenceComputePipeline();
 	void createJacobiComputePipeline();
 	void createGradientSubtractionComputePipeline();
+	void createVisualizationComputePipeline();
 	void createCommandPools();
 	void createCommandBuffers();
 	std::unique_ptr<Image> createTextureImageWithInitialValue(uint32_t texWidth, uint32_t texHeight, VkImageUsageFlags imageUsageFlags); // Create an empty texture image
@@ -221,6 +270,9 @@ private:
 	void createSemaphoreAndFencePools();
 	void setupSynchronizationObjects();
 	void setupCamera();
+	void createImGuiRenderPass();
+	void initializeImGui();
+	void drawImGuiInterface();
 }; // class FluidSimulation
 
 } // namespace vulkr

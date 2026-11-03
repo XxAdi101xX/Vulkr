@@ -32,6 +32,11 @@ FluidSimulation::~FluidSimulation()
 {
 	device->waitIdle();
 
+	ImGui_ImplVulkan_Shutdown();
+	ImGui_ImplGlfw_Shutdown();
+	ImGui::DestroyContext();
+	imguiDescriptorPool.reset();
+
 	semaphorePool.reset();
 	fencePool.reset();
 
@@ -83,6 +88,8 @@ void FluidSimulation::cleanupSwapchain()
 	pipelines.computeJacobi.pipelineState.reset();
 	pipelines.computeGradientSubtraction.pipeline.reset();
 	pipelines.computeGradientSubtraction.pipelineState.reset();
+	pipelines.computeVisualization.pipeline.reset();
+	pipelines.computeVisualization.pipelineState.reset();
 
 	// Swapchain
 	swapchain.reset();
@@ -90,6 +97,10 @@ void FluidSimulation::cleanupSwapchain()
 	// Descriptor Sets
 	fluidSimulationInputDescriptorSet.reset();
 	fluidSimulationOutputDescriptorSet.reset();
+	visualizationOutputDescriptorSet.reset();
+
+	imguiFramebuffer.reset();
+	imguiRenderPass.renderPass.reset();
 
 	// Textures
 	fluidVelocityInputImageView.reset();
@@ -97,6 +108,7 @@ void FluidSimulation::cleanupSwapchain()
 	fluidPressureInputImageView.reset();
 	fluidDensityInputImageView.reset();
 	fluidSimulationOutputImageView.reset();
+	visualizationOutputImageView.reset();
 
 	descriptorPool.reset();
 
@@ -170,8 +182,11 @@ void FluidSimulation::prepare()
 	createFluidVelocityDivergenceComputePipeline();
 	createJacobiComputePipeline();
 	createGradientSubtractionComputePipeline();
+	createVisualizationComputePipeline();
 	createDescriptorPool();
 	createDescriptorSets();
+	createImGuiRenderPass();
+	initializeImGui();
 	setupCamera();
 
 	createSemaphoreAndFencePools();
@@ -188,6 +203,9 @@ void FluidSimulation::update()
 	{
 		frameData.commandBuffers[currentFrame][i]->reset();
 	}
+
+	// Build the overlay for this frame; the draw data is recorded into the image transfer command buffer below
+	drawImGuiInterface();
 
 	uint32_t swapchainImageIndex;
 	VkResult result = vkAcquireNextImageKHR(device->getHandle(), swapchain->getHandle(), std::numeric_limits<uint64_t>::max(), frameData.imageAvailableSemaphores[currentFrame], VK_NULL_HANDLE, &swapchainImageIndex);
@@ -353,19 +371,19 @@ void FluidSimulation::update()
 
 	vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame][2]->getHandle(), &dependencyInfo);
 
-	// Transition density texture layout to prepare as a blit source
-	VkImageMemoryBarrier2 transitionDensityTextureBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
-	transitionDensityTextureBarrier.pNext = nullptr;
-	transitionDensityTextureBarrier.srcStageMask = VK_PIPELINE_STAGE_2_NONE; // We have a semaphore that synchronizes the post processing pass with all of the things happening on frameData.commandBuffers[currentFrame][2]->getHandle()
-	transitionDensityTextureBarrier.srcAccessMask = VK_ACCESS_2_NONE;
-	transitionDensityTextureBarrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-	transitionDensityTextureBarrier.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
-	transitionDensityTextureBarrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
-	transitionDensityTextureBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-	transitionDensityTextureBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	transitionDensityTextureBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	transitionDensityTextureBarrier.image = fluidDensityInputImageView->getImage()->getHandle();
-	transitionDensityTextureBarrier.subresourceRange = subresourceRange;
+	// Transition the visualization output for the ImGui overlay, which is composited on top of the field view
+	VkImageMemoryBarrier2 transitionVisualizationTextureBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+	transitionVisualizationTextureBarrier.pNext = nullptr;
+	transitionVisualizationTextureBarrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT; // Written by the visualization pass on commandBuffers[currentFrame][0]
+	transitionVisualizationTextureBarrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+	transitionVisualizationTextureBarrier.dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+	transitionVisualizationTextureBarrier.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+	transitionVisualizationTextureBarrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+	transitionVisualizationTextureBarrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+	transitionVisualizationTextureBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	transitionVisualizationTextureBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	transitionVisualizationTextureBarrier.image = visualizationOutputImageView->getImage()->getHandle();
+	transitionVisualizationTextureBarrier.subresourceRange = subresourceRange;
 
 	dependencyInfo.pNext = nullptr;
 	dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
@@ -374,9 +392,16 @@ void FluidSimulation::update()
 	dependencyInfo.bufferMemoryBarrierCount = 0u;
 	dependencyInfo.pBufferMemoryBarriers = nullptr;
 	dependencyInfo.imageMemoryBarrierCount = 1u;
-	dependencyInfo.pImageMemoryBarriers = &transitionDensityTextureBarrier;
+	dependencyInfo.pImageMemoryBarriers = &transitionVisualizationTextureBarrier;
 
 	vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame][2]->getHandle(), &dependencyInfo); // TODO combine the pipelineBarrier2 call for the swapchain with the one below
+
+	// Draw the overlay into the visualization output; the render pass leaves the image in TRANSFER_SRC_OPTIMAL for the blit
+	// and its exit subpass dependency makes the overlay writes visible to the transfer stage
+	std::vector<VkClearValue> imguiClearValues; // loadOp is LOAD, so there is nothing to clear
+	frameData.commandBuffers[currentFrame][2]->beginRenderPass(*imguiRenderPass.renderPass, *imguiFramebuffer, swapchain->getProperties().imageExtent, imguiClearValues, VK_SUBPASS_CONTENTS_INLINE);
+	ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), frameData.commandBuffers[currentFrame][2]->getHandle());
+	frameData.commandBuffers[currentFrame][2]->endRenderPass();
 
 	VkImageBlit2 imageBlit{ VK_STRUCTURE_TYPE_IMAGE_BLIT_2 };
 	imageBlit.pNext = nullptr;
@@ -389,7 +414,7 @@ void FluidSimulation::update()
 
 	VkBlitImageInfo2 blitImageInfo{ VK_STRUCTURE_TYPE_BLIT_IMAGE_INFO_2 };
 	blitImageInfo.pNext = nullptr;
-	blitImageInfo.srcImage = fluidDensityInputImageView->getImage()->getHandle();
+	blitImageInfo.srcImage = visualizationOutputImageView->getImage()->getHandle();
 	blitImageInfo.srcImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
 	blitImageInfo.dstImage = swapchain->getImages()[swapchainImageIndex]->getHandle();
 	blitImageInfo.dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
@@ -400,18 +425,18 @@ void FluidSimulation::update()
 	// We are using vkCmdBlitImage2 instead of vkCmdCopyImage to deal with the format conversions from VK_FORMAT_R32G32B32A32_SFLOAT to VK_FORMAT_B8G8R8A8_UNORM
 	vkCmdBlitImage2(frameData.commandBuffers[currentFrame][2]->getHandle(), &blitImageInfo);
 
-	// Transition density texture back to general from being a blit source
-	transitionDensityTextureBarrier.pNext = nullptr;
-	transitionDensityTextureBarrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT; // Wait on transfer to finish
-	transitionDensityTextureBarrier.srcAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
-	transitionDensityTextureBarrier.dstStageMask = VK_PIPELINE_STAGE_2_NONE; // No further synchronization required on densityTextureBuffer
-	transitionDensityTextureBarrier.dstAccessMask = VK_ACCESS_2_NONE;
-	transitionDensityTextureBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-	transitionDensityTextureBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-	transitionDensityTextureBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	transitionDensityTextureBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	transitionDensityTextureBarrier.image = fluidDensityInputImageView->getImage()->getHandle();
-	transitionDensityTextureBarrier.subresourceRange = subresourceRange;
+	// Transition the visualization output back to general after being a blit source
+	transitionVisualizationTextureBarrier.pNext = nullptr;
+	transitionVisualizationTextureBarrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT; // Wait on transfer to finish
+	transitionVisualizationTextureBarrier.srcAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+	transitionVisualizationTextureBarrier.dstStageMask = VK_PIPELINE_STAGE_2_NONE; // No further synchronization required on the visualization output until the next frame's compute pass
+	transitionVisualizationTextureBarrier.dstAccessMask = VK_ACCESS_2_NONE;
+	transitionVisualizationTextureBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+	transitionVisualizationTextureBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+	transitionVisualizationTextureBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	transitionVisualizationTextureBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	transitionVisualizationTextureBarrier.image = visualizationOutputImageView->getImage()->getHandle();
+	transitionVisualizationTextureBarrier.subresourceRange = subresourceRange;
 
 	dependencyInfo.pNext = nullptr;
 	dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
@@ -420,7 +445,7 @@ void FluidSimulation::update()
 	dependencyInfo.bufferMemoryBarrierCount = 0u;
 	dependencyInfo.pBufferMemoryBarriers = nullptr;
 	dependencyInfo.imageMemoryBarrierCount = 1u;
-	dependencyInfo.pImageMemoryBarriers = &transitionDensityTextureBarrier;
+	dependencyInfo.pImageMemoryBarriers = &transitionVisualizationTextureBarrier;
 
 	vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame][2]->getHandle(), &dependencyInfo);
 
@@ -461,7 +486,7 @@ void FluidSimulation::update()
 	outputImageTransferWaitSemaphoreSubmitInfo.pNext = nullptr;
 	outputImageTransferWaitSemaphoreSubmitInfo.semaphore = frameData.postProcessRenderingFinishedSemaphores[currentFrame];
 	outputImageTransferWaitSemaphoreSubmitInfo.value = 0ull; // Optional: ignored since this isn't a timeline semaphore
-	outputImageTransferWaitSemaphoreSubmitInfo.stageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+	outputImageTransferWaitSemaphoreSubmitInfo.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT; // The overlay renders at COLOR_ATTACHMENT_OUTPUT before the blit
 	outputImageTransferWaitSemaphoreSubmitInfo.deviceIndex = 0u; // replaces VkDeviceGroupSubmitInfo but we don't have that in our pNext chain so not used.
 
 	VkSemaphoreSubmitInfo outputImageTransferSemaphoreSubmitInfo{ VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
@@ -515,6 +540,15 @@ void FluidSimulation::recreateSwapchain()
 
 void FluidSimulation::handleInputEvents(const InputEvent &inputEvent)
 {
+	// The overlay is drawn into the same framebuffer as the fluid, so input that is meant for the UI must not
+	// also drive the camera or the splat
+	ImGuiIO &io = ImGui::GetIO();
+	if ((inputEvent.getEventSource() == EventSource::Mouse && io.WantCaptureMouse) ||
+		(inputEvent.getEventSource() == EventSource::Keyboard && io.WantCaptureKeyboard))
+	{
+		return;
+	}
+
 	cameraController->handleInputEvents(inputEvent);
 
 	if (inputEvent.getEventSource() == EventSource::Mouse)
@@ -531,7 +565,7 @@ void FluidSimulation::handleInputEvents(const InputEvent &inputEvent)
 			// User is holding down left click and moving
 			if (activeMouseInput == MouseInput::Left)
 			{
-				fluidSimulationPushConstant.splatForce = glm::vec3(mouseInputEvent.getPositionX() - lastMousePosition.x, mouseInputEvent.getPositionY() - lastMousePosition.y, 0.0f);
+				fluidSimulationPushConstant.splatForce = glm::vec3(mouseInputEvent.getPositionX() - lastMousePosition.x, mouseInputEvent.getPositionY() - lastMousePosition.y, 0.0f) * splatForceScale;
 				fluidSimulationPushConstant.splatPosition = glm::vec2(mouseInputEvent.getPositionX(), mouseInputEvent.getPositionY());
 				lastMousePosition.x = static_cast<float>(mouseInputEvent.getPositionX());
 				lastMousePosition.y = static_cast<float>(mouseInputEvent.getPositionY());
@@ -754,6 +788,7 @@ void FluidSimulation::computeFluidSimulation()
 	const float deltaSeconds = std::chrono::duration<float>(now - lastFrameTime).count();
 	lastFrameTime = now;
 	fluidSimulationPushConstant.timestep = std::clamp(deltaSeconds * 60.0f, 0.0f, 2.0f);
+	fluidSimulationPushConstant.visualizationMode = static_cast<int>(visualizationMode);
 
 	uint32_t fluidSimulationGridSize = to_u32(fluidSimulationPushConstant.gridSize.x * fluidSimulationPushConstant.gridSize.y);
 
@@ -816,8 +851,7 @@ void FluidSimulation::computeFluidSimulation()
 	vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeJacobi.pipeline->getBindPoint(), pipelines.computeJacobi.pipelineState->getPipelineLayout().getHandle(), 1u, 1u, &fluidSimulationOutputDescriptorSet->getHandle(), 0u, nullptr);
 	vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeJacobi.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0u, sizeof(FluidSimulationPushConstant), &fluidSimulationPushConstant);
 
-	const uint32_t jacobiIterationCount = 40u;
-	for (uint32_t i = 0u; i < jacobiIterationCount; ++i)
+	for (int i = 0; i < jacobiIterationCount; ++i)
 	{
 		vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), to_u32(fluidSimulationGridSize / m_workGroupSize) + 1u, 1u, 1u);
 		copyFluidOutputTextureToInputTexture(fluidPressureInputImageView->getImage());
@@ -831,6 +865,14 @@ void FluidSimulation::computeFluidSimulation()
 	vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), to_u32(fluidSimulationGridSize / m_workGroupSize) + 1u, 1u, 1u);
 
 	copyFluidOutputTextureToInputTexture(fluidVelocityInputImageView->getImage());
+
+	// Seventh pass: map the field selected by visualizationMode to the colour that gets displayed. Reads the
+	// same four input textures as the other passes, so it reuses the input descriptor set
+	vkCmdBindPipeline(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeVisualization.pipeline->getBindPoint(), pipelines.computeVisualization.pipeline->getHandle());
+	vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeVisualization.pipeline->getBindPoint(), pipelines.computeVisualization.pipelineState->getPipelineLayout().getHandle(), 0u, 1u, &fluidSimulationInputDescriptorSet->getHandle(), 0u, nullptr);
+	vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeVisualization.pipeline->getBindPoint(), pipelines.computeVisualization.pipelineState->getPipelineLayout().getHandle(), 1u, 1u, &visualizationOutputDescriptorSet->getHandle(), 0u, nullptr);
+	vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelines.computeVisualization.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(FluidSimulationPushConstant), &fluidSimulationPushConstant);
+	vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), to_u32(fluidSimulationGridSize / m_workGroupSize) + 1u, 1u, 1u);
 
 	// Release
 	if (m_graphicsQueue->getFamilyIndex() != m_computeQueue->getFamilyIndex())
@@ -929,6 +971,7 @@ void FluidSimulation::computeFluidSimulation()
 void FluidSimulation::createInstance()
 {
 	m_instance = std::make_unique<Instance>(getName());
+	g_instanceHandle = m_instance->getHandle();
 }
 
 void FluidSimulation::createSurface()
@@ -1283,6 +1326,210 @@ void FluidSimulation::createGradientSubtractionComputePipeline()
 	pipelines.computeGradientSubtraction.pipeline = std::move(computePipeline);
 }
 
+void FluidSimulation::createVisualizationComputePipeline()
+{
+	std::shared_ptr<ShaderSource> computeShader = std::make_shared<ShaderSource>("fluid_simulation/visualization.comp.spv");
+
+	struct SpecializationData
+	{
+		uint32_t workGroupSize;
+	} specializationData;
+	const std::array<VkSpecializationMapEntry, 1> entries{
+		{
+			{ 0u, offsetof(SpecializationData, workGroupSize), sizeof(uint32_t) }
+		}
+	};
+	specializationData.workGroupSize = m_workGroupSize;
+
+	VkSpecializationInfo specializationInfo =
+	{
+		to_u32(entries.size()),
+		entries.data(),
+		to_u32(sizeof(SpecializationData)),
+		&specializationData
+	};
+
+	std::vector<ShaderModule> shaderModules;
+	shaderModules.emplace_back(*device, VK_SHADER_STAGE_COMPUTE_BIT, specializationInfo, computeShader);
+
+	std::vector<VkDescriptorSetLayout> descriptorSetLayoutHandles{ fluidSimulationInputDescriptorSetLayout->getHandle(), fluidSimulationOutputDescriptorSetLayout->getHandle() };
+
+	std::vector<VkPushConstantRange> pushConstantRangeHandles;
+	VkPushConstantRange computePushConstantRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(FluidSimulationPushConstant) };
+	pushConstantRangeHandles.push_back(computePushConstantRange);
+
+	std::unique_ptr<ComputePipelineState> computePipelineState = std::make_unique<ComputePipelineState>(
+		std::make_unique<PipelineLayout>(*device, shaderModules, descriptorSetLayoutHandles, pushConstantRangeHandles)
+	);
+	std::unique_ptr<ComputePipeline> computePipeline = std::make_unique<ComputePipeline>(*device, *computePipelineState, nullptr);
+
+	pipelines.computeVisualization.pipelineState = std::move(computePipelineState);
+	pipelines.computeVisualization.pipeline = std::move(computePipeline);
+}
+
+void FluidSimulation::createImGuiRenderPass()
+{
+	std::vector<Attachment> attachments;
+	Attachment colorAttachment{};
+	colorAttachment.format = visualizationOutputImageView->getFormat();
+	colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+	colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD; // The visualization pass already wrote the frame, the overlay is composited on top of it
+	colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	colorAttachment.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+	colorAttachment.finalLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL; // The image is blitted to the swapchain right after the pass
+	attachments.push_back(colorAttachment);
+
+	VkAttachmentReference2 colorAttachmentRef{ VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2 };
+	colorAttachmentRef.pNext = nullptr;
+	colorAttachmentRef.attachment = 0u;
+	colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+	colorAttachmentRef.aspectMask = 0u;
+	imguiRenderPass.colorAttachments.push_back(colorAttachmentRef);
+
+	imguiRenderPass.subpasses.emplace_back(
+		imguiRenderPass.inputAttachments,
+		imguiRenderPass.colorAttachments,
+		imguiRenderPass.resolveAttachments,
+		imguiRenderPass.depthStencilAttachments,
+		imguiRenderPass.preserveAttachments,
+		VK_PIPELINE_BIND_POINT_GRAPHICS
+	);
+
+	// The display image is transitioned and made visible with explicit barriers around the pass; the only subpass
+	// dependency needed is the one that makes the overlay writes visible to the blit that reads the image afterwards
+	std::vector<VkSubpassDependency2> subpassDependencies;
+	subpassDependencies.resize(1);
+	subpassDependencies[0].sType = VK_STRUCTURE_TYPE_SUBPASS_DEPENDENCY_2;
+	subpassDependencies[0].pNext = nullptr;
+	subpassDependencies[0].srcSubpass = 0u;
+	subpassDependencies[0].dstSubpass = VK_SUBPASS_EXTERNAL;
+	subpassDependencies[0].srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+	subpassDependencies[0].srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+	subpassDependencies[0].dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+	subpassDependencies[0].dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+	subpassDependencies[0].dependencyFlags = 0u;
+	subpassDependencies[0].viewOffset = 0u;
+
+	imguiRenderPass.renderPass = std::make_unique<RenderPass>(*device, attachments, imguiRenderPass.subpasses, subpassDependencies);
+
+	std::vector<VkImageView> framebufferAttachments{ visualizationOutputImageView->getHandle() };
+	imguiFramebuffer = std::make_unique<Framebuffer>(*device, *swapchain, *imguiRenderPass.renderPass, framebufferAttachments);
+	setDebugUtilsObjectName(device->getHandle(), imguiFramebuffer->getHandle(), "imguiFramebuffer");
+}
+
+void FluidSimulation::initializeImGui()
+{
+	// Create descriptor pool for imgui
+	std::vector<VkDescriptorPoolSize> poolSizes =
+	{
+		{ VK_DESCRIPTOR_TYPE_SAMPLER, 1000 },
+		{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000 },
+		{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000 },
+		{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000 },
+		{ VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1000 },
+		{ VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1000 },
+		{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000 },
+		{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000 },
+		{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000 },
+		{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1000 },
+		{ VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000 }
+	};
+	imguiDescriptorPool = std::make_unique<DescriptorPool>(*device, poolSizes, 1000 * 11, VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT);
+
+	IMGUI_CHECKVERSION();
+	ImGui::CreateContext();
+	ImGuiIO &io = ImGui::GetIO(); (void)io;
+	ImGui::StyleColorsClassic();
+
+	ImGui_ImplGlfw_InitForVulkan(platform.getWindow().getHandle(), true);
+
+	ImGui_ImplVulkan_InitInfo initInfo = {};
+	initInfo.ApiVersion = VK_API_VERSION_1_4;
+	initInfo.Instance = m_instance->getHandle();
+	initInfo.PhysicalDevice = device->getPhysicalDevice().getHandle();
+	initInfo.Device = device->getHandle();
+	initInfo.QueueFamily = m_graphicsQueue->getFamilyIndex();
+	initInfo.Queue = m_graphicsQueue->getHandle();
+	initInfo.PipelineCache = VK_NULL_HANDLE;
+	initInfo.DescriptorPool = imguiDescriptorPool->getHandle();
+	initInfo.PipelineInfoMain.RenderPass = imguiRenderPass.renderPass->getHandle();
+	initInfo.PipelineInfoMain.Subpass = 0u;
+	initInfo.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+	initInfo.MinImageCount = swapchain->getProperties().imageCount;
+	initInfo.ImageCount = swapchain->getProperties().imageCount;
+	initInfo.Allocator = device->getAllocationCallbacks();
+	initInfo.CheckVkResultFn = checkVkResult;
+
+	ImGui_ImplVulkan_LoadFunctions(VK_API_VERSION_1_4, loadFunction);
+	ImGui_ImplVulkan_Init(&initInfo);
+}
+
+void FluidSimulation::drawImGuiInterface()
+{
+	ImGui_ImplVulkan_NewFrame();
+	ImGui_ImplGlfw_NewFrame();
+	ImGui::NewFrame();
+
+	ImGui::Begin("Fluid simulation");
+
+	ImGui::TextUnformatted("Displayed field");
+	int mode = static_cast<int>(visualizationMode);
+	const char *modeNames[static_cast<int>(FluidVisualizationMode::Count)]
+	{
+		"Smoke",
+		"Velocity direction",
+		"Velocity magnitude",
+		"Pressure",
+		"Divergence",
+		"Curl"
+	};
+	for (int i = 0; i < static_cast<int>(FluidVisualizationMode::Count); ++i)
+	{
+		if (ImGui::RadioButton(modeNames[i], mode == i))
+		{
+			mode = i;
+		}
+	}
+	visualizationMode = static_cast<FluidVisualizationMode>(mode);
+
+	// Each view remembers its own range so switching back and forth keeps the scale
+	if (visualizationMode == FluidVisualizationMode::VelocityDirection || visualizationMode == FluidVisualizationMode::VelocityMagnitude)
+	{
+		ImGui::SliderFloat("Max speed (cells/step)", &fluidSimulationPushConstant.maxSpeed, 1.0f, 64.0f, "%.1f");
+	}
+	else if (visualizationMode == FluidVisualizationMode::Pressure)
+	{
+		ImGui::SliderFloat("Pressure range", &fluidSimulationPushConstant.pressureRange, 0.001f, 10.0f, "%.4f", ImGuiSliderFlags_Logarithmic);
+	}
+	else if (visualizationMode == FluidVisualizationMode::Divergence)
+	{
+		ImGui::SliderFloat("Divergence range", &fluidSimulationPushConstant.divergenceRange, 0.001f, 10.0f, "%.4f", ImGuiSliderFlags_Logarithmic);
+	}
+	else if (visualizationMode == FluidVisualizationMode::Curl)
+	{
+		ImGui::SliderFloat("Curl range", &fluidSimulationPushConstant.curlRange, 0.001f, 10.0f, "%.4f", ImGuiSliderFlags_Logarithmic);
+	}
+
+	ImGui::Separator();
+	ImGui::TextUnformatted("Simulation");
+	ImGui::SliderFloat("Velocity retention per step", &fluidSimulationPushConstant.velocityRetentionPerStep, 0.90f, 1.0f, "%.4f");
+	ImGui::SliderFloat("Density retention per step", &fluidSimulationPushConstant.densityRetentionPerStep, 0.90f, 1.0f, "%.4f");
+	ImGui::SliderInt("Jacobi iterations", &jacobiIterationCount, 1, 100);
+	ImGui::SliderFloat("Splat radius", &fluidSimulationPushConstant.splatRadius, 0.1f, 2.0f, "%.2f");
+	ImGui::SliderFloat("Splat gain", &fluidSimulationPushConstant.splatGain, 0.02f, 2.0f, "%.2f");
+	ImGui::SliderFloat("Splat force scale", &splatForceScale, 0.1f, 5.0f, "%.2f");
+
+	ImGui::Separator();
+	ImGui::Text("Grid: %.0f x %.0f", fluidSimulationPushConstant.gridSize.x, fluidSimulationPushConstant.gridSize.y);
+	ImGui::Text("FPS: %.1f", getCurrentFps());
+
+	ImGui::End();
+
+	ImGui::Render();
+}
+
 void FluidSimulation::createCommandPools()
 {
 	for (uint32_t i = 0; i < maxFramesInFlight; ++i)
@@ -1548,6 +1795,12 @@ void FluidSimulation::initializeFluidSimulationResources()
 	VkFormat fluidSimulationOutputImageFormat = fluidSimulationOutputImage->getFormat();
 	fluidSimulationOutputImageView = std::make_unique<ImageView>(std::move(fluidSimulationOutputImage), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, fluidSimulationOutputImageFormat);
 
+	// The visualization output is written by the visualization compute pass, then receives the ImGui overlay
+	// through a render pass and is finally blitted to the swapchain
+	std::unique_ptr<Image> visualizationOutputImage = createTextureImageWithInitialValue(swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT);
+	VkFormat visualizationOutputImageFormat = visualizationOutputImage->getFormat();
+	visualizationOutputImageView = std::make_unique<ImageView>(std::move(visualizationOutputImage), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, visualizationOutputImageFormat);
+
 	setDebugUtilsObjectName(device->getHandle(), fluidVelocityInputImageView->getImage()->getHandle(), "fluidVelocityInputImageView image");
 	setDebugUtilsObjectName(device->getHandle(), fluidVelocityInputImageView->getHandle(), "fluidVelocityInputImageView imageView");
 	setDebugUtilsObjectName(device->getHandle(), fluidVelocityDivergenceInputImageView->getImage()->getHandle(), "fluidVelocityDivergenceInputImageView image");
@@ -1558,6 +1811,8 @@ void FluidSimulation::initializeFluidSimulationResources()
 	setDebugUtilsObjectName(device->getHandle(), fluidDensityInputImageView->getHandle(), "fluidDensityInputImageView imageView");
 	setDebugUtilsObjectName(device->getHandle(), fluidSimulationOutputImageView->getImage()->getHandle(), "fluidSimulationOutputImageView image");
 	setDebugUtilsObjectName(device->getHandle(), fluidSimulationOutputImageView->getHandle(), "fluidSimulationOutputImageView imageView");
+	setDebugUtilsObjectName(device->getHandle(), visualizationOutputImageView->getImage()->getHandle(), "visualizationOutputImageView image");
+	setDebugUtilsObjectName(device->getHandle(), visualizationOutputImageView->getHandle(), "visualizationOutputImageView imageView");
 
 	// Initialize fluidSimulationPushConstant data
 	fluidSimulationPushConstant.gridSize = glm::vec2(swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height);
@@ -1671,11 +1926,35 @@ void FluidSimulation::createDescriptorSets()
 	writeFluidSimulationOutputDescriptorSet.pBufferInfo = nullptr;
 	writeFluidSimulationOutputDescriptorSet.pTexelBufferView = nullptr;
 
+	// Visualization Output Descriptor Set; same layout as the simulation output set, pointing at the image that is displayed
+	VkDescriptorSetAllocateInfo visualizationOutputDescriptorSetAllocateInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+	visualizationOutputDescriptorSetAllocateInfo.descriptorPool = descriptorPool->getHandle();
+	visualizationOutputDescriptorSetAllocateInfo.descriptorSetCount = 1u;
+	visualizationOutputDescriptorSetAllocateInfo.pSetLayouts = &fluidSimulationOutputDescriptorSetLayout->getHandle();
+	visualizationOutputDescriptorSet = std::make_unique<DescriptorSet>(*device, visualizationOutputDescriptorSetAllocateInfo);
+	setDebugUtilsObjectName(device->getHandle(), visualizationOutputDescriptorSet->getHandle(), "visualizationOutputDescriptorSet");
 
-	std::array<VkWriteDescriptorSet, 2> writeDescriptorSets
+	VkDescriptorImageInfo visualizationOutputTextureInfo{};
+	visualizationOutputTextureInfo.sampler = VK_NULL_HANDLE;
+	visualizationOutputTextureInfo.imageView = visualizationOutputImageView->getHandle();
+	visualizationOutputTextureInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+	std::array<VkDescriptorImageInfo, 1> visualizationOutputTextureInfos{ visualizationOutputTextureInfo };
+
+	VkWriteDescriptorSet writeVisualizationOutputDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+	writeVisualizationOutputDescriptorSet.dstSet = visualizationOutputDescriptorSet->getHandle();
+	writeVisualizationOutputDescriptorSet.dstBinding = 0;
+	writeVisualizationOutputDescriptorSet.dstArrayElement = 0;
+	writeVisualizationOutputDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+	writeVisualizationOutputDescriptorSet.descriptorCount = to_u32(visualizationOutputTextureInfos.size());
+	writeVisualizationOutputDescriptorSet.pImageInfo = visualizationOutputTextureInfos.data();
+	writeVisualizationOutputDescriptorSet.pBufferInfo = nullptr;
+	writeVisualizationOutputDescriptorSet.pTexelBufferView = nullptr;
+
+	std::array<VkWriteDescriptorSet, 3> writeDescriptorSets
 	{
 		writeFluidSimulationInputDescriptorSet,
-		writeFluidSimulationOutputDescriptorSet
+		writeFluidSimulationOutputDescriptorSet,
+		writeVisualizationOutputDescriptorSet
 	};
 	vkUpdateDescriptorSets(device->getHandle(), to_u32(writeDescriptorSets.size()), writeDescriptorSets.data(), 0, nullptr);
 }

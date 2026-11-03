@@ -1,0 +1,150 @@
+/* Copyright (c) 2026 Adithya Venkatarao
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining
+ * a copy of this software and associated documentation files (the
+ * "Software"), to deal in the Software without restriction, including
+ * without limitation the rights to use, copy, modify, merge, publish,
+ * distribute, sublicense, and/or sell copies of the Software, and to
+ * permit persons to whom the Software is furnished to do so, subject to
+ * the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be
+ * included in all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+ * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+ * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+ * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+ * LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+ * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+ * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
+
+#version 460
+#extension GL_EXT_nonuniform_qualifier : enable
+
+layout(constant_id = 0) const uint workGroupSize = 64u;
+layout(local_size_x_id = 0) in; // Maps to the constant_id = 0 specialization constant
+
+layout(set = 0, binding = 0) uniform sampler2D fluidVelocityInputTextureImage;
+layout(set = 0, binding = 1) uniform sampler2D fluidVelocityDivergenceInputTextureImage;
+layout(set = 0, binding = 2) uniform sampler2D fluidPressureInputTextureImage;
+layout(set = 0, binding = 3) uniform sampler2D fluidDensityInputTextureImage;
+layout(set = 1, binding = 0, rgba32f) uniform writeonly image2D visualizationOutputTextureImage;
+
+layout(push_constant) uniform FluidSimulationPushConstant
+{
+	vec2 gridSize;
+	float gridScale;
+	float timestep;
+	vec3 splatForce;
+	float splatRadius;
+	vec2 splatPosition;
+	float velocityRetentionPerStep;
+	int visualizationMode;
+	float splatGain;
+	float maxSpeed;
+	float pressureRange;
+	float divergenceRange;
+	float curlRange;
+	float densityRetentionPerStep;
+} pushConstant;
+
+// Must match FluidVisualizationMode in fluid_simulation.h
+const int VISUALIZATION_MODE_SMOKE = 0;
+const int VISUALIZATION_MODE_VELOCITY_DIRECTION = 1;
+const int VISUALIZATION_MODE_VELOCITY_MAGNITUDE = 2;
+const int VISUALIZATION_MODE_PRESSURE = 3;
+const int VISUALIZATION_MODE_DIVERGENCE = 4;
+const int VISUALIZATION_MODE_CURL = 5;
+
+const float TAU = 6.28318530718f;
+const vec3 DIVERGING_NEUTRAL_COLOUR = vec3(0.02f); // Slightly off black so zero reads as background rather than a colour
+const vec3 DIVERGING_NEGATIVE_COLOUR = vec3(0.10f, 0.35f, 0.95f);
+const vec3 DIVERGING_POSITIVE_COLOUR = vec3(0.95f, 0.25f, 0.10f);
+
+// hsv (hue in turns, saturation and value in [0,1]) to rgb
+vec3 hsvToRgb(vec3 hsv)
+{
+	vec3 p = abs(fract(hsv.x + vec3(0.0f, 2.0f / 3.0f, 1.0f / 3.0f)) * 6.0f - 3.0f);
+	return hsv.z * mix(vec3(1.0f), clamp(p - 1.0f, 0.0f, 1.0f), hsv.y);
+}
+
+// Perceptually uniform sequential colormap, polynomial fit of viridis (https://www.shadertoy.com/view/WlfXRN)
+vec3 viridis(float t)
+{
+	const vec3 c0 = vec3(0.2777273272234177f, 0.005407344544966578f, 0.3340998053353061f);
+	const vec3 c1 = vec3(0.1050930431085774f, 1.404613529898575f, 1.384590162594685f);
+	const vec3 c2 = vec3(-0.3308618287255563f, 0.214847559468213f, 0.09509516302823659f);
+	const vec3 c3 = vec3(-4.634230498983486f, -5.799100973351585f, -19.33244095627987f);
+	const vec3 c4 = vec3(6.228269936347081f, 14.17993336680509f, 56.69055260068105f);
+	const vec3 c5 = vec3(4.776384997670288f, -13.74514537774601f, -65.35303263337234f);
+	const vec3 c6 = vec3(-5.435455855934631f, 4.645852612178535f, 26.3124352495832f);
+
+	return clamp(c0 + t * (c1 + t * (c2 + t * (c3 + t * (c4 + t * (c5 + t * c6))))), 0.0f, 1.0f);
+}
+
+// Diverging colormap for signed fields; the neutral colour is the background so a zero field reads as empty
+vec3 divergingColour(float value, float range)
+{
+	float t = clamp(value / max(range, 1e-6f), -1.0f, 1.0f);
+	return t >= 0.0f
+		? mix(DIVERGING_NEUTRAL_COLOUR, DIVERGING_POSITIVE_COLOUR, t)
+		: mix(DIVERGING_NEUTRAL_COLOUR, DIVERGING_NEGATIVE_COLOUR, -t);
+}
+
+void main()
+{
+	uint globalInvocationId = gl_GlobalInvocationID.x;
+	if (globalInvocationId >= pushConstant.gridSize.x * pushConstant.gridSize.y) return;
+
+	ivec2 imageIndex;
+	imageIndex.x = int(mod(globalInvocationId, pushConstant.gridSize.x));
+	imageIndex.y = int(globalInvocationId / pushConstant.gridSize.x);
+	vec2 screenSpaceCoords = imageIndex + 0.5f;
+	vec2 uv = screenSpaceCoords / pushConstant.gridSize;
+
+	vec3 colour;
+
+	if (pushConstant.visualizationMode == VISUALIZATION_MODE_VELOCITY_DIRECTION)
+	{
+		// Direction is angular so it goes to the hue, speed to the value: the standard optical flow wheel
+		vec2 velocity = texture(nonuniformEXT(fluidVelocityInputTextureImage), uv).xy;
+		float speed = length(velocity);
+		float hue = fract(atan(velocity.y, velocity.x) / TAU + 0.5f);
+		float value = clamp(speed / max(pushConstant.maxSpeed, 1e-6f), 0.0f, 1.0f);
+		colour = hsvToRgb(vec3(hue, 1.0f, value));
+	}
+	else if (pushConstant.visualizationMode == VISUALIZATION_MODE_VELOCITY_MAGNITUDE)
+	{
+		float speed = length(texture(nonuniformEXT(fluidVelocityInputTextureImage), uv).xy);
+		colour = viridis(clamp(speed / max(pushConstant.maxSpeed, 1e-6f), 0.0f, 1.0f));
+	}
+	else if (pushConstant.visualizationMode == VISUALIZATION_MODE_PRESSURE)
+	{
+		colour = divergingColour(texture(nonuniformEXT(fluidPressureInputTextureImage), uv).x, pushConstant.pressureRange);
+	}
+	else if (pushConstant.visualizationMode == VISUALIZATION_MODE_DIVERGENCE)
+	{
+		colour = divergingColour(texture(nonuniformEXT(fluidVelocityDivergenceInputTextureImage), uv).x, pushConstant.divergenceRange);
+	}
+	else if (pushConstant.visualizationMode == VISUALIZATION_MODE_CURL)
+	{
+		// curl = dv/dx - du/dy
+		vec2 xOffset = vec2(1.0f / pushConstant.gridSize.x, 0.0f);
+		vec2 yOffset = vec2(0.0f, 1.0f / pushConstant.gridSize.y);
+		float velocityRight = texture(nonuniformEXT(fluidVelocityInputTextureImage), uv + xOffset).y;
+		float velocityLeft = texture(nonuniformEXT(fluidVelocityInputTextureImage), uv - xOffset).y;
+		float velocityTop = texture(nonuniformEXT(fluidVelocityInputTextureImage), uv - yOffset).x;
+		float velocityBottom = texture(nonuniformEXT(fluidVelocityInputTextureImage), uv + yOffset).x;
+		float curl = (0.5f / pushConstant.gridScale) * ((velocityRight - velocityLeft) - (velocityBottom - velocityTop));
+
+		colour = divergingColour(curl, pushConstant.curlRange);
+	}
+	else
+	{
+		colour = texture(nonuniformEXT(fluidDensityInputTextureImage), uv).rgb;
+	}
+
+	imageStore(visualizationOutputTextureImage, imageIndex, vec4(colour, 1.0f));
+}
