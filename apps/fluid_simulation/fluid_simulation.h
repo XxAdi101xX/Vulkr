@@ -62,6 +62,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 // C++ Libraries
+#include <chrono>
 #include <iostream>
 #include <algorithm>
 
@@ -77,11 +78,11 @@ struct FluidSimulationPushConstant
 {
 	glm::vec2 gridSize{ 1280.0f, 720.0f };
 	float gridScale{ 1.0f };
-	float timestep{ 1.0f };
+	float timestep{ 0.0f }; // Number of 1/60 s simulation steps this frame advances (see computeFluidSimulation)
 	glm::vec3 splatForce{ glm::vec3(0.0f) };
 	float splatRadius{ 0.60f };
 	glm::vec2 splatPosition{ glm::vec2(0.0f) };
-	float dissipation{ 0.97f };
+	float dissipation{ 0.99f }; // Fraction of velocity and density retained per simulation step
 	int blank{ 0 }; // padding
 } fluidSimulationPushConstant;
 
@@ -167,6 +168,9 @@ private:
 	std::unique_ptr<DescriptorSet> fluidSimulationOutputDescriptorSet;
 
 	size_t currentFrame{ 0 };
+
+	// Timestamp of the previous simulation step, used to convert the frame delta into 1/60 s steps
+	std::chrono::steady_clock::time_point lastFrameTime{ std::chrono::steady_clock::now() };
 
 	struct Pipelines
 	{

@@ -749,8 +749,11 @@ void FluidSimulation::computeFluidSimulation()
 		vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame][0]->getHandle(), &dependencyInfo);
 	}
 
-	// Update the time step
-	fluidSimulationPushConstant.timestep += (1.0f / 60.0f); // TODO: tie this to fps?
+	// Advance the simulation by the elapsed time, independant of the frame rate.
+	const std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
+	const float deltaSeconds = std::chrono::duration<float>(now - lastFrameTime).count();
+	lastFrameTime = now;
+	fluidSimulationPushConstant.timestep = std::clamp(deltaSeconds * 60.0f, 0.0f, 2.0f);
 
 	uint32_t fluidSimulationGridSize = to_u32(fluidSimulationPushConstant.gridSize.x * fluidSimulationPushConstant.gridSize.y);
 
