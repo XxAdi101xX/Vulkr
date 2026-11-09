@@ -6,8 +6,7 @@ The engine runs on `Vulkan 1.4`, rendering with core synchronization2 and dynami
 
 ![vulkr_helmet_models](https://github.com/user-attachments/assets/0e05f436-ae09-4942-ad00-b4f700c09c97)
 
-
-https://user-images.githubusercontent.com/18451835/173965410-b90e12f6-1137-4c0d-bb6b-b521f90e2a7d.mp4
+https://github.com/user-attachments/assets/9b803162-2994-4b58-b20e-57a44af1821a
 
 ## Features
 - Rendering GLTF (.gltf and .glb) or OBJ asset formats in real-time
