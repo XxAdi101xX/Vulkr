@@ -232,10 +232,8 @@ void VulkrApp::cleanupSwapchain()
 
 	descriptorPool.reset();
 
-#ifndef RENDERDOC_DEBUG
 	m_rtDescSetLayout.reset();
 	m_rtDescPool.reset();
-#endif
 
 	cameraController.reset();
 }
@@ -333,7 +331,6 @@ void VulkrApp::prepare()
 	createSceneInstances();
 	createSceneLights();
 
-#ifndef RENDERDOC_DEBUG
 	buildBlas();
 	buildTlas(false);
 	createRaytracingDescriptorPool();
@@ -341,7 +338,6 @@ void VulkrApp::prepare()
 	createRaytracingDescriptorSets();
 	createRaytracingPipeline();
 	createRaytracingShaderBindingTable();
-#endif
 
 	createSemaphoreAndFencePools();
 	setupSynchronizationObjects();
@@ -391,12 +387,10 @@ void VulkrApp::update()
 	animateWusonInstances();
 	dataUpdatePerFrame();
 
-#ifndef RENDERDOC_DEBUG
 	if (activeRenderingTechnique == RenderingTechnique::RAY_TRACING)
 	{
 		buildTlas(true);
 	}
-#endif
 
 	// TODO check if this jitter value is correct
 	if (temporalAntiAliasingEnabled)
@@ -900,9 +894,7 @@ void VulkrApp::recreateSwapchain()
 	createSSBOs();
 	createDescriptorPool();
 	createDescriptorSets();
-#ifndef RENDERDOC_DEBUG
 	updateRaytracingDescriptorSet();
-#endif
 	createSceneInstances();
 
 	imagesInFlight.resize(swapchain->getImages().size(), VK_NULL_HANDLE);
@@ -940,11 +932,9 @@ void VulkrApp::drawImGuiInterface()
 			std::ostringstream oss;
 			oss.str(""); oss << "Forward Rendering";
 			changed |= ImGui::RadioButton(oss.str().c_str(), &selectedRenderingTechnique, static_cast<int>(RenderingTechnique::FORWARD));
-#ifndef RENDERDOC_DEBUG
 			ImGui::SameLine();
 			oss.str(""); oss << "Ray Tracing";
 			changed |= ImGui::RadioButton(oss.str().c_str(), &selectedRenderingTechnique, static_cast<int>(RenderingTechnique::RAY_TRACING));
-#endif
 			ImGui::SameLine();
 			oss.str(""); oss << "Deferred Rendering";
 			changed |= ImGui::RadioButton(oss.str().c_str(), &selectedRenderingTechnique, static_cast<int>(RenderingTechnique::DEFERRED));

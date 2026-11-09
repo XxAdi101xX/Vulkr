@@ -377,11 +377,9 @@ private:
 	/* IMPORTANT NOTICE: To enable/disable features, depending on whether it's core or packed into another feature extension struct, you might have to go into device.cpp to enabled them through another struct using the pNext chain */
 	const std::vector<const char *> deviceExtensions{
 		VK_KHR_SWAPCHAIN_EXTENSION_NAME, // Required to have access to the swapchain and render images to the screen
-#ifndef RENDERDOC_DEBUG
 		VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME, // Required by VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME
 		VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME, // To build acceleration structures
 		VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME, // Provides access to vkCmdTraceRaysKHR
-#endif
 		VK_EXT_HOST_QUERY_RESET_EXTENSION_NAME, // Provides access to vkResetQueryPool
 		VK_KHR_SHADER_NON_SEMANTIC_INFO_EXTENSION_NAME, // Required to use debugPrintfEXT in shaders
 		VK_KHR_SHADER_DRAW_PARAMETERS_EXTENSION_NAME,

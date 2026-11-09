@@ -46,9 +46,7 @@
    revision from it (Vulkan 1.4 still caps at SPIR-V 1.6) */
 inline constexpr uint32_t vulkanApiVersion{ VK_API_VERSION_1_4 };
 
- //#define RENDERDOC_DEBUG /* Disable extensions unsupported by RenderDoc (like raytracing) in order to use it to debug this application */
-
- /* Assert whether an VkResult has returned an error */
+/* Assert whether an VkResult has returned an error */
 #define VK_CHECK(r)                                                  \
 	do                                                               \
 	{                                                                \

@@ -36,7 +36,7 @@ cmake --build build/x64-Release
 The executables resolve assets and shaders relative to the working directory (`../../assets` and `../../shaders`), so they have to be launched from a two level deep build directory such as `build/x64-Release`.
 
 
-For optimal performance, ensure that the `VULKR_DEBUG` flag is not defined in `vulkan_common.h`. Building in release mode should disable this flag. If you wish to debug the engine using RenderDoc, be sure to enable the `RENDERDOC_DEBUG` flag; also located in `vulkan_common.h` so that unsupported extensions like `VK_KHR_ray_tracing` are disabled to prevent RenderDoc from complaining about them. NSight Systems and NSight Graphics should work without that flag.
+For optimal performance, ensure that the `VULKR_DEBUG` flag is not defined in `vulkan_common.h`. Building in release mode should disable this flag.
 
 ## Project Structure
 ```bash
