@@ -9,10 +9,16 @@ struct Meshlet
     uint triangleCount;     // triangles emitted by this meshlet
 };
 
+// The buffers are reached through buffer device addresses held in the push constant block, so there are no descriptor
+// sets and nothing has to be bound before the draw
 struct PushConstants
 {
     float4x4 viewProjection;
     float4x4 model;
+    uint2* packedPositions;
+    Meshlet* meshlets;
+    uint* meshletVertices;
+    uint* meshletTriangles;
 };
 
 struct VertexOut
@@ -22,11 +28,6 @@ struct VertexOut
 };
 
 [[vk::push_constant]] ConstantBuffer<PushConstants> pushConstants;
-
-[[vk::binding(0, 0)]] StructuredBuffer<uint2> packedPositions;
-[[vk::binding(1, 0)]] StructuredBuffer<Meshlet> meshlets;
-[[vk::binding(2, 0)]] StructuredBuffer<uint> meshletVertices;
-[[vk::binding(3, 0)]] StructuredBuffer<uint> meshletTriangles;
 
 // Two signed normalized 16 bit components per word: x and y in .x, z in .y. The sign extension relies on the
 // arithmetic shift of the signed int, so no 16 bit integer type (and no extra feature) is needed
@@ -44,13 +45,13 @@ float3 decodePosition(uint2 packed)
 void meshMain(uint threadIndex : SV_GroupThreadID, uint groupIndex : SV_GroupID,
     out vertices VertexOut verts[64], out indices uint3 tris[124])
 {
-    const Meshlet meshlet = meshlets[groupIndex];
+    const Meshlet meshlet = pushConstants.meshlets[groupIndex];
     SetMeshOutputCounts(meshlet.vertexCount, meshlet.triangleCount);
 
     if (threadIndex < meshlet.vertexCount)
     {
-        const uint vertexIndex = meshletVertices[meshlet.vertexOffset + threadIndex];
-        const float4 worldPosition = mul(pushConstants.model, float4(decodePosition(packedPositions[vertexIndex]), 1.0));
+        const uint vertexIndex = pushConstants.meshletVertices[meshlet.vertexOffset + threadIndex];
+        const float4 worldPosition = mul(pushConstants.model, float4(decodePosition(pushConstants.packedPositions[vertexIndex]), 1.0));
 
         verts[threadIndex].position = mul(pushConstants.viewProjection, worldPosition);
         verts[threadIndex].worldPosition = worldPosition.xyz;
@@ -60,7 +61,7 @@ void meshMain(uint threadIndex : SV_GroupThreadID, uint groupIndex : SV_GroupID,
     for (uint triangleIndex = threadIndex; triangleIndex < meshlet.triangleCount; triangleIndex += 64)
     {
         const uint corner = meshlet.triangleOffset + triangleIndex * 3;
-        tris[triangleIndex] = uint3(meshletTriangles[corner], meshletTriangles[corner + 1], meshletTriangles[corner + 2]);
+        tris[triangleIndex] = uint3(pushConstants.meshletTriangles[corner], pushConstants.meshletTriangles[corner + 1], pushConstants.meshletTriangles[corner + 2]);
     }
 }
 

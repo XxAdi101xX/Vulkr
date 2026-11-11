@@ -38,9 +38,6 @@
 #include "core/buffer.h"
 #include "core/command_buffer.h"
 #include "core/command_pool.h"
-#include "core/descriptor_pool.h"
-#include "core/descriptor_set.h"
-#include "core/descriptor_set_layout.h"
 #include "core/device.h"
 #include "core/fence_pool.h"
 #include "core/image.h"
@@ -55,6 +52,16 @@
 
 namespace vulkr
 {
+
+static VkDeviceAddress getBufferAddress(Device &device, const Buffer &buffer)
+{
+	// The buffer has to be created with VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT before an address can be queried
+	const VkBufferDeviceAddressInfo bufferDeviceAddressInfo{
+		.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+		.buffer = buffer.getHandle(),
+	};
+	return vkGetBufferDeviceAddress(device.getHandle(), &bufferDeviceAddressInfo);
+}
 
 MeshApp::MeshApp(Platform &platform, std::string name) :
 	Application(platform, std::move(name))
@@ -104,13 +111,12 @@ void MeshApp::prepare()
 	}
 
 	// Create swapchain
-	const std::set<VkImageUsageFlagBits> imageUsageFlags{ VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VK_IMAGE_USAGE_TRANSFER_DST_BIT };
+	const std::set<VkImageUsageFlagBits> imageUsageFlags{ VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_IMAGE_USAGE_TRANSFER_SRC_BIT };
 	m_swapchain = std::make_unique<Swapchain>(*m_device, m_surface, VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR, VK_PRESENT_MODE_FIFO_KHR, imageUsageFlags, m_generalQueue->getFamilyIndex(), m_generalQueue->getFamilyIndex());
 
 	createSwapchainImageViews();
 	createFrameData();
 	createMesh();
-	createDescriptors();
 	createDepthResources();
 	createPipeline();
 }
@@ -130,6 +136,12 @@ void MeshApp::createMesh()
 	m_meshletTriangleBuffer = createBuffer(meshletData.meshletTriangles.data(), meshletData.meshletTriangles.size() * sizeof(uint32_t), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
 
 
+	// Buffer device address replaces the descriptor set: the mesh shader dereferences these addresses straight out of
+	// its push constants, so nothing has to be bound before the draw
+	m_pushConstants.packedPositions = getBufferAddress(*m_device, *m_positionBuffer);
+	m_pushConstants.meshlets = getBufferAddress(*m_device, *m_meshletBuffer);
+	m_pushConstants.meshletVertices = getBufferAddress(*m_device, *m_meshletVertexBuffer);
+	m_pushConstants.meshletTriangles = getBufferAddress(*m_device, *m_meshletTriangleBuffer);
 
 	const VkExtent2D extent = m_swapchain->getProperties().imageExtent;
 	const float aspect = static_cast<float>(extent.width) / static_cast<float>(extent.height);
@@ -137,51 +149,6 @@ void MeshApp::createMesh()
 	const glm::mat4 view = glm::lookAt(glm::vec3(0.0f, 0.0f, 4.0f), glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
 	m_pushConstants.viewProjection = projection * view;
 	m_pushConstants.model = glm::mat4(1.0f);
-}
-
-void MeshApp::createDescriptors()
-{
-	const std::vector<VkDescriptorSetLayoutBinding> bindings{
-		{ .binding = 0u, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1u, .stageFlags = VK_SHADER_STAGE_MESH_BIT_EXT },
-		{ .binding = 1u, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1u, .stageFlags = VK_SHADER_STAGE_MESH_BIT_EXT },
-		{ .binding = 2u, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1u, .stageFlags = VK_SHADER_STAGE_MESH_BIT_EXT },
-		{ .binding = 3u, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1u, .stageFlags = VK_SHADER_STAGE_MESH_BIT_EXT },
-	};
-	m_descriptorSetLayout = std::make_unique<DescriptorSetLayout>(*m_device, bindings);
-
-	std::vector<VkDescriptorPoolSize> poolSizes{ { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 4u } };
-	m_descriptorPool = std::make_unique<DescriptorPool>(*m_device, poolSizes, 1u, 0u);
-
-	const VkDescriptorSetLayout descriptorSetLayoutHandle = m_descriptorSetLayout->getHandle();
-	VkDescriptorSetAllocateInfo allocateInfo{
-		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-		.descriptorPool = m_descriptorPool->getHandle(),
-		.descriptorSetCount = 1u,
-		.pSetLayouts = &descriptorSetLayoutHandle,
-	};
-	m_descriptorSet = std::make_unique<DescriptorSet>(*m_device, allocateInfo);
-
-	const std::array<VkDescriptorBufferInfo, 4> bufferInfos{
-		VkDescriptorBufferInfo{ .buffer = m_positionBuffer->getHandle(), .offset = 0u, .range = VK_WHOLE_SIZE },
-		VkDescriptorBufferInfo{ .buffer = m_meshletBuffer->getHandle(), .offset = 0u, .range = VK_WHOLE_SIZE },
-		VkDescriptorBufferInfo{ .buffer = m_meshletVertexBuffer->getHandle(), .offset = 0u, .range = VK_WHOLE_SIZE },
-		VkDescriptorBufferInfo{ .buffer = m_meshletTriangleBuffer->getHandle(), .offset = 0u, .range = VK_WHOLE_SIZE },
-	};
-
-	std::array<VkWriteDescriptorSet, 4> writes{};
-	for (size_t binding = 0; binding < writes.size(); ++binding)
-	{
-		writes[binding] = VkWriteDescriptorSet{
-			.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-			.dstSet = m_descriptorSet->getHandle(),
-			.dstBinding = to_u32(binding),
-			.descriptorCount = 1u,
-			.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-			.pBufferInfo = &bufferInfos[binding],
-		};
-	}
-
-	vkUpdateDescriptorSets(m_device->getHandle(), to_u32(writes.size()), writes.data(), 0u, nullptr);
 }
 
 void MeshApp::createDepthResources()
@@ -215,7 +182,7 @@ std::unique_ptr<Buffer> MeshApp::createBuffer(const void *data, VkDeviceSize siz
 	VkBufferCreateInfo bufferCreateInfo{
 		.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
 		.size = size,
-		.usage = usage | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+		.usage = usage | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
 		.sharingMode = VK_SHARING_MODE_EXCLUSIVE,
 	};
 	const VmaAllocationCreateInfo allocationCreateInfo{ .usage = VMA_MEMORY_USAGE_GPU_ONLY };
@@ -260,18 +227,17 @@ void MeshApp::createPipeline()
 		{ "fragMain", VK_SHADER_STAGE_FRAGMENT_BIT },
 	};
 	const std::vector<VkPipelineShaderStageCreateInfo> shaderStages = m_slangCompiler->compile(*m_device, "../../shaders/mesh/helmet.slang", entryPoints);
-
-	// One descriptor set with the meshlet buffers and a push constant block holding the matrices
-	const VkDescriptorSetLayout descriptorSetLayoutHandle = m_descriptorSetLayout->getHandle();
 	const VkPushConstantRange pushConstantRange{
 		.stageFlags = VK_SHADER_STAGE_MESH_BIT_EXT,
 		.offset = 0u,
 		.size = sizeof(PushConstants),
 	};
+
+	// No descriptor sets at all: the push constant block holds the matrices and the device address of every buffer
 	VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo{
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-		.setLayoutCount = 1u,
-		.pSetLayouts = &descriptorSetLayoutHandle,
+		.setLayoutCount = 0u,
+		.pSetLayouts = nullptr,
 		.pushConstantRangeCount = 1u,
 		.pPushConstantRanges = &pushConstantRange,
 	};
@@ -573,12 +539,9 @@ void MeshApp::recordCommandBuffer()
 	};
 	const VkRect2D scissor{ { 0, 0 }, swapchainExtent };
 
-	const VkDescriptorSet descriptorSetHandle = m_descriptorSet->getHandle();
-
 	vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline);
 	vkCmdSetViewport(commandBuffer, 0u, 1u, &viewport);
 	vkCmdSetScissor(commandBuffer, 0u, 1u, &scissor);
-	vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipelineLayout, 0u, 1u, &descriptorSetHandle, 0u, nullptr);
 	vkCmdPushConstants(commandBuffer, m_pipelineLayout, VK_SHADER_STAGE_MESH_BIT_EXT, 0u, sizeof(PushConstants), &m_pushConstants);
 
 	// One mesh shader workgroup per meshlet; the mesh shader reads its cluster from gl_WorkGroupID
@@ -642,11 +605,6 @@ void MeshApp::cleanup()
 		m_slangCompiler->destroyShaderModules(*m_device);
 		m_slangCompiler.reset();
 	}
-
-	// The descriptor set is owned by its pool, so it is released before the pool and the layouts it uses
-	m_descriptorSet.reset();
-	m_descriptorPool.reset();
-	m_descriptorSetLayout.reset();
 
 	m_meshletTriangleBuffer.reset();
 	m_meshletVertexBuffer.reset();
