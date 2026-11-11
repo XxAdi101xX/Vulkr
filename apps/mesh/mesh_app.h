@@ -28,6 +28,8 @@
 #include <string>
 #include <vector>
 
+#include <glm/glm.hpp>
+
 // Platform files
 #include "platform/application.h"
 
@@ -35,10 +37,15 @@ namespace vulkr
 {
 
 /* Forward declaration */
+class Buffer;
 class CommandBuffer;
 class CommandPool;
+class DescriptorPool;
+class DescriptorSet;
+class DescriptorSetLayout;
 class Device;
 class FencePool;
+class ImageView;
 class Instance;
 class Queue;
 class SemaphorePool;
@@ -85,7 +92,15 @@ private:
 
 	void createFrameData();
 
+	void createMesh();
+
+	void createDescriptors();
+
+	void createDepthResources();
+
 	void createPipeline();
+
+	std::unique_ptr<Buffer> createBuffer(const void *data, VkDeviceSize size, VkBufferUsageFlags usage);
 
 	void recordCommandBuffer();
 
@@ -100,6 +115,33 @@ private:
 	/* The Swapchain owns the swapchain images, the app owns their views and the per image present semaphores */
 	std::vector<VkImageView> m_swapchainImageViews;
 	std::vector<VkSemaphore> m_renderFinishedSemaphores;
+
+	/* Meshlet data for one workgroup per meshlet; the positions are stored as float4 so the shader can read them
+	   from a structured buffer without worrying about vec3 alignment */
+	std::unique_ptr<Buffer> m_positionBuffer{ nullptr };
+	std::unique_ptr<Buffer> m_meshletBuffer{ nullptr };
+	std::unique_ptr<Buffer> m_meshletVertexBuffer{ nullptr };
+	std::unique_ptr<Buffer> m_meshletTriangleBuffer{ nullptr };
+	uint32_t m_meshletCount{ 0u };
+
+
+	/* Descriptor set that hands the meshlet buffers to the mesh shader */
+	std::unique_ptr<DescriptorSetLayout> m_descriptorSetLayout{ nullptr };
+	std::unique_ptr<DescriptorPool> m_descriptorPool{ nullptr };
+	std::unique_ptr<DescriptorSet> m_descriptorSet{ nullptr };
+
+	/* The scene is rendered with a depth buffer for the triangle order to be correct */
+	std::unique_ptr<ImageView> m_depthImageView{ nullptr };
+
+	/* Everything the mesh shader needs that changes between frames */
+	struct PushConstants
+	{
+		glm::mat4 viewProjection;
+		glm::mat4 model;
+	};
+
+	PushConstants m_pushConstants{};
+	float m_rotation{ 0.0f };
 
 	/* Runtime compiled shaders and the mesh shader pipeline that uses them */
 	std::unique_ptr<SlangShaderCompiler> m_slangCompiler{ nullptr };

@@ -22,9 +22,12 @@
 
 #include "mesh_app.h"
 
+#include <cstring>
 #include <iterator>
 #include <limits>
 #include <utility>
+
+#include <glm/gtc/matrix_transform.hpp>
 
 #include "common/logger.h"
 #include "common/helpers.h"
@@ -32,15 +35,23 @@
 
 #include "rendering/slang_shader_compiler.h"
 
+#include "core/buffer.h"
 #include "core/command_buffer.h"
 #include "core/command_pool.h"
+#include "core/descriptor_pool.h"
+#include "core/descriptor_set.h"
+#include "core/descriptor_set_layout.h"
 #include "core/device.h"
 #include "core/fence_pool.h"
 #include "core/image.h"
+#include "core/image_view.h"
 #include "core/instance.h"
 #include "core/queue.h"
 #include "core/semaphore_pool.h"
 #include "core/swapchain.h"
+
+#include "gltf_mesh.h"
+#include "meshlet_builder.h"
 
 namespace vulkr
 {
@@ -98,7 +109,145 @@ void MeshApp::prepare()
 
 	createSwapchainImageViews();
 	createFrameData();
+	createMesh();
+	createDescriptors();
+	createDepthResources();
 	createPipeline();
+}
+
+void MeshApp::createMesh()
+{
+	// The asset is normalized into a unit cube by the loader, so a fixed camera can frame it
+	const GltfMeshData gltfMesh = loadGltfMesh("../../assets/gltf_models/SciFiHelmet/SciFiHelmet.gltf");
+	const MeshletData meshletData = buildMeshlets(gltfMesh.positions, gltfMesh.indices);
+
+	m_meshletCount = to_u32(meshletData.meshlets.size());
+
+	// The builder quantizes positions to two packed 16 bit signed normalized components per word, so a vertex is 8 bytes
+	m_positionBuffer = createBuffer(meshletData.packedPositions.data(), meshletData.packedPositions.size() * sizeof(glm::uvec2), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+	m_meshletBuffer = createBuffer(meshletData.meshlets.data(), meshletData.meshlets.size() * sizeof(meshopt_Meshlet), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+	m_meshletVertexBuffer = createBuffer(meshletData.meshletVertices.data(), meshletData.meshletVertices.size() * sizeof(uint32_t), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+	m_meshletTriangleBuffer = createBuffer(meshletData.meshletTriangles.data(), meshletData.meshletTriangles.size() * sizeof(uint32_t), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+
+
+
+	const VkExtent2D extent = m_swapchain->getProperties().imageExtent;
+	const float aspect = static_cast<float>(extent.width) / static_cast<float>(extent.height);
+	const glm::mat4 projection = glm::perspective(glm::radians(45.0f), aspect, 0.1f, 100.0f);
+	const glm::mat4 view = glm::lookAt(glm::vec3(0.0f, 0.0f, 4.0f), glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+	m_pushConstants.viewProjection = projection * view;
+	m_pushConstants.model = glm::mat4(1.0f);
+}
+
+void MeshApp::createDescriptors()
+{
+	const std::vector<VkDescriptorSetLayoutBinding> bindings{
+		{ .binding = 0u, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1u, .stageFlags = VK_SHADER_STAGE_MESH_BIT_EXT },
+		{ .binding = 1u, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1u, .stageFlags = VK_SHADER_STAGE_MESH_BIT_EXT },
+		{ .binding = 2u, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1u, .stageFlags = VK_SHADER_STAGE_MESH_BIT_EXT },
+		{ .binding = 3u, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1u, .stageFlags = VK_SHADER_STAGE_MESH_BIT_EXT },
+	};
+	m_descriptorSetLayout = std::make_unique<DescriptorSetLayout>(*m_device, bindings);
+
+	std::vector<VkDescriptorPoolSize> poolSizes{ { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 4u } };
+	m_descriptorPool = std::make_unique<DescriptorPool>(*m_device, poolSizes, 1u, 0u);
+
+	const VkDescriptorSetLayout descriptorSetLayoutHandle = m_descriptorSetLayout->getHandle();
+	VkDescriptorSetAllocateInfo allocateInfo{
+		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+		.descriptorPool = m_descriptorPool->getHandle(),
+		.descriptorSetCount = 1u,
+		.pSetLayouts = &descriptorSetLayoutHandle,
+	};
+	m_descriptorSet = std::make_unique<DescriptorSet>(*m_device, allocateInfo);
+
+	const std::array<VkDescriptorBufferInfo, 4> bufferInfos{
+		VkDescriptorBufferInfo{ .buffer = m_positionBuffer->getHandle(), .offset = 0u, .range = VK_WHOLE_SIZE },
+		VkDescriptorBufferInfo{ .buffer = m_meshletBuffer->getHandle(), .offset = 0u, .range = VK_WHOLE_SIZE },
+		VkDescriptorBufferInfo{ .buffer = m_meshletVertexBuffer->getHandle(), .offset = 0u, .range = VK_WHOLE_SIZE },
+		VkDescriptorBufferInfo{ .buffer = m_meshletTriangleBuffer->getHandle(), .offset = 0u, .range = VK_WHOLE_SIZE },
+	};
+
+	std::array<VkWriteDescriptorSet, 4> writes{};
+	for (size_t binding = 0; binding < writes.size(); ++binding)
+	{
+		writes[binding] = VkWriteDescriptorSet{
+			.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+			.dstSet = m_descriptorSet->getHandle(),
+			.dstBinding = to_u32(binding),
+			.descriptorCount = 1u,
+			.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+			.pBufferInfo = &bufferInfos[binding],
+		};
+	}
+
+	vkUpdateDescriptorSets(m_device->getHandle(), to_u32(writes.size()), writes.data(), 0u, nullptr);
+}
+
+void MeshApp::createDepthResources()
+{
+	const VkFormat depthFormat = getSupportedDepthFormat(m_device->getPhysicalDevice().getHandle(), true);
+	const VkExtent2D extent = m_swapchain->getProperties().imageExtent;
+	const VkExtent3D depthExtent{ extent.width, extent.height, 1u };
+
+	auto depthImage = std::make_unique<Image>(*m_device, depthFormat, depthExtent, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+	m_depthImageView = std::make_unique<ImageView>(std::move(depthImage), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_DEPTH_BIT, depthFormat);
+}
+
+std::unique_ptr<Buffer> MeshApp::createBuffer(const void *data, VkDeviceSize size, VkBufferUsageFlags usage)
+{
+	// Staging buffer on the CPU visible heap
+	VkBufferCreateInfo stagingBufferCreateInfo{
+		.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+		.size = size,
+		.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+		.sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+	};
+	const VmaAllocationCreateInfo stagingAllocationCreateInfo{ .usage = VMA_MEMORY_USAGE_CPU_ONLY };
+	auto stagingBuffer = std::make_unique<Buffer>(*m_device, stagingBufferCreateInfo, stagingAllocationCreateInfo);
+
+	void *mappedData = stagingBuffer->map();
+	memcpy(mappedData, data, static_cast<size_t>(size));
+	stagingBuffer->unmap();
+	stagingBuffer->flush();
+
+	// Device local buffer the mesh shader reads from
+	VkBufferCreateInfo bufferCreateInfo{
+		.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+		.size = size,
+		.usage = usage | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+		.sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+	};
+	const VmaAllocationCreateInfo allocationCreateInfo{ .usage = VMA_MEMORY_USAGE_GPU_ONLY };
+	auto buffer = std::make_unique<Buffer>(*m_device, bufferCreateInfo, allocationCreateInfo);
+
+	// One time submit that copies the staging buffer into device memory and waits for it to finish
+	CommandBuffer commandBuffer(*m_frames[0].commandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+	commandBuffer.begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
+
+	const VkBufferCopy copyRegion{ .srcOffset = 0u, .dstOffset = 0u, .size = size };
+	vkCmdCopyBuffer(commandBuffer.getHandle(), stagingBuffer->getHandle(), buffer->getHandle(), 1u, &copyRegion);
+
+	commandBuffer.end();
+
+	VkCommandBufferSubmitInfo commandBufferSubmitInfo{
+		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
+		.commandBuffer = commandBuffer.getHandle(),
+	};
+	VkSubmitInfo2 submitInfo{
+		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
+		.commandBufferInfoCount = 1u,
+		.pCommandBufferInfos = &commandBufferSubmitInfo,
+	};
+
+	VkFenceCreateInfo fenceCreateInfo{ .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
+	VkFence fence{ VK_NULL_HANDLE };
+	VK_CHECK(vkCreateFence(m_device->getHandle(), &fenceCreateInfo, nullptr, &fence));
+	VK_CHECK(vkQueueSubmit2(m_generalQueue->getHandle(), 1u, &submitInfo, fence));
+	VK_CHECK(vkWaitForFences(m_device->getHandle(), 1u, &fence, VK_TRUE, UINT64_MAX));
+	vkDestroyFence(m_device->getHandle(), fence, nullptr);
+
+	return buffer;
 }
 
 void MeshApp::createPipeline()
@@ -110,19 +259,30 @@ void MeshApp::createPipeline()
 		{ "meshMain", VK_SHADER_STAGE_MESH_BIT_EXT },
 		{ "fragMain", VK_SHADER_STAGE_FRAGMENT_BIT },
 	};
-	const std::vector<VkPipelineShaderStageCreateInfo> shaderStages = m_slangCompiler->compile(*m_device, "../../shaders/mesh/triangle.slang", entryPoints);
+	const std::vector<VkPipelineShaderStageCreateInfo> shaderStages = m_slangCompiler->compile(*m_device, "../../shaders/mesh/helmet.slang", entryPoints);
 
+	// One descriptor set with the meshlet buffers and a push constant block holding the matrices
+	const VkDescriptorSetLayout descriptorSetLayoutHandle = m_descriptorSetLayout->getHandle();
+	const VkPushConstantRange pushConstantRange{
+		.stageFlags = VK_SHADER_STAGE_MESH_BIT_EXT,
+		.offset = 0u,
+		.size = sizeof(PushConstants),
+	};
 	VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo{
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-		// TODO: Add bindless descriptor set layout for the fragment shader to use a push constant for the triangle color
+		.setLayoutCount = 1u,
+		.pSetLayouts = &descriptorSetLayoutHandle,
+		.pushConstantRangeCount = 1u,
+		.pPushConstantRanges = &pushConstantRange,
 	};
 	VK_CHECK(vkCreatePipelineLayout(m_device->getHandle(), &pipelineLayoutCreateInfo, nullptr, &m_pipelineLayout));
 
-	// Dynamic rendering replaces the render pass of the pipeline
+	// Dynamic rendering replaces the render pass of the pipeline; the depth format has to match the attachment
 	VkPipelineRenderingCreateInfo renderingCreateInfo{
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
 		.colorAttachmentCount = 1u,
 		.pColorAttachmentFormats = &m_swapchain->getProperties().surfaceFormat.format,
+		.depthAttachmentFormat = m_depthImageView->getImage()->getFormat(),
 	};
 
 	VkPipelineViewportStateCreateInfo viewportState{
@@ -142,6 +302,16 @@ void MeshApp::createPipeline()
 	VkPipelineMultisampleStateCreateInfo multisampleState{
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
 		.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT,
+	};
+
+	// The projection maps the near plane to 0 and the far plane to 1, so closer fragments have smaller depth values
+	VkPipelineDepthStencilStateCreateInfo depthStencilState{
+		.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
+		.depthTestEnable = VK_TRUE,
+		.depthWriteEnable = VK_TRUE,
+		.depthCompareOp = VK_COMPARE_OP_LESS,
+		.depthBoundsTestEnable = VK_FALSE,
+		.stencilTestEnable = VK_FALSE,
 	};
 
 	VkPipelineColorBlendAttachmentState colorBlendAttachment{
@@ -169,6 +339,7 @@ void MeshApp::createPipeline()
 		.pViewportState = &viewportState,
 		.pRasterizationState = &rasterizationState,
 		.pMultisampleState = &multisampleState,
+		.pDepthStencilState = &depthStencilState,
 		.pColorBlendState = &colorBlendState,
 		.pDynamicState = &dynamicState,
 		.layout = m_pipelineLayout,
@@ -294,6 +465,9 @@ void MeshApp::update()
 		LOGEANDABORT("Failed to present the swapchain image");
 	}
 
+	m_rotation += 0.01f;
+	m_pushConstants.model = glm::rotate(glm::mat4(1.0f), m_rotation, glm::vec3(0.0f, 1.0f, 0.0f));
+
 	m_currentFrame = (m_currentFrame + 1u) % maxFramesInFlight;
 }
 
@@ -328,6 +502,29 @@ void MeshApp::recordCommandBuffer()
 	};
 	vkCmdPipelineBarrier2(commandBuffer, &toColorAttachmentDependencyInfo);
 
+	// The depth image is shared by both frames in flight and cleared every frame, so discard its contents and order
+	// the transition after the previous frame's late fragment tests
+	const VkImageSubresourceRange depthSubresourceRange{ VK_IMAGE_ASPECT_DEPTH_BIT, 0u, 1u, 0u, 1u };
+	VkImageMemoryBarrier2 toDepthAttachmentBarrier{
+		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+		.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+		.srcAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+		.dstStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+		.dstAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+		.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+		.newLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
+		.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		.image = m_depthImageView->getImage()->getHandle(),
+		.subresourceRange = depthSubresourceRange,
+	};
+	VkDependencyInfo toDepthAttachmentDependencyInfo{
+		.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+		.imageMemoryBarrierCount = 1u,
+		.pImageMemoryBarriers = &toDepthAttachmentBarrier,
+	};
+	vkCmdPipelineBarrier2(commandBuffer, &toDepthAttachmentDependencyInfo);
+
 	// Clear the image without a render pass or a framebuffer
 	VkClearValue clearColor{};
 	clearColor.color = { { 0.05f, 0.05f, 0.08f, 1.0f } };
@@ -340,32 +537,52 @@ void MeshApp::recordCommandBuffer()
 		.storeOp = VK_ATTACHMENT_STORE_OP_STORE,
 		.clearValue = clearColor,
 	};
+	VkClearValue clearDepth{};
+	clearDepth.depthStencil = { 1.0f, 0u };
+
+	VkRenderingAttachmentInfo depthAttachment{
+		.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+		.imageView = m_depthImageView->getHandle(),
+		.imageLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
+		.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+		.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+		.clearValue = clearDepth,
+	};
+
 	VkRenderingInfo renderingInfo{
 		.sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
 		.renderArea = { { 0u, 0u }, m_swapchain->getProperties().imageExtent },
 		.layerCount = 1u,
 		.colorAttachmentCount = 1u,
 		.pColorAttachments = &colorAttachment,
+		.pDepthAttachment = &depthAttachment,
 	};
 	vkCmdBeginRendering(commandBuffer, &renderingInfo);
 
+	// GLM builds an OpenGL style projection with Y pointing up, while Vulkan's clip space has Y pointing down. A negative
+	// viewport height flips the Y axis at rasterization time (core Vulkan 1.1 through VK_KHR_maintenance1), which also
+	// mirrors the triangle winding, so front faces become back faces
 	const VkExtent2D swapchainExtent = m_swapchain->getProperties().imageExtent;
 	const VkViewport viewport{
 		.x = 0.0f,
-		.y = 0.0f,
+		.y = static_cast<float>(swapchainExtent.height),
 		.width = static_cast<float>(swapchainExtent.width),
-		.height = static_cast<float>(swapchainExtent.height),
+		.height = -static_cast<float>(swapchainExtent.height),
 		.minDepth = 0.0f,
 		.maxDepth = 1.0f,
 	};
 	const VkRect2D scissor{ { 0, 0 }, swapchainExtent };
 
+	const VkDescriptorSet descriptorSetHandle = m_descriptorSet->getHandle();
+
 	vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline);
 	vkCmdSetViewport(commandBuffer, 0u, 1u, &viewport);
 	vkCmdSetScissor(commandBuffer, 0u, 1u, &scissor);
+	vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipelineLayout, 0u, 1u, &descriptorSetHandle, 0u, nullptr);
+	vkCmdPushConstants(commandBuffer, m_pipelineLayout, VK_SHADER_STAGE_MESH_BIT_EXT, 0u, sizeof(PushConstants), &m_pushConstants);
 
-	// One workgroup, which the mesh shader turns into a single triangle
-	vkCmdDrawMeshTasksEXT(commandBuffer, 1u, 1u, 1u);
+	// One mesh shader workgroup per meshlet; the mesh shader reads its cluster from gl_WorkGroupID
+	vkCmdDrawMeshTasksEXT(commandBuffer, m_meshletCount, 1u, 1u);
 
 	vkCmdEndRendering(commandBuffer);
 
@@ -425,6 +642,18 @@ void MeshApp::cleanup()
 		m_slangCompiler->destroyShaderModules(*m_device);
 		m_slangCompiler.reset();
 	}
+
+	// The descriptor set is owned by its pool, so it is released before the pool and the layouts it uses
+	m_descriptorSet.reset();
+	m_descriptorPool.reset();
+	m_descriptorSetLayout.reset();
+
+	m_meshletTriangleBuffer.reset();
+	m_meshletVertexBuffer.reset();
+	m_meshletBuffer.reset();
+	m_positionBuffer.reset();
+
+	m_depthImageView.reset();
 
 	for (VkImageView imageView : m_swapchainImageViews)
 	{
