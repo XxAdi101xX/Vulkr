@@ -32,7 +32,12 @@ class Device;
 class DescriptorSetLayout
 {
 public:
-	DescriptorSetLayout(Device &device, const std::vector<VkDescriptorSetLayoutBinding> bindings);
+	DescriptorSetLayout(
+		Device &device,
+		const std::vector<VkDescriptorSetLayoutBinding> bindings,
+		VkDescriptorSetLayoutCreateFlags flags = 0u,
+		const std::vector<VkDescriptorBindingFlags> &bindingFlags = {}
+	);
 	~DescriptorSetLayout();
 
 	DescriptorSetLayout(DescriptorSetLayout &&other);

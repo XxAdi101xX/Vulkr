@@ -96,6 +96,24 @@ uint32_t readIndex(const tinygltf::Model &model, const tinygltf::Accessor &acces
 	}
 }
 
+/* The slot of the material's base colour texture in the bindless array, which is the index of the image it decodes from */
+uint32_t getBaseColorTextureSlot(const tinygltf::Model &model, int32_t materialIndex)
+{
+	if (materialIndex < 0 || materialIndex >= static_cast<int32_t>(model.materials.size()))
+	{
+		return 0u;
+	}
+
+	const int32_t textureIndex = model.materials[materialIndex].pbrMetallicRoughness.baseColorTexture.index;
+	if (textureIndex < 0 || textureIndex >= static_cast<int32_t>(model.textures.size()))
+	{
+		return 0u;
+	}
+
+	const int32_t imageIndex = model.textures[textureIndex].source;
+	return imageIndex >= 0 ? to_u32(imageIndex) : 0u;
+}
+
 void collectNode(const tinygltf::Model &model, int32_t nodeIndex, const glm::mat4 &parentMatrix, GltfMeshData &meshData)
 {
 	const tinygltf::Node &node = model.nodes[nodeIndex];
@@ -119,19 +137,38 @@ void collectNode(const tinygltf::Model &model, int32_t nodeIndex, const glm::mat
 
 			const tinygltf::Accessor &positionAccessor = model.accessors[positionAttribute->second];
 			const tinygltf::Accessor &indexAccessor = model.accessors[primitive.indices];
-			const uint32_t firstVertex = to_u32(meshData.positions.size());
-
-			for (size_t vertexIndex = 0; vertexIndex < positionAccessor.count; ++vertexIndex)
+			const tinygltf::Accessor *texCoordAccessor{ nullptr };
+			const auto texCoordAttribute = primitive.attributes.find("TEXCOORD_0");
+			if (texCoordAttribute != primitive.attributes.end())
 			{
-				// POSITION is a VEC3 of floats, so a tightly packed view advances 12 bytes per vertex
-				const float *position = getAccessorElement<float>(model, positionAccessor, vertexIndex, sizeof(float) * 3u);
-				const glm::vec3 localPosition{ position[0], position[1], position[2] };
-				meshData.positions.emplace_back(glm::vec3(worldMatrix * glm::vec4(localPosition, 1.0f)));
+				texCoordAccessor = &model.accessors[texCoordAttribute->second];
 			}
 
+			const uint32_t textureIndex = getBaseColorTextureSlot(model, primitive.material);
+
+			// One vertex per index entry, in the index buffer's winding; the vertex remap collapses the duplicates later.
+			// Emitting per corner keeps the texture slot of each corner faithful to the primitive that produced it
 			for (size_t index = 0; index < indexAccessor.count; ++index)
 			{
-				meshData.indices.emplace_back(firstVertex + readIndex(model, indexAccessor, index));
+				const uint32_t sourceVertex = readIndex(model, indexAccessor, index);
+
+				// position is a vec3 of floats, so a tightly packed view advances 12 bytes per vertex
+				const float *position = getAccessorElement<float>(model, positionAccessor, sourceVertex, sizeof(float) * 3u);
+				const glm::vec3 localPosition{ position[0], position[1], position[2] };
+
+				glm::vec2 texCoord{ 0.0f };
+				if (texCoordAccessor != nullptr && sourceVertex < texCoordAccessor->count)
+				{
+					const float *texCoordValues = getAccessorElement<float>(model, *texCoordAccessor, sourceVertex, sizeof(float) * 2u);
+					texCoord = glm::vec2(texCoordValues[0], texCoordValues[1]);
+				}
+
+				meshData.vertices.emplace_back(GltfVertex{
+					.position = glm::vec3(worldMatrix * glm::vec4(localPosition, 1.0f)),
+					.texCoord = texCoord,
+					.textureIndex = textureIndex,
+				});
+				meshData.indices.emplace_back(to_u32(meshData.vertices.size()) - 1u);
 			}
 		}
 	}
@@ -145,17 +182,17 @@ void collectNode(const tinygltf::Model &model, int32_t nodeIndex, const glm::mat
 /* Recentre the mesh on the origin and scale it to fit a unit cube so a fixed camera can frame it */
 void normalizeMesh(GltfMeshData &meshData)
 {
-	if (meshData.positions.empty())
+	if (meshData.vertices.empty())
 	{
 		return;
 	}
 
-	glm::vec3 minimum{ meshData.positions[0] };
-	glm::vec3 maximum{ meshData.positions[0] };
-	for (const glm::vec3 &position : meshData.positions)
+	glm::vec3 minimum{ meshData.vertices[0].position };
+	glm::vec3 maximum{ meshData.vertices[0].position };
+	for (const GltfVertex &vertex : meshData.vertices)
 	{
-		minimum = glm::min(minimum, position);
-		maximum = glm::max(maximum, position);
+		minimum = glm::min(minimum, vertex.position);
+		maximum = glm::max(maximum, vertex.position);
 	}
 
 	const glm::vec3 center = (minimum + maximum) * 0.5f;
@@ -163,15 +200,57 @@ void normalizeMesh(GltfMeshData &meshData)
 	const float largestExtent = glm::max(extent.x, glm::max(extent.y, extent.z));
 	const float scale = largestExtent > 0.0f ? 2.0f / largestExtent : 1.0f;
 
-	for (glm::vec3 &position : meshData.positions)
+	for (GltfVertex &vertex : meshData.vertices)
 	{
-		position = (position - center) * scale;
+		vertex.position = (vertex.position - center) * scale;
 	}
 }
 
+/* The images come back decoded by tinygltf, in the order the asset declares them, which is what the shader indexes */
+std::vector<GltfTextureData> extractTextures(const tinygltf::Model &model)
+{
+	std::vector<GltfTextureData> textures;
+	textures.reserve(model.images.size());
+
+	for (const tinygltf::Image &image : model.images)
+	{
+		if (image.bits != 8 || (image.component != 4 && image.component != 3))
+		{
+			LOGEANDABORT("The image {} is {}-bit with {} components, only 8-bit RGB and RGBA are supported", image.uri, image.bits, image.component);
+		}
+
+		GltfTextureData texture;
+		texture.width = to_u32(image.width);
+		texture.height = to_u32(image.height);
+
+		// Expand RGB to RGBA so every texel is 4 bytes and the copy can use one format for all textures
+		if (image.component == 4)
+		{
+			texture.pixels = image.image;
+		}
+		else
+		{
+			texture.pixels.resize(static_cast<size_t>(image.width) * image.height * 4u);
+			for (size_t texel = 0; texel < static_cast<size_t>(image.width) * image.height; ++texel)
+			{
+				texture.pixels[texel * 4u + 0u] = image.image[texel * 3u + 0u];
+				texture.pixels[texel * 4u + 1u] = image.image[texel * 3u + 1u];
+				texture.pixels[texel * 4u + 2u] = image.image[texel * 3u + 2u];
+				texture.pixels[texel * 4u + 3u] = 255u;
+			}
+		}
+
+		textures.emplace_back(std::move(texture));
+	}
+
+	return textures;
+}
+
+
+
 } // namespace
 
-GltfMeshData loadGltfMesh(const std::string &filePath)
+GltfAsset loadGltfAsset(const std::string &filePath)
 {
 	tinygltf::TinyGLTF loader;
 	tinygltf::Model model;
@@ -191,7 +270,8 @@ GltfMeshData loadGltfMesh(const std::string &filePath)
 		LOGEANDABORT("Failed to load the glTF asset {}: {}", filePath, error);
 	}
 
-	GltfMeshData meshData;
+	GltfAsset asset;
+	GltfMeshData &meshData = asset.mesh;
 	const int32_t sceneIndex = model.defaultScene >= 0 ? model.defaultScene : 0;
 	if (sceneIndex >= static_cast<int32_t>(model.scenes.size()))
 	{
@@ -209,10 +289,12 @@ GltfMeshData loadGltfMesh(const std::string &filePath)
 	}
 
 	normalizeMesh(meshData);
+	asset.textures = extractTextures(model);
 
-	LOGI("Loaded {} vertices and {} indices from {}", meshData.positions.size(), meshData.indices.size(), filePath);
+	LOGI("Loaded {} vertices, {} indices and {} textures from {}", meshData.vertices.size(), meshData.indices.size(),
+		asset.textures.size(), filePath);
 
-	return meshData;
+	return asset;
 }
 
 } // namespace vulkr

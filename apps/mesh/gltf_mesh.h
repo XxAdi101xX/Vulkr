@@ -31,16 +31,42 @@
 namespace vulkr
 {
 
+/* One vertex as it comes out of the asset, laid out for meshoptimizer: the position occupies the first 12 bytes, which is
+   what the clusterizer requires, followed by the texture coordinates and the slot of the primitive's base colour texture
+   in the bindless texture array */
+struct GltfVertex
+{
+	glm::vec3 position;
+	glm::vec2 texCoord;
+	uint32_t textureIndex{ 0u };
+};
+
 /* A flat indexed triangle mesh extracted from a glTF asset: every primitive of every mesh in the default scene is
    transformed into world space and merged, and the result is recentred and scaled to fit a unit cube so a fixed
-   camera can frame it. Materials and textures are ignored for now. */
+   camera can frame it */
 struct GltfMeshData
 {
-	std::vector<glm::vec3> positions;
+	std::vector<GltfVertex> vertices;
 	std::vector<uint32_t> indices;
 };
 
-/* Load the triangle geometry of a .gltf or .glb asset; aborts when the file cannot be read or holds no triangles */
-GltfMeshData loadGltfMesh(const std::string &filePath);
+/* One decoded image of the asset, always expanded to RGBA8 */
+struct GltfTextureData
+{
+	std::vector<unsigned char> pixels;
+	uint32_t width{ 0u };
+	uint32_t height{ 0u };
+};
+
+/* Everything a model needs from its asset: the merged geometry and the images its materials reference, in the order the
+   asset declares them, so the image index doubles as the slot inside the model */
+struct GltfAsset
+{
+	GltfMeshData mesh;
+	std::vector<GltfTextureData> textures;
+};
+
+/* Load a .gltf or .glb asset; aborts when the file cannot be read or holds no indexed triangles */
+GltfAsset loadGltfAsset(const std::string &filePath);
 
 } // namespace vulkr

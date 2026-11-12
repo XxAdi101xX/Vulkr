@@ -28,13 +28,26 @@
 namespace vulkr
 {
 
-DescriptorSetLayout::DescriptorSetLayout(Device &device, const std::vector<VkDescriptorSetLayoutBinding> bindings) :
+DescriptorSetLayout::DescriptorSetLayout(Device &device, const std::vector<VkDescriptorSetLayoutBinding> bindings,
+	VkDescriptorSetLayoutCreateFlags flags, const std::vector<VkDescriptorBindingFlags> &bindingFlags) :
 	device{ device },
 	bindings{ std::move(bindings) }
 {
+	VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsInfo{
+		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO,
+		.bindingCount = to_u32(bindingFlags.size()),
+		.pBindingFlags = bindingFlags.data(),
+	};
+
 	VkDescriptorSetLayoutCreateInfo descriptorSetLayoutInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+	descriptorSetLayoutInfo.flags = flags;
 	descriptorSetLayoutInfo.bindingCount = to_u32(this->bindings.size());
 	descriptorSetLayoutInfo.pBindings = this->bindings.data();
+
+	if (!bindingFlags.empty())
+	{
+		descriptorSetLayoutInfo.pNext = &bindingFlagsInfo;
+	}
 
 	VK_CHECK(vkCreateDescriptorSetLayout(device.getHandle(), &descriptorSetLayoutInfo, nullptr, &handle));
 }

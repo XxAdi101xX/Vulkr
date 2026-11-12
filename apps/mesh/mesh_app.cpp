@@ -22,7 +22,9 @@
 
 #include "mesh_app.h"
 
+#include <cmath>
 #include <cstring>
+#include <filesystem>
 #include <iterator>
 #include <limits>
 #include <utility>
@@ -37,6 +39,9 @@
 
 #include "core/buffer.h"
 #include "core/command_buffer.h"
+#include "core/descriptor_pool.h"
+#include "core/descriptor_set.h"
+#include "core/descriptor_set_layout.h"
 #include "core/command_pool.h"
 #include "core/device.h"
 #include "core/fence_pool.h"
@@ -44,6 +49,7 @@
 #include "core/image_view.h"
 #include "core/instance.h"
 #include "core/queue.h"
+#include "core/sampler.h"
 #include "core/semaphore_pool.h"
 #include "core/swapchain.h"
 
@@ -52,6 +58,20 @@
 
 namespace vulkr
 {
+
+// The models the app renders; the main vulkr app draws these too. Every image they declare becomes one slot of the
+// bindless texture array, and each model gets its own set of meshlet buffers
+static constexpr const char *kModelPaths[]{
+	"../../assets/gltf_models/SciFiHelmet/SciFiHelmet.gltf",
+	"../../assets/gltf_models/DamagedHelmet/DamagedHelmet.gltf",
+	"../../assets/gltf_models/WaterBottle/WaterBottle.glb",
+	"../../assets/gltf_models/floor_stones_tilleable/floor_stones_tilleable.gltf",
+	"../../assets/gltf_models/the_odd_sphere/the_odd_sphere.gltf",
+	"../../assets/gltf_models/CesiumMan/CesiumMan.glb",
+};
+
+// Upper bound the descriptor set layout declares for the texture array; the allocation asks for what the asset provides
+static constexpr uint32_t kBindlessTextureLimit = 64u;
 
 static VkDeviceAddress getBufferAddress(Device &device, const Buffer &buffer)
 {
@@ -116,39 +136,280 @@ void MeshApp::prepare()
 
 	createSwapchainImageViews();
 	createFrameData();
-	createMesh();
+	createModels();
+	createTextures();
 	createDepthResources();
 	createPipeline();
+
 }
 
-void MeshApp::createMesh()
+void MeshApp::createModels()
 {
-	// The asset is normalized into a unit cube by the loader, so a fixed camera can frame it
-	const GltfMeshData gltfMesh = loadGltfMesh("../../assets/gltf_models/SciFiHelmet/SciFiHelmet.gltf");
-	const MeshletData meshletData = buildMeshlets(gltfMesh.positions, gltfMesh.indices);
+	static constexpr size_t kModelCount = std::size(kModelPaths);
 
-	m_meshletCount = to_u32(meshletData.meshlets.size());
+	// Slot 0 is a white texel, so a vertex whose material has no base colour map still samples something valid
+	m_textureData.emplace_back(GltfTextureData{ .pixels = std::vector<unsigned char>(4u, 255u), .width = 1u, .height = 1u });
 
-	// The builder quantizes positions to two packed 16 bit signed normalized components per word, so a vertex is 8 bytes
-	m_positionBuffer = createBuffer(meshletData.packedPositions.data(), meshletData.packedPositions.size() * sizeof(glm::uvec2), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-	m_meshletBuffer = createBuffer(meshletData.meshlets.data(), meshletData.meshlets.size() * sizeof(meshopt_Meshlet), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-	m_meshletVertexBuffer = createBuffer(meshletData.meshletVertices.data(), meshletData.meshletVertices.size() * sizeof(uint32_t), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-	m_meshletTriangleBuffer = createBuffer(meshletData.meshletTriangles.data(), meshletData.meshletTriangles.size() * sizeof(uint32_t), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+	m_models.reserve(kModelCount);
 
+	for (const char *modelPath : kModelPaths)
+	{
+		GltfAsset asset = loadGltfAsset(modelPath);
 
-	// Buffer device address replaces the descriptor set: the mesh shader dereferences these addresses straight out of
-	// its push constants, so nothing has to be bound before the draw
-	m_pushConstants.packedPositions = getBufferAddress(*m_device, *m_positionBuffer);
-	m_pushConstants.meshlets = getBufferAddress(*m_device, *m_meshletBuffer);
-	m_pushConstants.meshletVertices = getBufferAddress(*m_device, *m_meshletVertexBuffer);
-	m_pushConstants.meshletTriangles = getBufferAddress(*m_device, *m_meshletTriangleBuffer);
+		// Slots are shared by the whole scene, so this model's images start where the previous model's ended
+		const uint32_t firstTextureSlot = to_u32(m_textureData.size());
+		const uint32_t textureCount = to_u32(asset.textures.size());
+
+		for (GltfVertex &vertex : asset.mesh.vertices)
+		{
+			vertex.textureIndex = textureCount > 0u ? firstTextureSlot + vertex.textureIndex : 0u;
+		}
+
+		const MeshletData meshletData = buildMeshlets(asset.mesh.vertices, asset.mesh.indices);
+
+		MeshModel model;
+		model.name = std::filesystem::path(modelPath).stem().string();
+		model.meshletCount = to_u32(meshletData.meshlets.size());
+
+		// A vertex is a packed position, a texture coordinate and a texture slot, 24 bytes including the std430 padding
+		model.vertexBuffer = createBuffer(meshletData.vertices.data(), meshletData.vertices.size() * sizeof(MeshletVertex), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+		model.meshletBuffer = createBuffer(meshletData.meshlets.data(), meshletData.meshlets.size() * sizeof(meshopt_Meshlet), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+		model.meshletVertexBuffer = createBuffer(meshletData.meshletVertices.data(), meshletData.meshletVertices.size() * sizeof(uint32_t), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+		model.meshletTriangleBuffer = createBuffer(meshletData.meshletTriangles.data(), meshletData.meshletTriangles.size() * sizeof(uint32_t), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+
+		// Buffer device address replaces the descriptor set: the mesh shader dereferences these addresses straight out of
+		// its push constants, so nothing but the texture array has to be bound before the draw
+		model.vertexAddress = getBufferAddress(*m_device, *model.vertexBuffer);
+		model.meshletAddress = getBufferAddress(*m_device, *model.meshletBuffer);
+		model.meshletVertexAddress = getBufferAddress(*m_device, *model.meshletVertexBuffer);
+		model.meshletTriangleAddress = getBufferAddress(*m_device, *model.meshletTriangleBuffer);
+
+		// The images are uploaded once every model is loaded, so the asset can be released here
+		for (GltfTextureData &texture : asset.textures)
+		{
+			m_textureData.emplace_back(std::move(texture));
+		}
+
+		m_models.emplace_back(std::move(model));
+	}
+
+	// Lay the models out on a grid so any count fits, then pull the camera back far enough to frame it
+	const uint32_t columns = to_u32(std::ceil(std::sqrt(static_cast<float>(m_models.size()))));
+	const uint32_t rows = to_u32((m_models.size() + columns - 1u) / columns);
+	constexpr float kSpacing = 1.6f;
+
+	for (size_t index = 0; index < m_models.size(); ++index)
+	{
+		const uint32_t column = to_u32(index) % columns;
+		const uint32_t row = to_u32(index) / columns;
+		m_models[index].translation = glm::vec3(
+			(static_cast<float>(column) - static_cast<float>(columns - 1u) * 0.5f) * kSpacing,
+			(static_cast<float>(rows - 1u) * 0.5f - static_cast<float>(row)) * kSpacing,
+			0.0f);
+	}
 
 	const VkExtent2D extent = m_swapchain->getProperties().imageExtent;
 	const float aspect = static_cast<float>(extent.width) / static_cast<float>(extent.height);
+	const float halfVertical = std::tan(glm::radians(45.0f) * 0.5f);
+	const float halfHorizontal = halfVertical * aspect;
+	const float halfWidth = static_cast<float>(columns) * kSpacing * 0.5f + 0.8f;
+	const float halfHeight = static_cast<float>(rows) * kSpacing * 0.5f + 0.8f;
+	const float distance = glm::max(halfWidth / halfHorizontal, halfHeight / halfVertical) * 1.15f;
+
 	const glm::mat4 projection = glm::perspective(glm::radians(45.0f), aspect, 0.1f, 100.0f);
-	const glm::mat4 view = glm::lookAt(glm::vec3(0.0f, 0.0f, 4.0f), glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-	m_pushConstants.viewProjection = projection * view;
-	m_pushConstants.model = glm::mat4(1.0f);
+	const glm::mat4 view = glm::lookAt(glm::vec3(0.0f, 0.0f, distance), glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+	m_viewProjection = projection * view;
+
+	LOGI("Loaded {} models into a {}x{} grid, camera at z = {:.2f}", m_models.size(), columns, rows, distance);
+}
+
+void MeshApp::createTextures()
+{
+	if (m_textureData.empty() || m_textureData.size() > kBindlessTextureLimit)
+	{
+		LOGEANDABORT("The scene provides {} textures, the bindless array holds between 1 and {}", m_textureData.size(), kBindlessTextureLimit);
+	}
+
+	// One submit for every texture: staging copy into device memory, then the layout the shader samples from
+	CommandBuffer commandBuffer(*m_frames[0].commandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+	commandBuffer.begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
+
+	// The staging buffers have to stay alive until the submission has finished
+	std::vector<std::unique_ptr<Buffer>> stagingBuffers;
+	stagingBuffers.reserve(m_textureData.size());
+	m_textureViews.reserve(m_textureData.size());
+
+	for (const GltfTextureData &texture : m_textureData)
+	{
+		m_textureViews.emplace_back(createTexture(commandBuffer, texture, stagingBuffers));
+	}
+
+	commandBuffer.end();
+	submitAndWait(commandBuffer);
+
+	// One sampler for every slot, so the array holds images only and the sampler is a separate binding
+	const VkSamplerCreateInfo samplerCreateInfo{
+		.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+		.magFilter = VK_FILTER_LINEAR,
+		.minFilter = VK_FILTER_LINEAR,
+		.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST,
+		.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+		.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+		.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+		.maxLod = 0.0f,
+	};
+	m_textureSampler = std::make_unique<Sampler>(*m_device, samplerCreateInfo);
+
+	// The layout declares how large the array may become, the set is allocated with the count the asset provides, and the
+	// slots above that count stay unbound, which is exactly what the partially bound flag allows
+	// The variable descriptor count has to sit on the highest binding of the layout, so the sampler comes first
+	const std::vector<VkDescriptorSetLayoutBinding> bindings{
+		{ .binding = 0u, .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER, .descriptorCount = 1u, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT },
+		{ .binding = 1u, .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, .descriptorCount = kBindlessTextureLimit, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT },
+	};
+	const std::vector<VkDescriptorBindingFlags> bindingFlags{
+		VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT | VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
+		VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT | VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT | VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
+	};
+	m_textureSetLayout = std::make_unique<DescriptorSetLayout>(*m_device, bindings, VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT, bindingFlags);
+
+	std::vector<VkDescriptorPoolSize> poolSizes{
+		{ .type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, .descriptorCount = kBindlessTextureLimit },
+		{ .type = VK_DESCRIPTOR_TYPE_SAMPLER, .descriptorCount = 1u },
+	};
+	m_texturePool = std::make_unique<DescriptorPool>(*m_device, poolSizes, 1u, VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT);
+
+	const uint32_t textureCount = to_u32(m_textureViews.size());
+	const VkDescriptorSetLayout textureSetLayoutHandle = m_textureSetLayout->getHandle();
+	VkDescriptorSetVariableDescriptorCountAllocateInfo variableDescriptorCountInfo{
+		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_VARIABLE_DESCRIPTOR_COUNT_ALLOCATE_INFO,
+		.descriptorSetCount = 1u,
+		.pDescriptorCounts = &textureCount,
+	};
+	const VkDescriptorSetAllocateInfo allocateInfo{
+		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+		.pNext = &variableDescriptorCountInfo,
+		.descriptorPool = m_texturePool->getHandle(),
+		.descriptorSetCount = 1u,
+		.pSetLayouts = &textureSetLayoutHandle,
+	};
+	m_textureSet = std::make_unique<DescriptorSet>(*m_device, allocateInfo);
+
+	std::vector<VkDescriptorImageInfo> imageInfos;
+	imageInfos.reserve(m_textureViews.size());
+	for (const std::unique_ptr<ImageView> &textureView : m_textureViews)
+	{
+		imageInfos.emplace_back(VkDescriptorImageInfo{
+			.sampler = VK_NULL_HANDLE,
+			.imageView = textureView->getHandle(),
+			.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+		});
+	}
+	const VkDescriptorImageInfo samplerInfo{ .sampler = m_textureSampler->getHandle() };
+
+	std::array<VkWriteDescriptorSet, 2> writes{
+		VkWriteDescriptorSet{
+			.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+			.dstSet = m_textureSet->getHandle(),
+			.dstBinding = 0u,
+			.descriptorCount = 1u,
+			.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER,
+			.pImageInfo = &samplerInfo,
+		},
+		VkWriteDescriptorSet{
+			.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+			.dstSet = m_textureSet->getHandle(),
+			.dstBinding = 1u,
+			.descriptorCount = textureCount,
+			.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+			.pImageInfo = imageInfos.data(),
+		},
+	};
+	vkUpdateDescriptorSets(m_device->getHandle(), to_u32(writes.size()), writes.data(), 0u, nullptr);
+
+	LOGI("Bound {} textures from {} models to the bindless array, the layout allows {}", textureCount, m_models.size(), kBindlessTextureLimit);
+
+	// The CPU copies are no longer needed once every slot is written
+	m_textureData.clear();
+	m_textureData.shrink_to_fit();
+}
+
+std::unique_ptr<ImageView> MeshApp::createTexture(CommandBuffer &commandBuffer, const GltfTextureData &texture,
+	std::vector<std::unique_ptr<Buffer>> &stagingBuffers)
+{
+	const VkExtent3D extent{ texture.width, texture.height, 1u };
+	auto image = std::make_unique<Image>(*m_device, VK_FORMAT_R8G8B8A8_UNORM, extent,
+		VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+
+	// The decoded texels come from the CPU visible heap
+	VkBufferCreateInfo stagingBufferCreateInfo{
+		.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+		.size = texture.pixels.size(),
+		.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+		.sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+	};
+	const VmaAllocationCreateInfo stagingAllocationCreateInfo{ .usage = VMA_MEMORY_USAGE_CPU_ONLY };
+	auto stagingBuffer = std::make_unique<Buffer>(*m_device, stagingBufferCreateInfo, stagingAllocationCreateInfo);
+
+	void *mappedData = stagingBuffer->map();
+	memcpy(mappedData, texture.pixels.data(), texture.pixels.size());
+	stagingBuffer->unmap();
+	stagingBuffer->flush();
+	stagingBuffers.emplace_back(std::move(stagingBuffer));
+
+	const VkImageSubresourceRange subresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, 0u, 1u, 0u, 1u };
+	VkImageMemoryBarrier2 toTransferBarrier{
+		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+		.srcStageMask = VK_PIPELINE_STAGE_2_NONE,
+		.srcAccessMask = VK_ACCESS_2_NONE,
+		.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+		.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+		.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+		.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+		.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		.image = image->getHandle(),
+		.subresourceRange = subresourceRange,
+	};
+	VkDependencyInfo toTransferDependencyInfo{
+		.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+		.imageMemoryBarrierCount = 1u,
+		.pImageMemoryBarriers = &toTransferBarrier,
+	};
+	vkCmdPipelineBarrier2(commandBuffer.getHandle(), &toTransferDependencyInfo);
+
+	const VkBufferImageCopy copyRegion{
+		.bufferOffset = 0u,
+		.bufferRowLength = 0u,
+		.bufferImageHeight = 0u,
+		.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u },
+		.imageOffset = { 0, 0, 0 },
+		.imageExtent = extent,
+	};
+	vkCmdCopyBufferToImage(commandBuffer.getHandle(), stagingBuffers.back()->getHandle(), image->getHandle(),
+		VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &copyRegion);
+
+	VkImageMemoryBarrier2 toSampleBarrier{
+		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+		.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+		.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+		.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+		.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
+		.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+		.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+		.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		.image = image->getHandle(),
+		.subresourceRange = subresourceRange,
+	};
+	VkDependencyInfo toSampleDependencyInfo{
+		.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+		.imageMemoryBarrierCount = 1u,
+		.pImageMemoryBarriers = &toSampleBarrier,
+	};
+	vkCmdPipelineBarrier2(commandBuffer.getHandle(), &toSampleDependencyInfo);
+
+	return std::make_unique<ImageView>(std::move(image), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, VK_FORMAT_R8G8B8A8_UNORM);
 }
 
 void MeshApp::createDepthResources()
@@ -196,7 +457,13 @@ std::unique_ptr<Buffer> MeshApp::createBuffer(const void *data, VkDeviceSize siz
 	vkCmdCopyBuffer(commandBuffer.getHandle(), stagingBuffer->getHandle(), buffer->getHandle(), 1u, &copyRegion);
 
 	commandBuffer.end();
+	submitAndWait(commandBuffer);
 
+	return buffer;
+}
+
+void MeshApp::submitAndWait(CommandBuffer &commandBuffer)
+{
 	VkCommandBufferSubmitInfo commandBufferSubmitInfo{
 		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
 		.commandBuffer = commandBuffer.getHandle(),
@@ -213,8 +480,6 @@ std::unique_ptr<Buffer> MeshApp::createBuffer(const void *data, VkDeviceSize siz
 	VK_CHECK(vkQueueSubmit2(m_generalQueue->getHandle(), 1u, &submitInfo, fence));
 	VK_CHECK(vkWaitForFences(m_device->getHandle(), 1u, &fence, VK_TRUE, UINT64_MAX));
 	vkDestroyFence(m_device->getHandle(), fence, nullptr);
-
-	return buffer;
 }
 
 void MeshApp::createPipeline()
@@ -226,18 +491,21 @@ void MeshApp::createPipeline()
 		{ "meshMain", VK_SHADER_STAGE_MESH_BIT_EXT },
 		{ "fragMain", VK_SHADER_STAGE_FRAGMENT_BIT },
 	};
-	const std::vector<VkPipelineShaderStageCreateInfo> shaderStages = m_slangCompiler->compile(*m_device, "../../shaders/mesh/helmet.slang", entryPoints);
+	const std::vector<VkPipelineShaderStageCreateInfo> shaderStages = m_slangCompiler->compile(*m_device, "../../shaders/mesh/meshlets.slang", entryPoints);
+
+	// One descriptor set holds the bindless texture array; the meshlet buffers never need one because their device
+	// addresses travel in the push constant block
+	const VkDescriptorSetLayout textureSetLayoutHandle = m_textureSetLayout->getHandle();
 	const VkPushConstantRange pushConstantRange{
 		.stageFlags = VK_SHADER_STAGE_MESH_BIT_EXT,
 		.offset = 0u,
 		.size = sizeof(PushConstants),
 	};
 
-	// No descriptor sets at all: the push constant block holds the matrices and the device address of every buffer
 	VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo{
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-		.setLayoutCount = 0u,
-		.pSetLayouts = nullptr,
+		.setLayoutCount = 1u,
+		.pSetLayouts = &textureSetLayoutHandle,
 		.pushConstantRangeCount = 1u,
 		.pPushConstantRanges = &pushConstantRange,
 	};
@@ -432,7 +700,6 @@ void MeshApp::update()
 	}
 
 	m_rotation += 0.01f;
-	m_pushConstants.model = glm::rotate(glm::mat4(1.0f), m_rotation, glm::vec3(0.0f, 1.0f, 0.0f));
 
 	m_currentFrame = (m_currentFrame + 1u) % maxFramesInFlight;
 }
@@ -542,10 +809,24 @@ void MeshApp::recordCommandBuffer()
 	vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline);
 	vkCmdSetViewport(commandBuffer, 0u, 1u, &viewport);
 	vkCmdSetScissor(commandBuffer, 0u, 1u, &scissor);
-	vkCmdPushConstants(commandBuffer, m_pipelineLayout, VK_SHADER_STAGE_MESH_BIT_EXT, 0u, sizeof(PushConstants), &m_pushConstants);
+	const VkDescriptorSet textureSetHandle = m_textureSet->getHandle();
+	vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipelineLayout, 0u, 1u, &textureSetHandle, 0u, nullptr);
+	// One draw per model; the push constants carry that model's addresses and where it sits in the grid
+	for (const MeshModel &model : m_models)
+	{
+		const PushConstants pushConstants{
+			.viewProjection = m_viewProjection,
+			.model = glm::rotate(glm::translate(glm::mat4(1.0f), model.translation), m_rotation, glm::vec3(0.0f, 1.0f, 0.0f)),
+			.vertices = model.vertexAddress,
+			.meshlets = model.meshletAddress,
+			.meshletVertices = model.meshletVertexAddress,
+			.meshletTriangles = model.meshletTriangleAddress,
+		};
+		vkCmdPushConstants(commandBuffer, m_pipelineLayout, VK_SHADER_STAGE_MESH_BIT_EXT, 0u, sizeof(PushConstants), &pushConstants);
 
-	// One mesh shader workgroup per meshlet; the mesh shader reads its cluster from gl_WorkGroupID
-	vkCmdDrawMeshTasksEXT(commandBuffer, m_meshletCount, 1u, 1u);
+		// One mesh shader workgroup per meshlet; the mesh shader reads its cluster from gl_WorkGroupID
+		vkCmdDrawMeshTasksEXT(commandBuffer, model.meshletCount, 1u, 1u);
+	}
 
 	vkCmdEndRendering(commandBuffer);
 
@@ -606,10 +887,13 @@ void MeshApp::cleanup()
 		m_slangCompiler.reset();
 	}
 
-	m_meshletTriangleBuffer.reset();
-	m_meshletVertexBuffer.reset();
-	m_meshletBuffer.reset();
-	m_positionBuffer.reset();
+	m_textureSet.reset();
+	m_texturePool.reset();
+	m_textureSetLayout.reset();
+	m_textureSampler.reset();
+	m_textureViews.clear();
+
+	m_models.clear();
 
 	m_depthImageView.reset();
 

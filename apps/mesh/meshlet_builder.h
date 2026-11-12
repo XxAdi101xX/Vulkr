@@ -27,8 +27,20 @@
 #include <glm/glm.hpp>
 #include <meshoptimizer.h>
 
+#include "gltf_mesh.h"
+
 namespace vulkr
 {
+
+/* The vertex the mesh shader reads. Positions are quantized to two 16 bit signed normalized components per word (x and y
+   in .x, z in .y) and the padding keeps the std430 stride the shader declares at 24 bytes */
+struct MeshletVertex
+{
+	glm::uvec2 packedPosition;
+	glm::vec2 texCoord;
+	uint32_t textureIndex{ 0u };
+	uint32_t padding{ 0u };
+};
 
 /* A mesh split into meshlets by meshoptimizer, laid out for one mesh shader workgroup per meshlet.
    The 8 bit triangle indices meshoptimizer produces are expanded to 32 bit so the shader does not need the
@@ -44,13 +56,12 @@ struct MeshletData
 	/* Local vertex indices, three consecutive entries per triangle, indexed by meshlet.triangle_offset */
 	std::vector<uint32_t> meshletTriangles;
 
-	/* Vertex positions that meshletVertices index into, quantized to two 16 bit signed normalized components per word
-	   (x and y in .x, z in .y) so a vertex costs 8 bytes instead of 16 */
-	std::vector<glm::uvec2> packedPositions;
+	/* Vertices that meshletVertices index into, quantized and laid out for the mesh shader */
+	std::vector<MeshletVertex> vertices;
 };
 
 /* Split an indexed triangle mesh into meshlets, optimizing it for the GPU first and the individual clusters after */
-MeshletData buildMeshlets(const std::vector<glm::vec3> &positions, const std::vector<uint32_t> &indices,
+MeshletData buildMeshlets(const std::vector<GltfVertex> &vertices, const std::vector<uint32_t> &indices,
 	size_t maxVertices = 64, size_t maxTriangles = 124, float coneWeight = 0.25f);
 
 } // namespace vulkr

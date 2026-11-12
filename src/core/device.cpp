@@ -88,6 +88,8 @@ Device::Device(std::unique_ptr<PhysicalDevice> &&selectedPhysicalDevice, VkSurfa
 		.pNext = &vulkan13Features,
 		.descriptorIndexing = VK_TRUE,
 		.shaderSampledImageArrayNonUniformIndexing = VK_TRUE,
+		.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE,
+		.descriptorBindingPartiallyBound = VK_TRUE,
 		.descriptorBindingVariableDescriptorCount = VK_TRUE,
 		.runtimeDescriptorArray = VK_TRUE,
 		.hostQueryReset = VK_TRUE,

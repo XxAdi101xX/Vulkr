@@ -9,13 +9,24 @@ struct Meshlet
     uint triangleCount;     // triangles emitted by this meshlet
 };
 
-// The buffers are reached through buffer device addresses held in the push constant block, so there are no descriptor
-// sets and nothing has to be bound before the draw
+// The vertex the mesh shader reads: the position quantized into two words, the texture coordinate and the slot this
+// vertex samples from the bindless texture array. The padding keeps the stride at 24 bytes in std430 layout
+struct Vertex
+{
+    uint2 packedPosition;
+    float2 texCoord;
+    uint textureIndex;
+    uint padding;
+};
+
+// The meshlet buffers are reached through buffer device addresses held in the push constant block, so no buffer needs a
+// descriptor. Images cannot be addressed that way, so the textures stay in one bindless descriptor set: an unsized array
+// whose descriptor count is decided when the set is allocated
 struct PushConstants
 {
     float4x4 viewProjection;
     float4x4 model;
-    uint2* packedPositions;
+    Vertex* vertices;
     Meshlet* meshlets;
     uint* meshletVertices;
     uint* meshletTriangles;
@@ -25,9 +36,15 @@ struct VertexOut
 {
     float4 position : SV_Position;
     float3 worldPosition : TEXCOORD0;
+    float2 texCoord : TEXCOORD1;
+    nointerpolation uint textureIndex : TEXCOORD2;
 };
 
 [[vk::push_constant]] ConstantBuffer<PushConstants> pushConstants;
+
+// Bindless textures
+[[vk::binding(0, 0)]] SamplerState textureSampler;
+[[vk::binding(1, 0)]] Texture2D<float4> textures[];
 
 // Two signed normalized 16 bit components per word: x and y in .x, z in .y. The sign extension relies on the
 // arithmetic shift of the signed int, so no 16 bit integer type (and no extra feature) is needed
@@ -51,10 +68,13 @@ void meshMain(uint threadIndex : SV_GroupThreadID, uint groupIndex : SV_GroupID,
     if (threadIndex < meshlet.vertexCount)
     {
         const uint vertexIndex = pushConstants.meshletVertices[meshlet.vertexOffset + threadIndex];
-        const float4 worldPosition = mul(pushConstants.model, float4(decodePosition(pushConstants.packedPositions[vertexIndex]), 1.0));
+        const Vertex vertex = pushConstants.vertices[vertexIndex];
+        const float4 worldPosition = mul(pushConstants.model, float4(decodePosition(vertex.packedPosition), 1.0));
 
         verts[threadIndex].position = mul(pushConstants.viewProjection, worldPosition);
         verts[threadIndex].worldPosition = worldPosition.xyz;
+        verts[threadIndex].texCoord = vertex.texCoord;
+        verts[threadIndex].textureIndex = vertex.textureIndex;
     }
 
     // A meshlet can hold up to 124 triangles, so the invocations cover them in strides of the workgroup size
@@ -73,7 +93,10 @@ float4 fragMain(VertexOut input) : SV_Target
     const float3 normal = normalize(cross(ddx(input.worldPosition), ddy(input.worldPosition)));
     const float3 lightDirection = normalize(float3(0.4, 0.7, 0.5));
     const float diffuse = saturate(abs(dot(normal, lightDirection)));
-    const float3 albedo = float3(0.85, 0.55, 0.3);
 
-    return float4(albedo * (0.15 + 0.85 * diffuse), 1.0);
+    // The slot varies per triangle, so neighbouring fragments inside one wave can reference different descriptors;
+    // NonUniformResourceIndex tells the compiler not to hoist a single descriptor load out of the divergent path
+    const float4 albedo = textures[NonUniformResourceIndex(input.textureIndex)].Sample(textureSampler, input.texCoord);
+
+    return float4(albedo.rgb * (0.15 + 0.85 * diffuse), 1.0);
 }

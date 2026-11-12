@@ -34,6 +34,8 @@
 // Platform files
 #include "platform/application.h"
 
+#include "gltf_mesh.h"
+
 namespace vulkr
 {
 
@@ -41,11 +43,15 @@ namespace vulkr
 class Buffer;
 class CommandBuffer;
 class CommandPool;
+class DescriptorPool;
+class DescriptorSet;
+class DescriptorSetLayout;
 class Device;
 class FencePool;
 class ImageView;
 class Instance;
 class Queue;
+class Sampler;
 class SemaphorePool;
 class SlangShaderCompiler;
 class Swapchain;
@@ -90,13 +96,20 @@ private:
 
 	void createFrameData();
 
-	void createMesh();
+	void createModels();
+
+	void createTextures();
 
 	void createDepthResources();
 
 	void createPipeline();
 
 	std::unique_ptr<Buffer> createBuffer(const void *data, VkDeviceSize size, VkBufferUsageFlags usage);
+
+	std::unique_ptr<ImageView> createTexture(CommandBuffer &commandBuffer, const GltfTextureData &texture,
+		std::vector<std::unique_ptr<Buffer>> &stagingBuffers);
+
+	void submitAndWait(CommandBuffer &commandBuffer);
 
 	void recordCommandBuffer();
 
@@ -112,13 +125,35 @@ private:
 	std::vector<VkImageView> m_swapchainImageViews;
 	std::vector<VkSemaphore> m_renderFinishedSemaphores;
 
-	/* Meshlet data for one workgroup per meshlet; the positions are packed into two 16 bit signed normalized
-	   components per word, so a vertex is 8 bytes */
-	std::unique_ptr<Buffer> m_positionBuffer{ nullptr };
-	std::unique_ptr<Buffer> m_meshletBuffer{ nullptr };
-	std::unique_ptr<Buffer> m_meshletVertexBuffer{ nullptr };
-	std::unique_ptr<Buffer> m_meshletTriangleBuffer{ nullptr };
-	uint32_t m_meshletCount{ 0u };
+	/* One loaded model: the meshlet buffers live in device memory and the shader reaches them by address, so a model is
+	   four addresses plus the number of workgroups that render it */
+	struct MeshModel
+	{
+		std::string name;
+		glm::vec3 translation{ 0.0f };
+		std::unique_ptr<Buffer> vertexBuffer{ nullptr };
+		std::unique_ptr<Buffer> meshletBuffer{ nullptr };
+		std::unique_ptr<Buffer> meshletVertexBuffer{ nullptr };
+		std::unique_ptr<Buffer> meshletTriangleBuffer{ nullptr };
+		VkDeviceAddress vertexAddress{ 0u };
+		VkDeviceAddress meshletAddress{ 0u };
+		VkDeviceAddress meshletVertexAddress{ 0u };
+		VkDeviceAddress meshletTriangleAddress{ 0u };
+		uint32_t meshletCount{ 0u };
+	};
+
+	/* The scene: as many models as the asset list provides, each rendered with one mesh task dispatch */
+	std::vector<MeshModel> m_models;
+
+	/* Bindless texture array: one descriptor per texture of every model, indexed by whatever slot the vertices carry */
+	std::vector<std::unique_ptr<ImageView>> m_textureViews;
+	std::unique_ptr<Sampler> m_textureSampler{ nullptr };
+	std::unique_ptr<DescriptorSetLayout> m_textureSetLayout{ nullptr };
+	std::unique_ptr<DescriptorPool> m_texturePool{ nullptr };
+	std::unique_ptr<DescriptorSet> m_textureSet{ nullptr };
+
+	/* Decoded images waiting to be uploaded; slot 0 is a white texel for vertices whose material has no texture */
+	std::vector<GltfTextureData> m_textureData;
 
 	/* The scene is rendered with a depth buffer for the triangle order to be correct */
 	std::unique_ptr<ImageView> m_depthImageView{ nullptr };
@@ -129,7 +164,7 @@ private:
 	{
 		glm::mat4 viewProjection;
 		glm::mat4 model;
-		VkDeviceAddress packedPositions;
+		VkDeviceAddress vertices;
 		VkDeviceAddress meshlets;
 		VkDeviceAddress meshletVertices;
 		VkDeviceAddress meshletTriangles;
@@ -137,9 +172,9 @@ private:
 
 	/* The shader declares the same block with std430 offsets, so the layout is pinned here */
 	static_assert(sizeof(PushConstants) == sizeof(glm::mat4) * 2 + sizeof(VkDeviceAddress) * 4);
-	static_assert(offsetof(PushConstants, packedPositions) == sizeof(glm::mat4) * 2);
+	static_assert(offsetof(PushConstants, vertices) == sizeof(glm::mat4) * 2);
 
-	PushConstants m_pushConstants{};
+	glm::mat4 m_viewProjection{ 1.0f };
 	float m_rotation{ 0.0f };
 
 	/* Runtime compiled shaders and the mesh shader pipeline that uses them */

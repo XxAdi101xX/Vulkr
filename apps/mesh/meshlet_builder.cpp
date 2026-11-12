@@ -27,23 +27,25 @@
 namespace vulkr
 {
 
-MeshletData buildMeshlets(const std::vector<glm::vec3> &positions, const std::vector<uint32_t> &indices,
+MeshletData buildMeshlets(const std::vector<GltfVertex> &vertices, const std::vector<uint32_t> &indices,
 	size_t maxVertices, size_t maxTriangles, float coneWeight)
 {
 	MeshletData meshletData;
 
-	const size_t vertexSize = sizeof(glm::vec3);
+	// The whole GltfVertex structure is the unique key, so two corners only merge when position, texture coordinates and texture
+	// slot are all the same
+	const size_t vertexSize = sizeof(GltfVertex);
 
 	// Indexing; glTF splits vertices per attribute seam, so the same position is often stored several times; the
 	// remap table collapses byte identical vertices and rewrites both buffers to use the compact array
-	std::vector<uint32_t> remap(positions.size());
-	const size_t vertexCount = meshopt_generateVertexRemap(remap.data(), indices.data(), indices.size(), positions.data(), positions.size(), vertexSize);
+	std::vector<uint32_t> remap(vertices.size());
+	const size_t vertexCount = meshopt_generateVertexRemap(remap.data(), indices.data(), indices.size(), vertices.data(), vertices.size(), vertexSize);
 
 	std::vector<uint32_t> remappedIndices(indices.size());
 	meshopt_remapIndexBuffer(remappedIndices.data(), indices.data(), indices.size(), remap.data());
 
-	std::vector<glm::vec3> remappedPositions(vertexCount);
-	meshopt_remapVertexBuffer(remappedPositions.data(), positions.data(), positions.size(), vertexSize, remap.data());
+	std::vector<GltfVertex> remappedVertices(vertexCount);
+	meshopt_remapVertexBuffer(remappedVertices.data(), vertices.data(), vertices.size(), vertexSize, remap.data());
 
 	// Vertex cache optimization; Reorders triangles so vertices are referenced in the order a post transform
 	// cache would retain them. A mesh shader has no such cache for its cluster local lookups, so the real gain here is
@@ -55,7 +57,7 @@ MeshletData buildMeshlets(const std::vector<glm::vec3> &positions, const std::ve
 	// normals and centroids rather than from a camera, so it survives the model rotating, and it needs the vertex cache
 	// optimized index buffer as input. The threshold lets it trade up to 5% vertex cache efficiency for less overdraw
 	meshopt_optimizeOverdraw(remappedIndices.data(), remappedIndices.data(), remappedIndices.size(),
-		reinterpret_cast<const float *>(remappedPositions.data()), vertexCount, vertexSize, 1.05f);
+		reinterpret_cast<const float *>(remappedVertices.data()), vertexCount, vertexSize, 1.05f);
 
 	// Index filtering; Removes degenerate triangles and duplicates (same post transform position and winding),
 	// which would otherwise consume one of a meshlet's 124 triangle slots without producing a fragment. Filtering runs
@@ -65,19 +67,19 @@ MeshletData buildMeshlets(const std::vector<glm::vec3> &positions, const std::ve
 		remappedIndices.data(),
 		remappedIndices.data(),
 		remappedIndices.size(),
-		remappedPositions.data(),
+		remappedVertices.data(),
 		vertexCount,
-		vertexSize,
+		sizeof(glm::vec3),
 		vertexSize);
 	remappedIndices.resize(filteredIndexCount);
 
 	// Vertex fetch optimization; Compacts away vertices the filtered index buffer no longer references and
 	// reorders the rest so the index buffer walks the vertex buffer almost sequentially, giving the mesh shader's
 	// random access a denser working set. The returned count is the compacted vertex count, not the input count
-	std::vector<glm::vec3> optimizedPositions(vertexCount);
-	const size_t fetchedVertexCount = meshopt_optimizeVertexFetch(optimizedPositions.data(), remappedIndices.data(),
-		remappedIndices.size(), remappedPositions.data(), vertexCount, vertexSize);
-	optimizedPositions.resize(fetchedVertexCount);
+	std::vector<GltfVertex> optimizedVertices(vertexCount);
+	const size_t fetchedVertexCount = meshopt_optimizeVertexFetch(optimizedVertices.data(), remappedIndices.data(),
+		remappedIndices.size(), remappedVertices.data(), vertexCount, vertexSize);
+	optimizedVertices.resize(fetchedVertexCount);
 
 	// Clustering, which the documented pipeline has no equivalent for because it describes a single indexed draw: the
 	// triangle list becomes fixed size clusters, and cone_weight trades slightly worse packing for tighter normal cones
@@ -92,8 +94,8 @@ MeshletData buildMeshlets(const std::vector<glm::vec3> &positions, const std::ve
 		meshletTriangles.data(),
 		remappedIndices.data(),
 		remappedIndices.size(),
-		reinterpret_cast<const float *>(optimizedPositions.data()),
-		optimizedPositions.size(),
+		reinterpret_cast<const float *>(optimizedVertices.data()),
+		optimizedVertices.size(),
 		vertexSize,
 		maxVertices,
 		maxTriangles,
@@ -115,21 +117,27 @@ MeshletData buildMeshlets(const std::vector<glm::vec3> &positions, const std::ve
 	meshletData.meshletTriangles.assign(meshletTriangles.begin(), meshletTriangles.end());
 
 	// Vertex quantization. This has to run after the clustering because meshopt_buildMeshlets 
-	// and the per meshlet bounds for culling need float positions
-	meshletData.packedPositions.resize(optimizedPositions.size());
-	for (size_t vertexIndex = 0; vertexIndex < optimizedPositions.size(); ++vertexIndex)
+	// and the per meshlet bounds for culling need float positions. Two 16 bit signed normalized components per word,
+	// 8 bytes per vertex instead of 16, decoded by the shader without needing a device feature
+	meshletData.vertices.resize(optimizedVertices.size());
+	for (size_t vertexIndex = 0; vertexIndex < optimizedVertices.size(); ++vertexIndex)
 	{
-		const glm::vec3 &position = optimizedPositions[vertexIndex];
-		const uint32_t x = static_cast<uint16_t>(meshopt_quantizeSnorm(position.x, 16));
-		const uint32_t y = static_cast<uint16_t>(meshopt_quantizeSnorm(position.y, 16));
-		const uint32_t z = static_cast<uint16_t>(meshopt_quantizeSnorm(position.z, 16));
-		meshletData.packedPositions[vertexIndex] = glm::uvec2(x | (y << 16), z);
+		const GltfVertex &vertex = optimizedVertices[vertexIndex];
+		const uint32_t x = static_cast<uint16_t>(meshopt_quantizeSnorm(vertex.position.x, 16));
+		const uint32_t y = static_cast<uint16_t>(meshopt_quantizeSnorm(vertex.position.y, 16));
+		const uint32_t z = static_cast<uint16_t>(meshopt_quantizeSnorm(vertex.position.z, 16));
+		meshletData.vertices[vertexIndex] = MeshletVertex{
+			.packedPosition = glm::uvec2(x | (y << 16), z),
+			.texCoord = vertex.texCoord,
+			.textureIndex = vertex.textureIndex,
+		};
 	}
+	LOGW("Meshlet vertex quantization is ENABLED; 32 bit position attributes are quantized to 16 bits each");
 
 	// TODO: Shadow indexing; it builds a second index buffer for depth only passes so attribute seams do not multiply vertices
 	// std::vector<uint32_t> shadowIndices(remappedIndices.size());
 	// meshopt_generateShadowIndexBuffer(shadowIndices.data(), remappedIndices.data(), remappedIndices.size(),
-	//     optimizedPositions.data(), optimizedPositions.size(), vertexSize, vertexSize);
+	//     optimizedVertices.data(), optimizedVertices.size(), sizeof(glm::vec3), vertexSize);
 
 	size_t triangleCount = 0;
 	size_t largestMeshlet = 0;
@@ -141,7 +149,7 @@ MeshletData buildMeshlets(const std::vector<glm::vec3> &positions, const std::ve
 
 	LOGI("Index filtering removed {} of {} indices", unfilteredIndexCount - filteredIndexCount, unfilteredIndexCount);
 	LOGI("Built {} meshlets for {} triangles ({} vertices, {} bytes each), largest meshlet holds {} triangles",
-		meshletData.meshlets.size(), triangleCount, meshletData.packedPositions.size(), sizeof(glm::uvec2), largestMeshlet);
+		meshletData.meshlets.size(), triangleCount, meshletData.vertices.size(), sizeof(MeshletVertex), largestMeshlet);
 
 	return meshletData;
 }
