@@ -116,6 +116,26 @@ MeshletData buildMeshlets(const std::vector<GltfVertex> &vertices, const std::ve
 
 	meshletData.meshletTriangles.assign(meshletTriangles.begin(), meshletTriangles.end());
 
+	// Bounds for the task shader's frustum and cone culling. They need the float positions and the 8 bit local indices, so
+	// this runs before the positions are quantized
+	meshletData.bounds.resize(meshletData.meshlets.size());
+	for (size_t meshletIndex = 0; meshletIndex < meshletData.meshlets.size(); ++meshletIndex)
+	{
+		const meshopt_Meshlet &meshlet = meshletData.meshlets[meshletIndex];
+		const meshopt_Bounds bounds = meshopt_computeMeshletBounds(
+			&meshletData.meshletVertices[meshlet.vertex_offset],
+			&meshletTriangles[meshlet.triangle_offset],
+			meshlet.triangle_count,
+			reinterpret_cast<const float *>(optimizedVertices.data()),
+			optimizedVertices.size(),
+			vertexSize);
+
+		meshletData.bounds[meshletIndex] = MeshletBounds{
+			.centerRadius = glm::vec4(bounds.center[0], bounds.center[1], bounds.center[2], bounds.radius),
+			.coneAxisCutoff = glm::vec4(bounds.cone_axis[0], bounds.cone_axis[1], bounds.cone_axis[2], bounds.cone_cutoff),
+		};
+	}
+
 	// Vertex quantization. This has to run after the clustering because meshopt_buildMeshlets 
 	// and the per meshlet bounds for culling need float positions. Two 16 bit signed normalized components per word,
 	// 8 bytes per vertex instead of 16, decoded by the shader without needing a device feature

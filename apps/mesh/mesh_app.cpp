@@ -132,7 +132,7 @@ void MeshApp::prepare()
 	}
 
 	// Create swapchain
-	const std::set<VkImageUsageFlagBits> imageUsageFlags{ VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_IMAGE_USAGE_TRANSFER_SRC_BIT };
+	const std::set<VkImageUsageFlagBits> imageUsageFlags{ VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VK_IMAGE_USAGE_TRANSFER_DST_BIT };
 	m_swapchain = std::make_unique<Swapchain>(*m_device, m_surface, VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR, VK_PRESENT_MODE_FIFO_KHR, imageUsageFlags, m_generalQueue->getFamilyIndex(), m_generalQueue->getFamilyIndex());
 
 	createSwapchainImageViews();
@@ -141,7 +141,6 @@ void MeshApp::prepare()
 	createTextures();
 	createDepthResources();
 	createPipeline();
-
 }
 
 void MeshApp::createModels()
@@ -177,6 +176,17 @@ void MeshApp::createModels()
 		model.meshletBuffer = createBuffer(meshletData.meshlets.data(), meshletData.meshlets.size() * sizeof(meshopt_Meshlet), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
 		model.meshletVertexBuffer = createBuffer(meshletData.meshletVertices.data(), meshletData.meshletVertices.size() * sizeof(uint32_t), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
 		model.meshletTriangleBuffer = createBuffer(meshletData.meshletTriangles.data(), meshletData.meshletTriangles.size() * sizeof(uint32_t), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+		model.boundsBuffer = createBuffer(meshletData.bounds.data(), meshletData.bounds.size() * sizeof(MeshletBounds), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+
+		// The task workgroup count lives in memory instead of in the draw call, so the indirect path stays usable once a
+		// compute pass starts writing it
+		const VkDrawMeshTasksIndirectCommandEXT indirectCommand{
+			.groupCountX = model.meshletCount,
+			.groupCountY = 1u,
+			.groupCountZ = 1u,
+		};
+		model.dispatchBuffer = createBuffer(&indirectCommand, sizeof(indirectCommand),
+			VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
 
 		// Buffer device address replaces the descriptor set: the mesh shader dereferences these addresses straight out of
 		// its push constants, so nothing but the texture array has to be bound before the draw
@@ -184,6 +194,7 @@ void MeshApp::createModels()
 		model.meshletAddress = getBufferAddress(*m_device, *model.meshletBuffer);
 		model.meshletVertexAddress = getBufferAddress(*m_device, *model.meshletVertexBuffer);
 		model.meshletTriangleAddress = getBufferAddress(*m_device, *model.meshletTriangleBuffer);
+		model.boundsAddress = getBufferAddress(*m_device, *model.boundsBuffer);
 
 		// The images are uploaded once every model is loaded, so the asset can be released here
 		for (GltfTextureData &texture : asset.textures)
@@ -225,7 +236,53 @@ void MeshApp::createModels()
 	m_viewProjection = camera->getProjection() * camera->getView();
 	camera->resetUpdatedFlag();
 
+	createCullCamera();
+	updateCullCamera(*camera);
+
 	LOGI("Loaded {} models into a {}x{} grid, camera at z = {:.2f}", m_models.size(), columns, rows, distance);
+}
+
+void MeshApp::createCullCamera()
+{
+	// Host visible so a moving camera can rewrite it every frame; the task shader reads it through its device address
+	VkBufferCreateInfo bufferCreateInfo{
+		.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+		.size = sizeof(CullCamera),
+		.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+		.sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+	};
+	const VmaAllocationCreateInfo allocationCreateInfo{ .usage = VMA_MEMORY_USAGE_CPU_ONLY };
+	m_cameraBuffer = std::make_unique<Buffer>(*m_device, bufferCreateInfo, allocationCreateInfo);
+	m_cameraAddress = getBufferAddress(*m_device, *m_cameraBuffer);
+}
+
+void MeshApp::updateCullCamera(const Camera &camera)
+{
+	// Frustum planes come from the view projection matrix: each one is a row combination, and the engine uses a 0 to 1
+	// depth range, so the near plane is the third row on its own
+	const glm::mat4 &viewProjection = m_viewProjection;
+	const glm::vec4 rows[4]{
+		glm::vec4(viewProjection[0][0], viewProjection[1][0], viewProjection[2][0], viewProjection[3][0]),
+		glm::vec4(viewProjection[0][1], viewProjection[1][1], viewProjection[2][1], viewProjection[3][1]),
+		glm::vec4(viewProjection[0][2], viewProjection[1][2], viewProjection[2][2], viewProjection[3][2]),
+		glm::vec4(viewProjection[0][3], viewProjection[1][3], viewProjection[2][3], viewProjection[3][3]),
+	};
+
+	const glm::vec4 rawPlanes[6]{ rows[3] + rows[0], rows[3] - rows[0], rows[3] + rows[1], rows[3] - rows[1], rows[2], rows[3] - rows[2] };
+
+	CullCamera cullCamera{};
+	for (size_t planeIndex = 0; planeIndex < 6u; ++planeIndex)
+	{
+		const float length = glm::length(glm::vec3(rawPlanes[planeIndex]));
+		cullCamera.planes[planeIndex] = rawPlanes[planeIndex] / length;
+	}
+
+	cullCamera.eyePosition = glm::vec4(camera.getPosition(), 1.0f);
+
+	void *mappedData = m_cameraBuffer->map();
+	memcpy(mappedData, &cullCamera, sizeof(CullCamera));
+	m_cameraBuffer->unmap();
+	m_cameraBuffer->flush();
 }
 
 void MeshApp::createTextures()
@@ -493,6 +550,7 @@ void MeshApp::createPipeline()
 	m_slangCompiler = std::make_unique<SlangShaderCompiler>();
 
 	const std::vector<std::pair<std::string, VkShaderStageFlagBits>> entryPoints{
+		{ "taskMain", VK_SHADER_STAGE_TASK_BIT_EXT },
 		{ "meshMain", VK_SHADER_STAGE_MESH_BIT_EXT },
 		{ "fragMain", VK_SHADER_STAGE_FRAGMENT_BIT },
 	};
@@ -502,7 +560,7 @@ void MeshApp::createPipeline()
 	// addresses travel in the push constant block
 	const VkDescriptorSetLayout textureSetLayoutHandle = m_textureSetLayout->getHandle();
 	const VkPushConstantRange pushConstantRange{
-		.stageFlags = VK_SHADER_STAGE_MESH_BIT_EXT,
+		.stageFlags = VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT,
 		.offset = 0u,
 		.size = sizeof(PushConstants),
 	};
@@ -642,6 +700,7 @@ void MeshApp::update()
 	if (camera->isUpdated())
 	{
 		m_viewProjection = camera->getProjection() * camera->getView();
+		updateCullCamera(*camera);
 		camera->resetUpdatedFlag();
 	}
 
@@ -851,11 +910,15 @@ void MeshApp::recordCommandBuffer()
 			.meshlets = model.meshletAddress,
 			.meshletVertices = model.meshletVertexAddress,
 			.meshletTriangles = model.meshletTriangleAddress,
+			.bounds = model.boundsAddress,
+			.camera = m_cameraAddress,
+			.meshletCount = model.meshletCount,
 		};
-		vkCmdPushConstants(commandBuffer, m_pipelineLayout, VK_SHADER_STAGE_MESH_BIT_EXT, 0u, sizeof(PushConstants), &pushConstants);
+		vkCmdPushConstants(commandBuffer, m_pipelineLayout, VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT, 0u, sizeof(PushConstants), &pushConstants);
 
-		// One mesh shader workgroup per meshlet; the mesh shader reads its cluster from gl_WorkGroupID
-		vkCmdDrawMeshTasksEXT(commandBuffer, model.meshletCount, 1u, 1u);
+		// One task workgroup per meshlet, read from the buffer so a compute pass could rewrite the count later; the task
+		// shader drops the clusters that cannot be seen and only those reach the mesh shader
+		vkCmdDrawMeshTasksIndirectEXT(commandBuffer, model.dispatchBuffer->getHandle(), 0u, 1u, sizeof(VkDrawMeshTasksIndirectCommandEXT));
 	}
 
 	vkCmdEndRendering(commandBuffer);
@@ -924,6 +987,9 @@ void MeshApp::cleanup()
 	m_textureViews.clear();
 
 	m_models.clear();
+
+	// The camera cull data is a host visible buffer, so it holds a VMA allocation like every other resource here
+	m_cameraBuffer.reset();
 
 	m_depthImageView.reset();
 

@@ -43,6 +43,7 @@ namespace vulkr
 class Buffer;
 class CameraController;
 class CommandBuffer;
+class Camera;
 class CommandPool;
 class DescriptorPool;
 class DescriptorSet;
@@ -116,6 +117,10 @@ private:
 
 	void submitAndWait(CommandBuffer &commandBuffer);
 
+	void createCullCamera();
+
+	void updateCullCamera(const Camera &camera);
+
 	void recordCommandBuffer();
 
 	void cleanup();
@@ -140,10 +145,13 @@ private:
 		std::unique_ptr<Buffer> meshletBuffer{ nullptr };
 		std::unique_ptr<Buffer> meshletVertexBuffer{ nullptr };
 		std::unique_ptr<Buffer> meshletTriangleBuffer{ nullptr };
+		std::unique_ptr<Buffer> boundsBuffer{ nullptr };
+		std::unique_ptr<Buffer> dispatchBuffer{ nullptr };
 		VkDeviceAddress vertexAddress{ 0u };
 		VkDeviceAddress meshletAddress{ 0u };
 		VkDeviceAddress meshletVertexAddress{ 0u };
 		VkDeviceAddress meshletTriangleAddress{ 0u };
+		VkDeviceAddress boundsAddress{ 0u };
 		uint32_t meshletCount{ 0u };
 	};
 
@@ -160,6 +168,16 @@ private:
 	/* Decoded images waiting to be uploaded; slot 0 is a white texel for vertices whose material has no texture */
 	std::vector<GltfTextureData> m_textureData;
 
+	/* Frustum planes and eye position the task shader culls against; the camera never moves in this app so it is uploaded once */
+	struct CullCamera
+	{
+		glm::vec4 planes[6];
+		glm::vec4 eyePosition;
+	};
+
+	std::unique_ptr<Buffer> m_cameraBuffer{ nullptr };
+	VkDeviceAddress m_cameraAddress{ 0u };
+
 	/* The scene is rendered with a depth buffer for the triangle order to be correct */
 	std::unique_ptr<ImageView> m_depthImageView{ nullptr };
 
@@ -173,11 +191,16 @@ private:
 		VkDeviceAddress meshlets;
 		VkDeviceAddress meshletVertices;
 		VkDeviceAddress meshletTriangles;
+		VkDeviceAddress bounds;
+		VkDeviceAddress camera;
+		uint32_t meshletCount;
+		uint32_t padding;
 	};
 
 	/* The shader declares the same block with std430 offsets, so the layout is pinned here */
-	static_assert(sizeof(PushConstants) == sizeof(glm::mat4) * 2 + sizeof(VkDeviceAddress) * 4);
+	static_assert(sizeof(PushConstants) == sizeof(glm::mat4) * 2 + sizeof(VkDeviceAddress) * 6 + sizeof(uint32_t) * 2);
 	static_assert(offsetof(PushConstants, vertices) == sizeof(glm::mat4) * 2);
+	static_assert(offsetof(PushConstants, meshletCount) == sizeof(glm::mat4) * 2 + sizeof(VkDeviceAddress) * 6);
 
 	/* Same orbit/pan/zoom controls as the main app, plus smooth delta-time keyboard movement */
 	std::unique_ptr<CameraController> m_cameraController{ nullptr };

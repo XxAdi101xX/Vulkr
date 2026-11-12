@@ -42,6 +42,14 @@ struct MeshletVertex
 	uint32_t padding{ 0u };
 };
 
+/* What the task shader needs to decide whether a meshlet can be seen: a bounding sphere and the cone the meshlet's normals
+   fall into. Two vec4s keep the std430 layout identical to the shader declaration */
+struct MeshletBounds
+{
+	glm::vec4 centerRadius;
+	glm::vec4 coneAxisCutoff;
+};
+
 /* A mesh split into meshlets by meshoptimizer, laid out for one mesh shader workgroup per meshlet.
    The 8 bit triangle indices meshoptimizer produces are expanded to 32 bit so the shader does not need the
    8 bit storage feature. */
@@ -58,6 +66,9 @@ struct MeshletData
 
 	/* Vertices that meshletVertices index into, quantized and laid out for the mesh shader */
 	std::vector<MeshletVertex> vertices;
+
+	/* One bounding sphere and normal cone per meshlet, in the same order as meshlets */
+	std::vector<MeshletBounds> bounds;
 };
 
 /* Split an indexed triangle mesh into meshlets, optimizing it for the GPU first and the individual clusters after */
