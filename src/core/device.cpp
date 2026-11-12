@@ -205,13 +205,16 @@ Device::~Device()
 	if (memoryAllocator != VK_NULL_HANDLE)
 	{
 #ifdef VULKR_DEBUG
+		// Memory that is allocated but unused inside a block is the allocator's own suballocation slack, and VMA frees the
+		// blocks themselves here, so reporting blockBytes - allocationBytes flags every normal shutdown. Only allocations
+		// that are still alive mean a resource outlived the device, which is what actually needs fixing
 		VmaTotalStatistics stats;
 		vmaCalculateStatistics(memoryAllocator, &stats);
 
-		VkDeviceSize unusedBytes = stats.total.statistics.blockBytes - stats.total.statistics.allocationBytes;
-		if (unusedBytes > 0)
+		if (stats.total.statistics.allocationCount > 0u)
 		{
-			LOGW("Total vma memory leaked: {} bytes. Note that this might not be due to Vulkr's usage; VMA should throw an error in debug mode if there is allocated memory that is unfreed", unusedBytes);
+			LOGE("{} vma allocations ({} bytes) were still alive when the device was destroyed; release them in cleanup before the device",
+				stats.total.statistics.allocationCount, stats.total.statistics.allocationBytes);
 		}
 #endif
 
