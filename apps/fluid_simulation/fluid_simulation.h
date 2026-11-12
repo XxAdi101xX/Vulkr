@@ -136,6 +136,8 @@ public:
 	virtual void recreateSwapchain() override;
 
 	virtual void handleInputEvents(const InputEvent &inputEvent) override;
+
+	virtual void handleFocusChange(bool isFocused) override;
 private:
 	/* IMPORTANT NOTICE: To enable/disable features, depending on whether it's core or packed into another feature extension struct, you might have to go into device.cpp to enabled them through another struct using the pNext chain */
 	const std::vector<const char *> deviceExtensions{

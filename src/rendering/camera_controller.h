@@ -44,13 +44,41 @@ public:
 	std::shared_ptr<Camera> getCamera() const;
 
 	void handleInputEvents(const InputEvent &inputEvent);
+
+	/* Advance held keyboard input; call once per frame with the frame delta time in seconds */
+	void update(const float deltaTime);
+
+	/* Forget held buttons and stop moving */
+	void resetInput();
 private:
+	/* Movement is measured in multiples of the distance to the orbit pivot, so it feels the same when zoomed in or out */
+	static constexpr float keyboardMoveSpeed{ 4.5f };
+
+	/* Velocity approaches the target exponentially; higher values make starting and stopping snappier */
+	static constexpr float keyboardResponse{ 9.0f };
+
+	/* A frame that took longer than this (for example after the window was unfocused) must not teleport the camera */
+	static constexpr float maxDeltaTime{ 0.1f };
+
+	struct MovementInput
+	{
+		bool forward{ false };
+		bool backward{ false };
+		bool left{ false };
+		bool right{ false };
+		bool up{ false };
+		bool down{ false };
+	};
+
 	const float zoomStepSize = 1.0f;
 
 	std::shared_ptr<Camera> camera;
 	MouseInput activeMouseInput{ MouseInput::None };
 	glm::vec2 lastMousePosition{ glm::vec2(0.0f) };
+	MovementInput movementInput;
+	glm::vec3 movementVelocity{ 0.0f };
 
+	void updateKeyboardMovement(const float deltaTime);
 	void handleMouseButtonClick(const MouseInputEvent &mouseInputEvent);
 	void handleMouseScroll(const MouseInputEvent &mouseInputEvent);
 	void handleCursorPositionChange(const MouseInputEvent &mouseInputEvent);

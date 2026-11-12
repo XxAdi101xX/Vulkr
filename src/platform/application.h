@@ -72,6 +72,9 @@ public:
 	std::string getName() const;
 
 	float getCurrentFps() const;
+
+	/* Seconds since the previous step; use this to make per-frame motion independent of the frame rate */
+	float getDeltaTime() const;
 protected:
 	/* A handle to the platform */
 	Platform &platform;
@@ -80,7 +83,9 @@ protected:
 private:
 	std::string name;
 	Timer timer;
+	Timer frameTimer;
 	float fps{ 0.0f };
+	float deltaTime{ 0.0f };
 	uint32_t frameCount{ 0u };
 	uint32_t lastFrameCount{ 0u };
 };

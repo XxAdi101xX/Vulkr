@@ -38,6 +38,8 @@ void Application::prepare()
 
 void Application::step()
 {
+	deltaTime = static_cast<float>(frameTimer.tick());
+
 	if (focused)
 	{
 		update();
@@ -95,6 +97,11 @@ std::string Application::getName() const
 float Application::getCurrentFps() const
 {
 	return fps;
+}
+
+float Application::getDeltaTime() const
+{
+	return deltaTime;
 }
 
 } // namespace vulkr

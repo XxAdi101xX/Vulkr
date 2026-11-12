@@ -35,6 +35,7 @@
 #include "common/helpers.h"
 #include "platform/platform.h"
 
+#include "rendering/camera_controller.h"
 #include "rendering/slang_shader_compiler.h"
 
 #include "core/buffer.h"
@@ -216,9 +217,13 @@ void MeshApp::createModels()
 	const float halfHeight = static_cast<float>(rows) * kSpacing * 0.5f + 0.8f;
 	const float distance = glm::max(halfWidth / halfHorizontal, halfHeight / halfVertical) * 1.15f;
 
-	const glm::mat4 projection = glm::perspective(glm::radians(45.0f), aspect, 0.1f, 100.0f);
-	const glm::mat4 view = glm::lookAt(glm::vec3(0.0f, 0.0f, distance), glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-	m_viewProjection = projection * view;
+	// The camera starts on the +Z axis far enough back to frame the whole grid, with the pivot at its centre
+	m_cameraController = std::make_unique<CameraController>(extent.width, extent.height);
+	std::shared_ptr<Camera> camera = m_cameraController->getCamera();
+	camera->setPerspectiveProjection(45.0f, aspect, 0.1f, 100.0f);
+	camera->setView(glm::vec3(0.0f, 0.0f, distance), glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+	m_viewProjection = camera->getProjection() * camera->getView();
+	camera->resetUpdatedFlag();
 
 	LOGI("Loaded {} models into a {}x{} grid, camera at z = {:.2f}", m_models.size(), columns, rows, distance);
 }
@@ -629,6 +634,17 @@ void MeshApp::createFrameData()
 
 void MeshApp::update()
 {
+	m_cameraController->update(getDeltaTime());
+
+	// The camera marks itself updated when keyboard or mouse input moved it; rebuilding the matrix only then keeps the
+	// per-frame cost off the render thread
+	std::shared_ptr<Camera> camera = m_cameraController->getCamera();
+	if (camera->isUpdated())
+	{
+		m_viewProjection = camera->getProjection() * camera->getView();
+		camera->resetUpdatedFlag();
+	}
+
 	FrameData &frame = m_frames[m_currentFrame];
 
 	// Nothing may be recorded into this frame's command buffer until the GPU is done with it
@@ -702,6 +718,21 @@ void MeshApp::update()
 	m_rotation += 0.01f;
 
 	m_currentFrame = (m_currentFrame + 1u) % maxFramesInFlight;
+}
+
+void MeshApp::handleInputEvents(const InputEvent &inputEvent)
+{
+	m_cameraController->handleInputEvents(inputEvent);
+}
+
+void MeshApp::handleFocusChange(bool isFocused)
+{
+	Application::handleFocusChange(isFocused);
+
+	if (!isFocused && m_cameraController)
+	{
+		m_cameraController->resetInput();
+	}
 }
 
 void MeshApp::recordCommandBuffer()
@@ -792,15 +823,14 @@ void MeshApp::recordCommandBuffer()
 	};
 	vkCmdBeginRendering(commandBuffer, &renderingInfo);
 
-	// GLM builds an OpenGL style projection with Y pointing up, while Vulkan's clip space has Y pointing down. A negative
-	// viewport height flips the Y axis at rasterization time (core Vulkan 1.1 through VK_KHR_maintenance1), which also
-	// mirrors the triangle winding, so front faces become back faces
+	// GLM builds an OpenGL style projection with Y pointing up while Vulkan's clip space has Y pointing down; Camera
+	// already flips the projection's Y axis, so the viewport keeps a positive height
 	const VkExtent2D swapchainExtent = m_swapchain->getProperties().imageExtent;
 	const VkViewport viewport{
 		.x = 0.0f,
-		.y = static_cast<float>(swapchainExtent.height),
+		.y = 0.0f,
 		.width = static_cast<float>(swapchainExtent.width),
-		.height = -static_cast<float>(swapchainExtent.height),
+		.height = static_cast<float>(swapchainExtent.height),
 		.minDepth = 0.0f,
 		.maxDepth = 1.0f,
 	};

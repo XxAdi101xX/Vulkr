@@ -350,6 +350,8 @@ void VulkrApp::prepare()
 
 void VulkrApp::update()
 {
+	cameraController->update(getDeltaTime());
+
 	fencePool->wait(&frameData.inFlightFences[currentFrame]);
 	fencePool->reset(&frameData.inFlightFences[currentFrame]);
 
@@ -906,6 +908,16 @@ void VulkrApp::handleInputEvents(const InputEvent &inputEvent)
 	if (io.WantCaptureMouse) return;
 
 	cameraController->handleInputEvents(inputEvent);
+}
+
+void VulkrApp::handleFocusChange(bool isFocused)
+{
+	Application::handleFocusChange(isFocused);
+
+	if (!isFocused && cameraController)
+	{
+		cameraController->resetInput();
+	}
 }
 
 /* Private methods start here */

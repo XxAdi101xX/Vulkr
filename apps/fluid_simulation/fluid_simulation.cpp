@@ -195,6 +195,8 @@ void FluidSimulation::prepare()
 
 void FluidSimulation::update()
 {
+	cameraController->update(getDeltaTime());
+
 	fencePool->wait(&frameData.inFlightFences[currentFrame]);
 	fencePool->reset(&frameData.inFlightFences[currentFrame]);
 
@@ -587,6 +589,16 @@ void FluidSimulation::handleInputEvents(const InputEvent &inputEvent)
 				LOGEANDABORT("Mouse input action is neither click or release");
 			}
 		}
+	}
+}
+
+void FluidSimulation::handleFocusChange(bool isFocused)
+{
+	Application::handleFocusChange(isFocused);
+
+	if (!isFocused && cameraController)
+	{
+		cameraController->resetInput();
 	}
 }
 

@@ -41,6 +41,7 @@ namespace vulkr
 
 /* Forward declaration */
 class Buffer;
+class CameraController;
 class CommandBuffer;
 class CommandPool;
 class DescriptorPool;
@@ -69,6 +70,10 @@ public:
 	virtual void prepare() override;
 
 	virtual void update() override;
+
+	virtual void handleInputEvents(const InputEvent &inputEvent) override;
+
+	virtual void handleFocusChange(bool isFocused) override;
 
 	virtual void recreateSwapchain() override;
 private:
@@ -174,6 +179,8 @@ private:
 	static_assert(sizeof(PushConstants) == sizeof(glm::mat4) * 2 + sizeof(VkDeviceAddress) * 4);
 	static_assert(offsetof(PushConstants, vertices) == sizeof(glm::mat4) * 2);
 
+	/* Same orbit/pan/zoom controls as the main app, plus smooth delta-time keyboard movement */
+	std::unique_ptr<CameraController> m_cameraController{ nullptr };
 	glm::mat4 m_viewProjection{ 1.0f };
 	float m_rotation{ 0.0f };
 

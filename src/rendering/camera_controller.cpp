@@ -39,6 +39,106 @@ std::shared_ptr<Camera> CameraController::getCamera() const
 	return camera;
 }
 
+void CameraController::update(const float deltaTime)
+{
+	updateKeyboardMovement(glm::clamp(deltaTime, 0.0f, maxDeltaTime));
+}
+
+void CameraController::resetInput()
+{
+	movementInput = MovementInput{};
+	movementVelocity = glm::vec3(0.0f);
+	activeMouseInput = MouseInput::None;
+}
+
+void CameraController::updateKeyboardMovement(const float deltaTime)
+{
+	if (deltaTime <= 0.0f)
+	{
+		return;
+	}
+
+	const glm::vec3 position = camera->getPosition();
+	const glm::vec3 center = camera->getCenter();
+	const glm::vec3 backwardVector = position - center;
+	const float distance = glm::length(backwardVector);
+
+	if (distance <= std::numeric_limits<float>::epsilon())
+	{
+		movementVelocity = glm::vec3(0.0f);
+		return;
+	}
+
+	// Build the camera basis from the view direction and the up axis, so movement follows where the camera is looking
+	const glm::vec3 backward = backwardVector / distance;
+	const glm::vec3 forward = -backward;
+	glm::vec3 right = glm::cross(forward, camera->getUp());
+	const float rightLength = glm::length(right);
+	glm::vec3 cameraUp{ 0.0f };
+
+	if (rightLength > std::numeric_limits<float>::epsilon())
+	{
+		right /= rightLength;
+		cameraUp = glm::cross(right, forward);
+	}
+	else
+	{
+		// Looking straight up or down leaves no horizontal axis; forward movement still works
+		right = glm::vec3(0.0f);
+	}
+
+	glm::vec3 direction{ 0.0f };
+
+	if (movementInput.forward)
+	{
+		direction += forward;
+	}
+	if (movementInput.backward)
+	{
+		direction -= forward;
+	}
+	if (movementInput.right)
+	{
+		direction += right;
+	}
+	if (movementInput.left)
+	{
+		direction -= right;
+	}
+	if (movementInput.up)
+	{
+		direction += cameraUp;
+	}
+	if (movementInput.down)
+	{
+		direction -= cameraUp;
+	}
+
+	const float directionLength = glm::length(direction);
+	glm::vec3 targetVelocity{ 0.0f };
+
+	if (directionLength > std::numeric_limits<float>::epsilon())
+	{
+		// Normalizing keeps diagonals at the same speed as a single key, and scaling by the pivot distance keeps keyboard
+		// speed proportional to how far the camera has been zoomed out
+		targetVelocity = (direction / directionLength) * (keyboardMoveSpeed * distance);
+	}
+
+	// Ease the velocity towards the target so presses and releases do not start or stop the camera abruptly.
+	// We use 1 - exp(-k*dt) instead of just k*dt to make the response independent of the frame time; the velocity approaches the target exponentially
+	const float response = 1.0f - std::exp(-keyboardResponse * deltaTime);
+	movementVelocity += (targetVelocity - movementVelocity) * response;
+
+	// Exponential easing never quite reaches zero, so snap the last negligible amount to a full stop
+	if (glm::dot(movementVelocity, movementVelocity) < std::numeric_limits<float>::epsilon())
+	{
+		movementVelocity = glm::vec3(0.0f);
+	}
+
+	const glm::vec3 offset = movementVelocity * deltaTime;
+	camera->setView(position + offset, center + offset, camera->getUp());
+}
+
 void CameraController::handleInputEvents(const InputEvent &inputEvent)
 {
 	if (inputEvent.getEventSource() == EventSource::Keyboard)
@@ -50,44 +150,45 @@ void CameraController::handleInputEvents(const InputEvent &inputEvent)
 			LOGEANDABORT("Unknown key action encountered");
 		}
 
-		// Handle key input
+		// Keys track their held state; movement itself is integrated once per frame in update() so that it is smooth and
+		// independent of the keyboard repeat rate
+		const bool pressed = keyInputEvent.getAction() == KeyAction::Press || keyInputEvent.getAction() == KeyAction::Repeat;
+		const bool released = keyInputEvent.getAction() == KeyAction::Release;
+
+		auto setMovementInput = [&](bool &input) {
+			if (pressed)
+			{
+				input = true;
+			}
+			else if (released)
+			{
+				input = false;
+			}
+		};
+
 		switch (keyInputEvent.getInput())
 		{
 		case KeyInput::W:
-			if (keyInputEvent.getAction() == KeyAction::Press || keyInputEvent.getAction() == KeyAction::Repeat)
-			{
-				pan(0.0f, 0.0f, 3.0f);
-			}
+			setMovementInput(movementInput.forward);
 			break;
 		case KeyInput::S:
-			if (keyInputEvent.getAction() == KeyAction::Press || keyInputEvent.getAction() == KeyAction::Repeat)
-			{
-				pan(0.0f, 0.0f, -3.0f);
-			}
+			setMovementInput(movementInput.backward);
 			break;
 		case KeyInput::A:
-			if (keyInputEvent.getAction() == KeyAction::Press || keyInputEvent.getAction() == KeyAction::Repeat)
-			{
-				pan(250.0f, 0.0f, 0.0f);
-			}
+			setMovementInput(movementInput.left);
 			break;
 		case KeyInput::D:
-			if (keyInputEvent.getAction() == KeyAction::Press || keyInputEvent.getAction() == KeyAction::Repeat)
-			{
-				pan(-250.0f, 0.0f, 0.0f);
-			}
+			setMovementInput(movementInput.right);
 			break;
 		case KeyInput::E:
-			if (keyInputEvent.getAction() == KeyAction::Press || keyInputEvent.getAction() == KeyAction::Repeat)
-			{
-				pan(0.0f, 250.0f, 0.0f);
-			}
+			setMovementInput(movementInput.up);
 			break;
 		case KeyInput::Q:
-			if (keyInputEvent.getAction() == KeyAction::Press || keyInputEvent.getAction() == KeyAction::Repeat)
-			{
-				pan(0.0f, -250.0f, 0.0f);
-			}
+			setMovementInput(movementInput.down);
+			break;
+		case KeyInput::F:
+			// F is an alias for Q so both vertical pairs work
+			setMovementInput(movementInput.down);
 			break;
 		}
 	}
