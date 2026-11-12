@@ -2,28 +2,46 @@
 
 A Vulkan rendering engine that I've taken upon building in order to solidify my knowledge of Vulkan and graphics programming as a whole by implementing interesting graphics features and applications.
 
-The engine runs on `Vulkan 1.4`, rendering with core synchronization2 and dynamic rendering, and the code is written for the `C++20` standard.
+The engine runs on `Vulkan 1.4` and the code is written for the `C++20` standard.
 
 ![vulkr_helmet_models](https://github.com/user-attachments/assets/0e05f436-ae09-4942-ad00-b4f700c09c97)
 
 https://github.com/user-attachments/assets/9b803162-2994-4b58-b20e-57a44af1821a
 
 ## Features
-- Rendering GLTF (.gltf and .glb) or OBJ asset formats in real-time
-- Choosing between forward rendering, deferred rendering and raytracing (VK_KHR_ray_tracing) as rendering methods (configurable at runtime)
-- Double buffered frame resources (two frames in flight) with a triple buffered swapchain
-- Instanced object rendering
-- Multiple global light sources that can be set as a directional (infinite) or point light with customizable intensity and position values
+
+Vulkr is three sample applications on one engine, and each one targets a different slice of the API, so the features are grouped by the executable that implements them.
+
+### `vulkr_app` — forward, deferred and ray traced renderer
+- Runtime switchable forward rendering, deferred rendering and ray tracing (`VK_KHR_ray_tracing_pipeline`) over glTF (`.gltf` and `.glb`) and OBJ assets
+- Instanced object rendering of several loaded models in the same scene
+- Multiple global light sources, each either directional (infinite) or point with its own intensity and position
 - Temporal Anti-Aliasing for static and dynamic scenes (rasterization only so far); implemented using techniques mentioned in the "[A Survey of Temporal Antialising Techniques](http://behindthepixels.io/assets/files/TemporalAA.pdf)" white paper and [Ziyad Barakat's TAA Blog Post](https://ziyadbarakat.wordpress.com/2020/07/28/temporal-anti-aliasing-step-by-step/)
-- A free flight camera with similar controls to blender
-- An imgui debug window that provides access to altering the camera and light settings
-- Shadows (works with ray_tracing only so far)
+- Shadows (ray tracing only so far)
 - A particle system implemented using compute shaders for the position and velocity calculations
 
 https://user-images.githubusercontent.com/18451835/173991616-5825f922-1a45-4556-9cf3-51c6615e918b.mp4
 
-- A 2D fluid simulator that implements velocity & density advection, gaussian splat on mouse click + drag, and a projection steps that solve for the poisson pressure equation and subtracts the gradient of the pressure from the velocity field; implemented using the techniques mentioned in [Mark Harris' "Fluid Dynamics Simulation on the GPU" GPU Gems article](https://developer.nvidia.com/gpugems/gpugems/part-vi-beyond-triangles/chapter-38-fast-fluid-dynamics-simulation-gpu)
-- A mesh shader application (`vulkr_mesh`) that renders triangles with `VK_EXT_mesh_shader` using dynamic rendering, synchronization2 and Slang shaders compiled at runtime; it needs a GPU that exposes `VK_EXT_mesh_shader` and meshlet based rendering is in progress
+- A free flight camera with similar controls to blender, and an imgui debug window that provides access to altering the camera and light settings
+
+### `vulkr_mesh` — mesh shading sandbox
+- A scene of glTF models (`.gltf` and `.glb`) rendered as meshes built with [meshoptimizer](https://github.com/zeux/meshoptimizer)
+- Duplicate vertices are collapsed and each cluster is compacted to at most 64 vertices, so a workgroup streams a small local subset instead of the whole mesh. Positions are then quantized to two 16-bit signed normalized components per word and the per-cluster vertex order is tuned for locality
+- Renders using a task and mesh shader pipeline that rejects meshlets through frustum and normal cone culling before any geometry work happens
+- Indirect mesh task draws: the task workgroup count lives in a buffer instead of the draw call, so a compute pass can rewrite it
+- Buffer device address: every meshlet buffer is reached through a 64 bit address in the push constants, so there are no buffer descriptors at all
+- Bindless textures: one descriptor set holds a variable count array of sampled images that the fragment shader indexes non-uniformly
+- Dynamic rendering, synchronization2 and Slang shaders compiled at runtime
+
+### `fluid_simulation` — 2D GPU fluid
+- Velocity and density advection, a gaussian splat on mouse click + drag, and a projection step that solves the poisson pressure equation and subtracts the gradient of the pressure from the velocity field; implemented using the techniques mentioned in [Mark Harris' "Fluid Dynamics Simulation on the GPU" GPU Gems article](https://developer.nvidia.com/gpugems/gpugems/part-vi-beyond-triangles/chapter-38-fast-fluid-dynamics-simulation-gpu)
+- Field visualization modes with an imgui overlay to display velocity direction/magnitude, pressure field, diveregence and curl
+
+### Shared engine (`src/`)
+- Vulkan 1.4 through volk, with core synchronization2 and VMA for memory allocation
+- Two frames in flight with per-frame fences, semaphores and command pools, over a triple buffered swapchain
+- Camera and camera controller, logging, and glTF/OBJ loading (the mesh application has its own single-parse glTF loader that also decodes the textures)
+- GLSL compiled to committed SPIR-V for `vulkr_app` and `fluid_simulation`; `vulkr_mesh` compiles Slang at startup instead
 
 ## Build
 This project requires the `Vulkan 1.4` SDK (or newer; the SDK must include Slang, which `vulkr_mesh` compiles shaders with at runtime) and `CMake` v3.20 or above installed on the host's computer. All other third-party dependencies should be imported when cloning the project with the `--recurse-submodules` option. I developed Vulkr running `Windows 11, x64` using `Visual Studio 2026` and as such, it cannot be expected to work on Linux or MacOS. However, all third-party libraries used are cross platform and OS platform specific components like the windowing system could be supported in the future. 
@@ -35,6 +53,7 @@ cmake --build build/x64-Release
 ```
 The executables resolve assets and shaders relative to the working directory (`../../assets` and `../../shaders`), so they have to be launched from a two level deep build directory such as `build/x64-Release`.
 
+`vulkr_mesh` differs from the other two applications in one important way: its shaders are Slang sources under `shaders/mesh/` that the app compiles at startup, so there is nothing to rebuild and no committed SPIR-V to fall out of date. If a shader fails to compile, the error comes from Slang in the app's log rather than from the build.
 
 For optimal performance, ensure that the `VULKR_DEBUG` flag is not defined in `vulkan_common.h`. Building in release mode should disable this flag.
 
@@ -44,7 +63,7 @@ Vulkr
 |-- apps                        # All application classes are located here
 |   |-- vulkr                   # Main Vulkr application that implements the forward, deferred and ray tracing rendering techniques
 |   |-- fluid_simulation        # 2D fluid simulation application
-|   |-- mesh                    # Mesh shader application
+|   |-- mesh                    # Mesh shader application: glTF loading, meshlet building, task culling and bindless textures
 |-- assets
 |   |-- gltf_models             # All glTF files (.gltf & .glb)
 |   |-- obj_models              # All OBJ related files (.obj and .mtl)
