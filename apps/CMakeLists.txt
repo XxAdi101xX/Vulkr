@@ -22,11 +22,11 @@
 
 cmake_minimum_required(VERSION 3.20)
 
-add_executable(vulkr_app)
-target_sources(vulkr_app PRIVATE vulkr/vulkr.cpp vulkr/vulkr.h)
-target_link_libraries(vulkr_app PRIVATE src)
-#target_compile_features(vulkr_app PRIVATE cxx_std_20)
-#set_target_properties(vulkr_app PROPERTIES CXX_EXTENSIONS OFF)
+add_executable(vulkr_main)
+target_sources(vulkr_main PRIVATE main/main_app.cpp main/main_app.h)
+target_link_libraries(vulkr_main PRIVATE src)
+#target_compile_features(vulkr_main PRIVATE cxx_std_20)
+#set_target_properties(vulkr_main PROPERTIES CXX_EXTENSIONS OFF)
 
 add_executable(fluid_simulation)
 target_sources(fluid_simulation PRIVATE fluid_simulation/fluid_simulation.cpp fluid_simulation/fluid_simulation.h)

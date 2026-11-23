@@ -12,7 +12,7 @@ https://github.com/user-attachments/assets/9b803162-2994-4b58-b20e-57a44af1821a
 
 Vulkr is three sample applications on one engine, and each one targets a different slice of the API, so the features are grouped by the executable that implements them.
 
-### `vulkr_app` — forward, deferred and ray traced renderer
+### `vulkr_main` — forward, deferred and ray tracing renderer
 - Runtime switchable forward rendering, deferred rendering and ray tracing (`VK_KHR_ray_tracing_pipeline`) over glTF (`.gltf` and `.glb`) and OBJ assets
 - Instanced object rendering of several loaded models in the same scene
 - Multiple global light sources, each either directional (infinite) or point with its own intensity and position
@@ -24,7 +24,7 @@ https://user-images.githubusercontent.com/18451835/173991616-5825f922-1a45-4556-
 
 - A free flight camera with similar controls to blender, and an imgui debug window that provides access to altering the camera and light settings
 
-### `vulkr_mesh` — mesh shading sandbox
+### `vulkr_mesh` — mesh shading renderer
 - A scene of glTF models (`.gltf` and `.glb`) rendered as meshes built with [meshoptimizer](https://github.com/zeux/meshoptimizer)
 - Duplicate vertices are collapsed and each cluster is compacted to at most 64 vertices, so a workgroup streams a small local subset instead of the whole mesh. Positions are then quantized to two 16-bit signed normalized components per word and the per-cluster vertex order is tuned for locality
 - Renders using a task and mesh shader pipeline that rejects meshlets through frustum and normal cone culling before any geometry work happens
@@ -41,12 +41,12 @@ https://user-images.githubusercontent.com/18451835/173991616-5825f922-1a45-4556-
 - Vulkan 1.4 through volk, with core synchronization2 and VMA for memory allocation
 - Two frames in flight with per-frame fences, semaphores and command pools, over a triple buffered swapchain
 - Camera and camera controller, logging, and glTF/OBJ loading (the mesh application has its own single-parse glTF loader that also decodes the textures)
-- GLSL compiled to committed SPIR-V for `vulkr_app` and `fluid_simulation`; `vulkr_mesh` compiles Slang at startup instead
+- GLSL compiled to committed SPIR-V for `vulkr_main` and `fluid_simulation`; `vulkr_mesh` compiles Slang at startup instead
 
 ## Build
 This project requires the `Vulkan 1.4` SDK (or newer; the SDK must include Slang, which `vulkr_mesh` compiles shaders with at runtime) and `CMake` v3.20 or above installed on the host's computer. All other third-party dependencies should be imported when cloning the project with the `--recurse-submodules` option. I developed Vulkr running `Windows 11, x64` using `Visual Studio 2026` and as such, it cannot be expected to work on Linux or MacOS. However, all third-party libraries used are cross platform and OS platform specific components like the windowing system could be supported in the future. 
 
-The easiest way to run the project is to load it using `Visual Studio 2026` and building the project. You could then select any application executable file (`vulkr_app.exe`, `fluid_simulation.exe`, or `vulkr_mesh.exe`) as a startup item using the x64-Release configuration and run the project. The build files can be found under `build/x64-Release` if desired. Alternatively, running the following CMAKE commands from the root folder level will build the project.
+The easiest way to run the project is to load it using `Visual Studio 2026` and building the project. You could then select any application executable file (`vulkr_main.exe`, `fluid_simulation.exe`, or `vulkr_mesh.exe`) as a startup item using the x64-Release configuration and run the project. The build files can be found under `build/x64-Release` if desired. Alternatively, running the following CMAKE commands from the root folder level will build the project.
 ```
 cmake -S . -B build/x64-Release
 cmake --build build/x64-Release
@@ -61,7 +61,7 @@ For optimal performance, ensure that the `VULKR_DEBUG` flag is not defined in `v
 ```bash
 Vulkr
 |-- apps                        # All application classes are located here
-|   |-- vulkr                   # Main Vulkr application that implements the forward, deferred and ray tracing rendering techniques
+|   |-- main                    # Main Vulkr application that implements the forward, deferred and ray tracing rendering techniques
 |   |-- fluid_simulation        # 2D fluid simulation application
 |   |-- mesh                    # Mesh shader application: glTF loading, meshlet building, task culling and bindless textures
 |-- assets

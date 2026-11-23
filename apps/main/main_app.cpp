@@ -20,7 +20,7 @@
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#include "vulkr.h"
+#include "main_app.h"
 #include "platform/platform.h"
 
 #include <thread>
@@ -37,9 +37,9 @@ VkTransformMatrixKHR toTransformMatrixKHR(glm::mat4 matrix)
 namespace vulkr
 {
 
-VulkrApp::VulkrApp(Platform &platform, std::string name) : Application{ platform, name } {}
+MainApp::MainApp(Platform &platform, std::string name) : Application{ platform, name } {}
 
-VulkrApp::~VulkrApp()
+MainApp::~MainApp()
 {
 	device->waitIdle();
 
@@ -112,7 +112,7 @@ VulkrApp::~VulkrApp()
 	m_instance.reset();
 }
 
-void VulkrApp::cleanupSwapchain()
+void MainApp::cleanupSwapchain()
 {
 	// Command buffers
 	for (uint32_t i = 0u; i < maxFramesInFlight; ++i)
@@ -238,7 +238,7 @@ void VulkrApp::cleanupSwapchain()
 	cameraController.reset();
 }
 
-void VulkrApp::prepare()
+void MainApp::prepare()
 {
 	Application::prepare();
 
@@ -348,7 +348,7 @@ void VulkrApp::prepare()
 	drawingTimer->tick();
 }
 
-void VulkrApp::update()
+void MainApp::update()
 {
 	cameraController->update(getDeltaTime());
 
@@ -869,7 +869,7 @@ void VulkrApp::update()
 }
 
 // TODO: this totally does not work and needs an entire overhaul, also need to handle recreate for raytracing
-void VulkrApp::recreateSwapchain()
+void MainApp::recreateSwapchain()
 {
 	LOGEANDABORT("Swapchain recreation is not supported");
 	// TODO: update window width and high variables on window resize callback??
@@ -902,7 +902,7 @@ void VulkrApp::recreateSwapchain()
 	imagesInFlight.resize(swapchain->getImages().size(), VK_NULL_HANDLE);
 }
 
-void VulkrApp::handleInputEvents(const InputEvent &inputEvent)
+void MainApp::handleInputEvents(const InputEvent &inputEvent)
 {
 	ImGuiIO &io = ImGui::GetIO();
 	if (io.WantCaptureMouse) return;
@@ -910,7 +910,7 @@ void VulkrApp::handleInputEvents(const InputEvent &inputEvent)
 	cameraController->handleInputEvents(inputEvent);
 }
 
-void VulkrApp::handleFocusChange(bool isFocused)
+void MainApp::handleFocusChange(bool isFocused)
 {
 	Application::handleFocusChange(isFocused);
 
@@ -922,7 +922,7 @@ void VulkrApp::handleFocusChange(bool isFocused)
 
 /* Private methods start here */
 
-void VulkrApp::drawImGuiInterface()
+void MainApp::drawImGuiInterface()
 {
 	ImGui_ImplVulkan_NewFrame();
 	ImGui_ImplGlfw_NewFrame();
@@ -1029,7 +1029,7 @@ void VulkrApp::drawImGuiInterface()
 	// ImGui::ShowDemoWindow();
 }
 
-void VulkrApp::animateWusonInstances()
+void MainApp::animateWusonInstances()
 {
 	const uint64_t startingIndex{ 2 }; // The first wuson instance is the third instance
 	const int64_t wusonInstanceCount{
@@ -1065,7 +1065,7 @@ void VulkrApp::animateWusonInstances()
 	objInstanceBuffer->flush();
 }
 
-void VulkrApp::animateWithCompute()
+void MainApp::animateWithCompute()
 {
 	// TODO: we might require a buffer memory barrier similar to the code in the other compute workflows
 	const uint64_t wusonModelIndex{ getObjModelIndex(defaultObjModelFilePath + "wuson.obj") };
@@ -1080,7 +1080,7 @@ void VulkrApp::animateWithCompute()
 	vkCmdDispatch(frameData.commandBuffers[currentFrame][0]->getHandle(), objModelRenderingDataList[wusonModelIndex].indicesCount / m_workGroupSize, 1u, 1u);
 }
 
-void VulkrApp::computeParticles()
+void MainApp::computeParticles()
 {
 	// Acquire
 	if (m_graphicsQueue->getFamilyIndex() != m_computeQueue->getFamilyIndex())
@@ -1171,7 +1171,7 @@ void VulkrApp::computeParticles()
 	}
 }
 
-void VulkrApp::renderNode(PipelineData *pipelineData, vulkr::gltf::Node *node, uint32_t instanceIndex, uint32_t modelIndex)
+void MainApp::renderNode(PipelineData *pipelineData, vulkr::gltf::Node *node, uint32_t instanceIndex, uint32_t modelIndex)
 {
 	GltfModelRenderingData &gltfModelRenderingData = gltfModelRenderingDataList[modelIndex];
 	if (node->mesh)
@@ -1228,7 +1228,7 @@ void VulkrApp::renderNode(PipelineData *pipelineData, vulkr::gltf::Node *node, u
 	}
 }
 
-void VulkrApp::rasterizeGltf()
+void MainApp::rasterizeGltf()
 {
 	PipelineData *pipelineData;
 	if (activeRenderingTechnique == RenderingTechnique::FORWARD)
@@ -1289,7 +1289,7 @@ void VulkrApp::rasterizeGltf()
 	}
 }
 
-void VulkrApp::initiateDeferredShadingPass()
+void MainApp::initiateDeferredShadingPass()
 {
 	PipelineData *pipelineData = &pipelines.deferredShading;
 	vkCmdBindPipeline(frameData.commandBuffers[currentFrame][3]->getHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineData->pipeline->getHandle());
@@ -1311,7 +1311,7 @@ void VulkrApp::initiateDeferredShadingPass()
 	vkCmdDraw(frameData.commandBuffers[currentFrame][3]->getHandle(), 3, 1, 0, 0);
 }
 
-void VulkrApp::initializeBufferData()
+void MainApp::initializeBufferData()
 {
 	// Update the camera buffer
 	CameraData cameraData{};
@@ -1352,7 +1352,7 @@ void VulkrApp::initializeBufferData()
 	gltfInstanceBuffer->flush();
 }
 
-void VulkrApp::dataUpdatePerFrame()
+void MainApp::dataUpdatePerFrame()
 {
 	bool hasCameraUpdated = cameraController->getCamera()->isUpdated();
 	cameraController->getCamera()->resetUpdatedFlag();
@@ -1397,7 +1397,7 @@ void VulkrApp::dataUpdatePerFrame()
 
 // TODO: as opposed to doing slot based binding of descriptor sets which leads to multiple vkCmdBindDescriptorSets calls per drawcall, you can use
 // frequency based descriptor sets and use dynamicOffsetCount: see https://zeux.io/2020/02/27/writing-an-efficient-vulkan-renderer/, or just bindless decriptors altogether
-void VulkrApp::rasterizeObj()
+void MainApp::rasterizeObj()
 {
 	debugUtilBeginLabel(frameData.commandBuffers[currentFrame][0]->getHandle(), "Rasterize");
 
@@ -1444,7 +1444,7 @@ void VulkrApp::rasterizeObj()
 	debugUtilEndLabel(frameData.commandBuffers[currentFrame][0]->getHandle());
 }
 
-void VulkrApp::postProcess()
+void MainApp::postProcess()
 {
 	debugUtilBeginLabel(frameData.commandBuffers[currentFrame][1]->getHandle(), "Post Process");
 
@@ -1493,7 +1493,7 @@ void VulkrApp::postProcess()
 	debugUtilEndLabel(frameData.commandBuffers[currentFrame][1]->getHandle());
 }
 
-void VulkrApp::setupTimer()
+void MainApp::setupTimer()
 {
 	drawingTimer = std::make_unique<Timer>();
 	drawingTimer->start();
@@ -1513,7 +1513,7 @@ float createHaltonSequence(uint32_t index, uint32_t base)
 	return r;
 }
 
-void VulkrApp::initializeHaltonSequenceArray()
+void MainApp::initializeHaltonSequenceArray()
 {
 	for (int i = 0; i < taaDepth; ++i)
 	{
@@ -1521,19 +1521,19 @@ void VulkrApp::initializeHaltonSequenceArray()
 	}
 }
 
-void VulkrApp::createInstance()
+void MainApp::createInstance()
 {
 	m_instance = std::make_unique<Instance>(getName());
 	g_instanceHandle = m_instance->getHandle();
 }
 
-void VulkrApp::createSurface()
+void MainApp::createSurface()
 {
 	platform.createSurface(m_instance->getHandle());
 	m_surface = platform.getSurface();
 }
 
-void VulkrApp::createDevice()
+void MainApp::createDevice()
 {
 	std::unique_ptr<PhysicalDevice> physicalDevice = m_instance->getSuitablePhysicalDevice();
 
@@ -1543,7 +1543,7 @@ void VulkrApp::createDevice()
 	device = std::make_unique<Device>(std::move(physicalDevice), m_surface, deviceExtensions);
 }
 
-void VulkrApp::createSwapchain()
+void MainApp::createSwapchain()
 {
 	const std::set<VkImageUsageFlagBits> imageUsageFlags{ VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VK_IMAGE_USAGE_TRANSFER_DST_BIT };
 	swapchain = std::make_unique<Swapchain>(*device, m_surface, VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR, VK_PRESENT_MODE_FIFO_KHR, imageUsageFlags, m_graphicsQueue->getFamilyIndex(), m_presentQueue->getFamilyIndex());
@@ -1551,14 +1551,14 @@ void VulkrApp::createSwapchain()
 	postProcessPushConstants.imageExtent = glm::vec2(swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height);
 }
 
-void VulkrApp::setupCamera()
+void MainApp::setupCamera()
 {
 	cameraController = std::make_unique<CameraController>(swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height);
 	cameraController->getCamera()->setPerspectiveProjection(45.0f, swapchain->getProperties().imageExtent.width / (float)swapchain->getProperties().imageExtent.height, 0.1f, 100.0f);
 	cameraController->getCamera()->setView(glm::vec3(-24.5f, 19.1f, 1.9f), glm::vec3(-22.5f, 17.5f, 1.8f), glm::vec3(0.0f, 1.0f, 0.0f));
 }
 
-void VulkrApp::createMainRenderPass()
+void MainApp::createMainRenderPass()
 {
 	std::vector<Attachment> attachments;
 	Attachment outputImageAttachment{}; // outputImage
@@ -1682,7 +1682,7 @@ void VulkrApp::createMainRenderPass()
 	setDebugUtilsObjectName(device->getHandle(), mainRenderPass.renderPass->getHandle(), "mainRenderPass");
 }
 
-void VulkrApp::createPostRenderPass()
+void MainApp::createPostRenderPass()
 {
 	std::vector<Attachment> attachments;
 	Attachment colorAttachment{}; // outputImage
@@ -1767,7 +1767,7 @@ void VulkrApp::createPostRenderPass()
 	setDebugUtilsObjectName(device->getHandle(), postRenderPass.renderPass->getHandle(), "postProcessRenderPass");
 }
 
-void VulkrApp::createMrtGeometryBufferRenderPass()
+void MainApp::createMrtGeometryBufferRenderPass()
 {
 	std::vector<Attachment> attachments;
 	Attachment positionImageAttachment{}; // positionImage
@@ -1944,7 +1944,7 @@ void VulkrApp::createMrtGeometryBufferRenderPass()
 	setDebugUtilsObjectName(device->getHandle(), mrtGeometryBufferRenderPass.renderPass->getHandle(), "mrtGeometryBufferRenderPass");
 }
 
-void VulkrApp::createDeferredShadingRenderPass()
+void MainApp::createDeferredShadingRenderPass()
 {
 	std::vector<Attachment> attachments;
 	Attachment outputImageAttachment{}; // outputImage
@@ -2033,7 +2033,7 @@ void VulkrApp::createDeferredShadingRenderPass()
 }
 
 
-void VulkrApp::createDescriptorSetLayouts()
+void MainApp::createDescriptorSetLayouts()
 {
 	// Global descriptor set layout
 	VkDescriptorSetLayoutBinding cameraBufferLayoutBinding{};
@@ -2238,7 +2238,7 @@ void VulkrApp::createDescriptorSetLayouts()
 	geometryBufferDescriptorSetLayout = std::make_unique<DescriptorSetLayout>(*device, geometryBufferDescriptorSetLayoutBindings);
 }
 
-void VulkrApp::createMainRasterizationPipeline()
+void MainApp::createMainRasterizationPipeline()
 {
 	VertexInputState vertexInputState{};
 	vertexInputState.bindingDescriptions.reserve(1);
@@ -2389,7 +2389,7 @@ void VulkrApp::createMainRasterizationPipeline()
 	pipelines.offscreen.pipeline = std::move(mainRasterizationPipeline);
 }
 
-void VulkrApp::createPbrRasterizationPipeline()
+void MainApp::createPbrRasterizationPipeline()
 {
 	VertexInputState vertexInputState{};
 	vertexInputState.bindingDescriptions.reserve(1);
@@ -2560,7 +2560,7 @@ void VulkrApp::createPbrRasterizationPipeline()
 	pipelines.pbr.pipeline = std::move(pbrRasterizationPipeline);
 }
 
-void VulkrApp::createMrtGeometryBufferPipeline()
+void MainApp::createMrtGeometryBufferPipeline()
 {
 	VertexInputState vertexInputState{};
 	vertexInputState.bindingDescriptions.reserve(1);
@@ -2718,7 +2718,7 @@ void VulkrApp::createMrtGeometryBufferPipeline()
 }
 
 
-void VulkrApp::createDeferredShadingPipeline()
+void MainApp::createDeferredShadingPipeline()
 {
 	VertexInputState vertexInputState{}; // No vertex inputs
 
@@ -2830,7 +2830,7 @@ void VulkrApp::createDeferredShadingPipeline()
 	pipelines.deferredShading.pipeline = std::move(deferredShadingPipeline);
 }
 
-void VulkrApp::createPostProcessingPipeline()
+void MainApp::createPostProcessingPipeline()
 {
 	VertexInputState vertexInputState{};
 	vertexInputState.bindingDescriptions.reserve(1);
@@ -2960,7 +2960,7 @@ void VulkrApp::createPostProcessingPipeline()
 	pipelines.postProcess.pipeline = std::move(postProcessingPipeline);
 }
 
-void VulkrApp::createModelAnimationComputePipeline()
+void MainApp::createModelAnimationComputePipeline()
 {
 	std::shared_ptr<ShaderSource> computeShader = std::make_shared<ShaderSource>("animate.comp.spv");
 
@@ -3001,7 +3001,7 @@ void VulkrApp::createModelAnimationComputePipeline()
 	pipelines.computeModelAnimation.pipeline = std::move(computePipeline);
 }
 
-void VulkrApp::createParticleCalculateComputePipeline()
+void MainApp::createParticleCalculateComputePipeline()
 {
 	std::shared_ptr<ShaderSource> computeShader = std::make_shared<ShaderSource>("particle_system/particleCalculate.comp.spv");
 
@@ -3054,7 +3054,7 @@ void VulkrApp::createParticleCalculateComputePipeline()
 	pipelines.computeParticleCalculate.pipeline = std::move(computePipeline);
 }
 
-void VulkrApp::createParticleIntegrateComputePipeline()
+void MainApp::createParticleIntegrateComputePipeline()
 {
 	std::shared_ptr<ShaderSource> computeShader = std::make_shared<ShaderSource>("particle_system/particleIntegrate.comp.spv");
 
@@ -3095,7 +3095,7 @@ void VulkrApp::createParticleIntegrateComputePipeline()
 	pipelines.computeParticleIntegrate.pipeline = std::move(computePipeline);
 }
 
-void VulkrApp::createFramebuffers()
+void MainApp::createFramebuffers()
 {
 	for (uint32_t i = 0; i < maxFramesInFlight; ++i)
 	{
@@ -3153,7 +3153,7 @@ void VulkrApp::createFramebuffers()
 	deferredShadingFramebufferClearValues[1].depthStencil = { 1.0f, 0u };
 }
 
-void VulkrApp::createCommandPools()
+void MainApp::createCommandPools()
 {
 	for (uint32_t i = 0; i < maxFramesInFlight; ++i)
 	{
@@ -3169,7 +3169,7 @@ void VulkrApp::createCommandPools()
 	}
 }
 
-uint8_t VulkrApp::getInitCommandPoolId()
+uint8_t MainApp::getInitCommandPoolId()
 {
 	std::unique_lock<std::mutex> lock(commandPoolMutex);
 	commandPoolCv.wait(lock, [this]()
@@ -3183,13 +3183,13 @@ uint8_t VulkrApp::getInitCommandPoolId()
 	commandPoolCv.notify_one();
 	return id;
 }
-void VulkrApp::returnInitCommandPool(uint8_t commandPoolId)
+void MainApp::returnInitCommandPool(uint8_t commandPoolId)
 {
 	std::unique_lock<std::mutex> lock(commandPoolMutex);
 	initCommandPoolIds.push(commandPoolId);
 }
 
-void VulkrApp::createCommandBuffers()
+void MainApp::createCommandBuffers()
 {
 	if (commandBufferCountForFrame != 4) LOGEANDABORT("commandBufferCountForFrame should be 4");
 
@@ -3209,7 +3209,7 @@ void VulkrApp::createCommandBuffers()
 	}
 }
 
-void VulkrApp::copyBufferToImage(const Buffer &srcBuffer, const Image &dstImage, uint32_t width, uint32_t height)
+void MainApp::copyBufferToImage(const Buffer &srcBuffer, const Image &dstImage, uint32_t width, uint32_t height)
 {
 	VkBufferImageCopy region{};
 	region.bufferOffset = 0ull;
@@ -3245,7 +3245,7 @@ void VulkrApp::copyBufferToImage(const Buffer &srcBuffer, const Image &dstImage,
 	vkQueueWaitIdle(m_graphicsQueue->getHandle());
 }
 
-void VulkrApp::createDepthResources()
+void MainApp::createDepthResources()
 {
 	VkFormat depthFormat = getSupportedDepthFormat(device->getPhysicalDevice().getHandle());
 
@@ -3258,7 +3258,7 @@ void VulkrApp::createDepthResources()
 	setDebugUtilsObjectName(device->getHandle(), depthImageView->getHandle(), "depthImageView");
 }
 
-std::unique_ptr<Image> VulkrApp::createTextureImage(const std::string &filename)
+std::unique_ptr<Image> MainApp::createTextureImage(const std::string &filename)
 {
 	int texWidth, texHeight, texChannels;
 
@@ -3375,7 +3375,7 @@ std::unique_ptr<Image> VulkrApp::createTextureImage(const std::string &filename)
 	return textureImage;
 }
 
-void VulkrApp::createTextureSampler()
+void MainApp::createTextureSampler()
 {
 	VkSamplerCreateInfo samplerInfo{ VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
 	samplerInfo.magFilter = VK_FILTER_NEAREST;
@@ -3397,7 +3397,7 @@ void VulkrApp::createTextureSampler()
 	textureSampler = std::make_unique<Sampler>(*device, samplerInfo);
 }
 
-void VulkrApp::createGBufferSampler()
+void MainApp::createGBufferSampler()
 {
 	VkSamplerCreateInfo samplerInfo{ VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
 	samplerInfo.magFilter = VK_FILTER_NEAREST;
@@ -3419,7 +3419,7 @@ void VulkrApp::createGBufferSampler()
 	gBufferSampler = std::make_unique<Sampler>(*device, samplerInfo);
 }
 
-void VulkrApp::copyBufferToBuffer(const Buffer &srcBuffer, const Buffer &dstBuffer, VkDeviceSize size)
+void MainApp::copyBufferToBuffer(const Buffer &srcBuffer, const Buffer &dstBuffer, VkDeviceSize size)
 {
 	VkBufferCopy bufferCopyRegion{};
 	bufferCopyRegion.srcOffset = 0ull;
@@ -3481,7 +3481,7 @@ void VulkrApp::copyBufferToBuffer(const Buffer &srcBuffer, const Buffer &dstBuff
 	vkQueueWaitIdle(m_graphicsQueue->getHandle());
 }
 
-void VulkrApp::createVertexBuffer(ObjModelRenderingData &objModelRenderingData, const ObjLoader &objLoader)
+void MainApp::createVertexBuffer(ObjModelRenderingData &objModelRenderingData, const ObjLoader &objLoader)
 {
 	VkDeviceSize bufferSize{ sizeof(objLoader.vertices[0]) * objLoader.vertices.size() };
 
@@ -3504,7 +3504,7 @@ void VulkrApp::createVertexBuffer(ObjModelRenderingData &objModelRenderingData, 
 	copyBufferToBuffer(*stagingBuffer, *(objModelRenderingData.vertexBuffer), bufferSize);
 }
 
-void VulkrApp::createIndexBuffer(ObjModelRenderingData &objModelRenderingData, const ObjLoader &objLoader)
+void MainApp::createIndexBuffer(ObjModelRenderingData &objModelRenderingData, const ObjLoader &objLoader)
 {
 	VkDeviceSize bufferSize{ sizeof(objLoader.indices[0]) * objLoader.indices.size() };
 
@@ -3531,7 +3531,7 @@ void VulkrApp::createIndexBuffer(ObjModelRenderingData &objModelRenderingData, c
 	copyBufferToBuffer(*stagingBuffer, *(objModelRenderingData.indexBuffer), bufferSize);
 }
 
-void VulkrApp::createMaterialBuffer(ObjModelRenderingData &objModelRenderingData, const ObjLoader &objLoader)
+void MainApp::createMaterialBuffer(ObjModelRenderingData &objModelRenderingData, const ObjLoader &objLoader)
 {
 	VkDeviceSize bufferSize{ sizeof(objLoader.materials[0]) * objLoader.materials.size() };
 
@@ -3557,7 +3557,7 @@ void VulkrApp::createMaterialBuffer(ObjModelRenderingData &objModelRenderingData
 	copyBufferToBuffer(*stagingBuffer, *(objModelRenderingData.materialsBuffer), bufferSize);
 }
 
-void VulkrApp::createMaterialBuffer(GltfModelRenderingData &gltfModelRenderingData)
+void MainApp::createMaterialBuffer(GltfModelRenderingData &gltfModelRenderingData)
 {
 	std::vector<GltfMaterial> gltfMaterials{};
 	for (auto &material : gltfModelRenderingData.gltfModel.materials)
@@ -3626,7 +3626,7 @@ void VulkrApp::createMaterialBuffer(GltfModelRenderingData &gltfModelRenderingDa
 	copyBufferToBuffer(*stagingBuffer, *(gltfModelRenderingData.materialsBuffer), bufferSize);
 }
 
-void VulkrApp::createMaterialIndicesBuffer(ObjModelRenderingData &objModelRenderingData, const ObjLoader &objLoader)
+void MainApp::createMaterialIndicesBuffer(ObjModelRenderingData &objModelRenderingData, const ObjLoader &objLoader)
 {
 	VkDeviceSize bufferSize{ sizeof(objLoader.materialIndices[0]) * objLoader.materialIndices.size() };
 
@@ -3652,7 +3652,7 @@ void VulkrApp::createMaterialIndicesBuffer(ObjModelRenderingData &objModelRender
 	copyBufferToBuffer(*stagingBuffer, *(objModelRenderingData.materialsIndexBuffer), bufferSize);
 }
 
-void VulkrApp::createUniformBuffers()
+void MainApp::createUniformBuffers()
 {
 	VkBufferCreateInfo bufferInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
 	bufferInfo.size = sizeof(CameraData);
@@ -3677,7 +3677,7 @@ void VulkrApp::createUniformBuffers()
 	setDebugUtilsObjectName(device->getHandle(), lightBuffer->getHandle(), "lightBuffer");
 }
 
-void VulkrApp::createSSBOs()
+void MainApp::createSSBOs()
 {
 	VkBufferCreateInfo bufferInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
 	bufferInfo.size = sizeof(ObjInstance) * maxObjInstanceCount;
@@ -3706,7 +3706,7 @@ void VulkrApp::createSSBOs()
 }
 
 // Setup and fill the compute shader storage buffers containing the particles
-void VulkrApp::prepareParticleData()
+void MainApp::prepareParticleData()
 {
 	computeParticlesPushConstants.particleCount = to_u32(attractors.size()) * particlesPerAttractor;
 
@@ -3775,7 +3775,7 @@ void VulkrApp::prepareParticleData()
 	copyBufferToBuffer(*stagingBuffer, *(particleBuffer), particleBufferSize);
 }
 
-void VulkrApp::createDescriptorPool()
+void MainApp::createDescriptorPool()
 {
 	std::vector<VkDescriptorPoolSize> poolSizes{}; // We are allocating more space than currenly used
 	poolSizes.resize(4);
@@ -3798,7 +3798,7 @@ void VulkrApp::createDescriptorPool()
 	descriptorPool = std::make_unique<DescriptorPool>(*device, poolSizes, maxSets, 0);
 }
 
-void VulkrApp::createDescriptorSets()
+void MainApp::createDescriptorSets()
 {
 	// Global Data Descriptor Set
 	VkDescriptorSetAllocateInfo globalDescriptorSetAllocateInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
@@ -4279,7 +4279,7 @@ void VulkrApp::createDescriptorSets()
 	}
 }
 
-void VulkrApp::setupNodeDescriptorSet(vulkr::gltf::Node *node)
+void MainApp::setupNodeDescriptorSet(vulkr::gltf::Node *node)
 {
 	if (node->mesh)
 	{
@@ -4307,13 +4307,13 @@ void VulkrApp::setupNodeDescriptorSet(vulkr::gltf::Node *node)
 	}
 }
 
-void VulkrApp::createSemaphoreAndFencePools()
+void MainApp::createSemaphoreAndFencePools()
 {
 	semaphorePool = std::make_unique<SemaphorePool>(*device);
 	fencePool = std::make_unique<FencePool>(*device);
 }
 
-void VulkrApp::loadTextureImages(const std::vector<std::string> &textureFiles)
+void MainApp::loadTextureImages(const std::vector<std::string> &textureFiles)
 {
 	LOGD("Loading {} texture files..", std::to_string(textureFiles.size()));
 	int x = 1;
@@ -4329,7 +4329,7 @@ void VulkrApp::loadTextureImages(const std::vector<std::string> &textureFiles)
 	}
 }
 
-void VulkrApp::setupSynchronizationObjects()
+void MainApp::setupSynchronizationObjects()
 {
 	imagesInFlight.resize(swapchain->getImages().size(), VK_NULL_HANDLE);
 
@@ -4360,7 +4360,7 @@ void VulkrApp::setupSynchronizationObjects()
 	}
 }
 
-void VulkrApp::loadObjModel(const std::string &objFilePath)
+void MainApp::loadObjModel(const std::string &objFilePath)
 {
 	ObjModelRenderingData objModelRenderingData;
 	ObjLoader objLoader;
@@ -4398,7 +4398,7 @@ void VulkrApp::loadObjModel(const std::string &objFilePath)
 	objModelRenderingDataList.push_back(std::move(objModelRenderingData));
 }
 
-void VulkrApp::loadGltfModel(const std::string &gltfFilePath)
+void MainApp::loadGltfModel(const std::string &gltfFilePath)
 {
 	LOGD("Started loading scene from {}", gltfFilePath);
 	GltfModelRenderingData gltfModelRenderingData;
@@ -4423,7 +4423,7 @@ void VulkrApp::loadGltfModel(const std::string &gltfFilePath)
 	gltfModelRenderingDataList.push_back(std::move(gltfModelRenderingData));
 }
 
-void VulkrApp::createObjInstance(const std::string &objFileName, glm::mat4 transform)
+void MainApp::createObjInstance(const std::string &objFileName, glm::mat4 transform)
 {
 	const std::string objFilePath = defaultObjModelFilePath + objFileName;
 	uint64_t objModelIndex = getObjModelIndex(objFilePath);
@@ -4448,7 +4448,7 @@ void VulkrApp::createObjInstance(const std::string &objFileName, glm::mat4 trans
 	objInstances.push_back(std::move(instance));
 }
 
-void VulkrApp::createGltfInstance(const std::string &gltfFileName, glm::mat4 transform)
+void MainApp::createGltfInstance(const std::string &gltfFileName, glm::mat4 transform)
 {
 	// We assume gltf models are in a folder that matches the names of the .gltf or .glb file
 	std::size_t gltfModelFileNamePos = gltfFileName.find(".");
@@ -4463,7 +4463,7 @@ void VulkrApp::createGltfInstance(const std::string &gltfFileName, glm::mat4 tra
 	gltfInstances.push_back(std::move(instance));
 }
 
-void VulkrApp::createSceneLights()
+void MainApp::createSceneLights()
 {
 	LightData l1;
 	l1.type = 1;
@@ -4486,7 +4486,7 @@ void VulkrApp::createSceneLights()
 	raytracingPushConstants.lightCount = static_cast<int>(sceneLights.size());
 }
 
-void VulkrApp::loadModels()
+void MainApp::loadModels()
 {
 	const std::vector<std::string> objModelFiles{
 		"plane.obj",
@@ -4563,7 +4563,7 @@ void VulkrApp::loadModels()
 	}
 
 #ifdef MULTI_THREAD
-	// TODO: we need to set up separate threads to load the obj and gltf files above (eg. modelLoadThreads.push_back(std::thread(&VulkrApp::loadModel, this, modelFile)) and then run threads.join 
+	// TODO: we need to set up separate threads to load the obj and gltf files above (eg. modelLoadThreads.push_back(std::thread(&MainApp::loadModel, this, modelFile)) and then run threads.join 
 	for (auto &threads : modelLoadThreads)
 	{
 		threads.join();
@@ -4571,7 +4571,7 @@ void VulkrApp::loadModels()
 #endif
 }
 
-void VulkrApp::createSceneInstances()
+void MainApp::createSceneInstances()
 {
 	if (maxObjInstanceCount + maxGltfInstanceCount > device->getPhysicalDevice().getAccelerationStructureProperties().maxInstanceCount)
 	{
@@ -4626,7 +4626,7 @@ void VulkrApp::createSceneInstances()
 	}
 }
 
-uint64_t VulkrApp::getObjModelIndex(const std::string &name)
+uint64_t MainApp::getObjModelIndex(const std::string &name)
 {
 	for (uint64_t i = 0; i < objModelRenderingDataList.size(); ++i)
 	{
@@ -4636,7 +4636,7 @@ uint64_t VulkrApp::getObjModelIndex(const std::string &name)
 	LOGEANDABORT("Model {} not found", name);
 }
 
-uint64_t VulkrApp::getGltfModelIndex(const std::string &name)
+uint64_t MainApp::getGltfModelIndex(const std::string &name)
 {
 	for (uint64_t i = 0; i < gltfModelRenderingDataList.size(); ++i)
 	{
@@ -4646,7 +4646,7 @@ uint64_t VulkrApp::getGltfModelIndex(const std::string &name)
 	LOGEANDABORT("Model {} not found", name);
 }
 
-void VulkrApp::initializeImGui()
+void MainApp::initializeImGui()
 {
 	// Create descriptor pool for imgui
 	std::vector<VkDescriptorPoolSize> poolSizes =
@@ -4698,13 +4698,13 @@ void VulkrApp::initializeImGui()
 	ImGui_ImplVulkan_Init(&initInfo);
 }
 
-void VulkrApp::resetFrameSinceViewChange()
+void MainApp::resetFrameSinceViewChange()
 {
 	raytracingPushConstants.frameSinceViewChange = -1; // TODO remove
 	taaPushConstants.frameSinceViewChange = -1;
 }
 
-void VulkrApp::createImageResourcesForFrames()
+void MainApp::createImageResourcesForFrames()
 {
 	VkExtent3D extent{ swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, 1u };
 	VkImageSubresourceRange subresourceRange = {};
@@ -4873,7 +4873,7 @@ void VulkrApp::createImageResourcesForFrames()
 }
 
 // Convert an OBJ model into the ray tracing geometry used to build the BLAS
-BlasInput VulkrApp::objectToVkGeometryKHR(size_t objModelIndex)
+BlasInput MainApp::objectToVkGeometryKHR(size_t objModelIndex)
 {
 	VkBufferDeviceAddressInfo bufferDeviceAddressInfo = { VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO };
 	bufferDeviceAddressInfo.buffer = objModelRenderingDataList[objModelIndex].vertexBuffer->getHandle();
@@ -4919,7 +4919,7 @@ BlasInput VulkrApp::objectToVkGeometryKHR(size_t objModelIndex)
 	return blasInput;
 }
 
-std::unique_ptr<AccelerationStructure> VulkrApp::createAccelerationStructure(VkAccelerationStructureCreateInfoKHR &accelerationStructureInfo)
+std::unique_ptr<AccelerationStructure> MainApp::createAccelerationStructure(VkAccelerationStructureCreateInfoKHR &accelerationStructureInfo)
 {
 	VkBufferCreateInfo bufferInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
 	bufferInfo.size = accelerationStructureInfo.size;
@@ -4940,7 +4940,7 @@ std::unique_ptr<AccelerationStructure> VulkrApp::createAccelerationStructure(VkA
 }
 
 
-void VulkrApp::buildBlas()
+void MainApp::buildBlas()
 {
 	// TODO: enable compaction
 	VkBuildAccelerationStructureFlagsKHR buildAccelerationStructureFlags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR/* | VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_COMPACTION_BIT_KHR */;
@@ -5194,7 +5194,7 @@ void VulkrApp::buildBlas()
 	vkDestroyQueryPool(device->getHandle(), queryPool, nullptr);
 }
 
-void VulkrApp::buildTlas(bool update)
+void MainApp::buildTlas(bool update)
 {
 	// Cannot call buildTlas twice except to update.
 	if (m_tlas != nullptr && !update)
@@ -5374,7 +5374,7 @@ void VulkrApp::buildTlas(bool update)
 	vkQueueWaitIdle(m_graphicsQueue->getHandle());
 }
 
-VkDeviceAddress VulkrApp::getBlasDeviceAddress(uint64_t blasId)
+VkDeviceAddress MainApp::getBlasDeviceAddress(uint64_t blasId)
 {
 	if (blasId >= objModelRenderingDataList.size()) LOGEANDABORT("Invalid blasId");
 	VkAccelerationStructureDeviceAddressInfoKHR addressInfo{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR };
@@ -5382,7 +5382,7 @@ VkDeviceAddress VulkrApp::getBlasDeviceAddress(uint64_t blasId)
 	return vkGetAccelerationStructureDeviceAddressKHR(device->getHandle(), &addressInfo);
 }
 
-void VulkrApp::createRaytracingDescriptorPool()
+void MainApp::createRaytracingDescriptorPool()
 {
 	std::vector<VkDescriptorPoolSize> poolSizes{};
 	poolSizes.resize(2);
@@ -5400,7 +5400,7 @@ void VulkrApp::createRaytracingDescriptorPool()
 	m_rtDescPool = std::make_unique<DescriptorPool>(*device, poolSizes, maxSets, 0);
 }
 
-void VulkrApp::createRaytracingDescriptorLayout()
+void MainApp::createRaytracingDescriptorLayout()
 {
 	VkDescriptorSetLayoutBinding tlasLayoutBinding{};
 	tlasLayoutBinding.binding = 0u;
@@ -5423,7 +5423,7 @@ void VulkrApp::createRaytracingDescriptorLayout()
 	m_rtDescSetLayout = std::make_unique<DescriptorSetLayout>(*device, rtDescriptorSetLayoutBindings);
 }
 
-void VulkrApp::createRaytracingDescriptorSets()
+void MainApp::createRaytracingDescriptorSets()
 {
 	for (uint32_t i = 0; i < maxFramesInFlight; ++i)
 	{
@@ -5466,7 +5466,7 @@ void VulkrApp::createRaytracingDescriptorSets()
 }
 
 // Writes the output image to the descriptor set, Required when changing resolution
-void VulkrApp::updateRaytracingDescriptorSet()
+void MainApp::updateRaytracingDescriptorSet()
 {
 	for (uint32_t i = 0; i < maxFramesInFlight; ++i)
 	{
@@ -5490,7 +5490,7 @@ void VulkrApp::updateRaytracingDescriptorSet()
 }
 
 // Pipeline for the ray tracer: all shaders, raygen, chit, miss
-void VulkrApp::createRaytracingPipeline()
+void MainApp::createRaytracingPipeline()
 {
 	std::shared_ptr<ShaderSource> rayGenShader = std::make_shared<ShaderSource>("ray_tracing/raytrace.rgen.spv");
 	std::shared_ptr<ShaderSource> rayMissShader = std::make_shared<ShaderSource>("ray_tracing/raytrace.rmiss.spv");
@@ -5588,7 +5588,7 @@ void VulkrApp::createRaytracingPipeline()
 }
 
 // Creating the Shader Binding Table (SBT)
-void VulkrApp::createRaytracingShaderBindingTable()
+void MainApp::createRaytracingShaderBindingTable()
 {
 	RayTracingPipelineState *rayTracingPipelineState = dynamic_cast<RayTracingPipelineState *>(pipelines.rayTracing.pipelineState.get());
 	uint32_t groupCount = to_u32(rayTracingPipelineState->getRayTracingShaderGroups().size());  // 4 shaders: raygen, 2 miss, 1 chit
@@ -5630,7 +5630,7 @@ void VulkrApp::createRaytracingShaderBindingTable()
 	copyBufferToBuffer(*stagingBuffer, *m_rtSBTBuffer, sbtSize);
 }
 
-void VulkrApp::raytrace()
+void MainApp::raytrace()
 {
 	debugUtilBeginLabel(frameData.commandBuffers[currentFrame][0]->getHandle(), "Raytrace");
 
@@ -5674,7 +5674,7 @@ void VulkrApp::raytrace()
 int main()
 {
 	vulkr::Platform platform;
-	std::unique_ptr<vulkr::VulkrApp> app = std::make_unique<vulkr::VulkrApp>(platform, "Vulkr");
+	std::unique_ptr<vulkr::MainApp> app = std::make_unique<vulkr::MainApp>(platform, "Vulkr Main");
 
 	platform.initialize(std::move(app));
 	platform.prepareApplication();

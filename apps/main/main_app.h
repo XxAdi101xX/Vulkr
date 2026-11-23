@@ -358,13 +358,13 @@ struct Tlas
 	VkBuildAccelerationStructureFlagsKHR flags = 0;
 };
 
-/* VulkrApp class */
-class VulkrApp : public Application
+/* MainApp class */
+class MainApp : public Application
 {
 public:
-	VulkrApp(Platform &platform, std::string name);
+	MainApp(Platform &platform, std::string name);
 
-	~VulkrApp();
+	~MainApp();
 
 	virtual void prepare() override;
 
@@ -655,6 +655,6 @@ private:
 	void createRaytracingShaderBindingTable(); // https://www.willusher.io/graphics/2019/11/20/the-sbt-three-ways is a great resource on how the SBT works and how we should be organizing our shaders into primary and occlusion hit groups
 
 	void raytrace();
-}; // class VulkrApp
+}; // class MainApp
 
 } // namespace vulkr

@@ -19,9 +19,6 @@
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
-
-// The tinygltf implementation lives in src/rendering/gltf_loader.cpp, which includes stb_image.h because stb_image's
-// implementation is provided by the app (vulkr.h does it for the other app). Defining it here keeps tinygltf linkable.
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
