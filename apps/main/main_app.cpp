@@ -5384,20 +5384,15 @@ VkDeviceAddress MainApp::getBlasDeviceAddress(uint64_t blasId)
 
 void MainApp::createRaytracingDescriptorPool()
 {
-	std::vector<VkDescriptorPoolSize> poolSizes{};
-	poolSizes.resize(2);
-	poolSizes[0].type = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
-	poolSizes[0].descriptorCount = 10u;
-	poolSizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-	poolSizes[1].descriptorCount = 1u;
-
-	uint32_t maxSets = 0u;
-	for (VkDescriptorPoolSize poolSize : poolSizes)
+	// A single descriptor set is shared by all frames in flight: the TLAS handle and the output image view it
+	// holds only change when the acceleration structures or the swapchain are rebuilt, never per frame
+	std::vector<VkDescriptorPoolSize> poolSizes
 	{
-		maxSets += poolSize.descriptorCount;
-	}
+		{ VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 1u },
+		{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1u },
+	};
 
-	m_rtDescPool = std::make_unique<DescriptorPool>(*device, poolSizes, maxSets, 0);
+	m_rtDescPool = std::make_unique<DescriptorPool>(*device, poolSizes, 1u, 0);
 }
 
 void MainApp::createRaytracingDescriptorLayout()
@@ -5425,68 +5420,62 @@ void MainApp::createRaytracingDescriptorLayout()
 
 void MainApp::createRaytracingDescriptorSets()
 {
-	for (uint32_t i = 0; i < maxFramesInFlight; ++i)
-	{
-		VkDescriptorSetAllocateInfo allocateInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
-		allocateInfo.descriptorPool = m_rtDescPool->getHandle();
-		allocateInfo.descriptorSetCount = 1u;
-		allocateInfo.pSetLayouts = &m_rtDescSetLayout->getHandle();
+	VkDescriptorSetAllocateInfo allocateInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+	allocateInfo.descriptorPool = m_rtDescPool->getHandle();
+	allocateInfo.descriptorSetCount = 1u;
+	allocateInfo.pSetLayouts = &m_rtDescSetLayout->getHandle();
 
-		raytracingDescriptorSet = std::make_unique<DescriptorSet>(*device, allocateInfo);
-		setDebugUtilsObjectName(device->getHandle(), raytracingDescriptorSet->getHandle(), "rtDescriptorSet for frame #" + std::to_string(i));
+	raytracingDescriptorSet = std::make_unique<DescriptorSet>(*device, allocateInfo);
+	setDebugUtilsObjectName(device->getHandle(), raytracingDescriptorSet->getHandle(), "rtDescriptorSet");
 
-		VkWriteDescriptorSetAccelerationStructureKHR descASInfo{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR };
-		descASInfo.accelerationStructureCount = 1u;
-		descASInfo.pAccelerationStructures = &m_tlas->accelerationStructure->accelerationStuctureKHR;
+	VkWriteDescriptorSetAccelerationStructureKHR descASInfo{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR };
+	descASInfo.accelerationStructureCount = 1u;
+	descASInfo.pAccelerationStructures = &m_tlas->accelerationStructure->accelerationStuctureKHR;
 
-		VkWriteDescriptorSet writeAccelerationStructure{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-		writeAccelerationStructure.dstSet = raytracingDescriptorSet->getHandle();
-		writeAccelerationStructure.dstBinding = 0u;
-		writeAccelerationStructure.dstArrayElement = 0u;
-		writeAccelerationStructure.descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
-		writeAccelerationStructure.descriptorCount = 1u;
-		writeAccelerationStructure.pNext = &descASInfo;
+	VkWriteDescriptorSet writeAccelerationStructure{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+	writeAccelerationStructure.dstSet = raytracingDescriptorSet->getHandle();
+	writeAccelerationStructure.dstBinding = 0u;
+	writeAccelerationStructure.dstArrayElement = 0u;
+	writeAccelerationStructure.descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
+	writeAccelerationStructure.descriptorCount = 1u;
+	writeAccelerationStructure.pNext = &descASInfo;
 
-		VkDescriptorImageInfo outputImageInfo{};
-		outputImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-		outputImageInfo.imageView = outputImageView->getHandle();
-		outputImageInfo.sampler = {};
+	VkDescriptorImageInfo outputImageInfo{};
+	outputImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+	outputImageInfo.imageView = outputImageView->getHandle();
+	outputImageInfo.sampler = {};
 
-		VkWriteDescriptorSet writeOutputImage{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-		writeOutputImage.dstSet = raytracingDescriptorSet->getHandle();
-		writeOutputImage.dstBinding = 1u;
-		writeOutputImage.dstArrayElement = 0u;
-		writeOutputImage.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-		writeOutputImage.descriptorCount = 1u;
-		writeOutputImage.pImageInfo = &outputImageInfo;
+	VkWriteDescriptorSet writeOutputImage{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+	writeOutputImage.dstSet = raytracingDescriptorSet->getHandle();
+	writeOutputImage.dstBinding = 1u;
+	writeOutputImage.dstArrayElement = 0u;
+	writeOutputImage.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+	writeOutputImage.descriptorCount = 1u;
+	writeOutputImage.pImageInfo = &outputImageInfo;
 
-		std::array<VkWriteDescriptorSet, 2> writeToDescriptorSets{ writeAccelerationStructure, writeOutputImage };
-		vkUpdateDescriptorSets(device->getHandle(), to_u32(writeToDescriptorSets.size()), writeToDescriptorSets.data(), 0, nullptr);
-	}
+	std::array<VkWriteDescriptorSet, 2> writeToDescriptorSets{ writeAccelerationStructure, writeOutputImage };
+	vkUpdateDescriptorSets(device->getHandle(), to_u32(writeToDescriptorSets.size()), writeToDescriptorSets.data(), 0, nullptr);
 }
 
 // Writes the output image to the descriptor set, Required when changing resolution
 void MainApp::updateRaytracingDescriptorSet()
 {
-	for (uint32_t i = 0; i < maxFramesInFlight; ++i)
-	{
-		VkDescriptorImageInfo outputImageInfo{};
-		outputImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-		outputImageInfo.imageView = outputImageView->getHandle();
-		outputImageInfo.sampler = {};
+	VkDescriptorImageInfo outputImageInfo{};
+	outputImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+	outputImageInfo.imageView = outputImageView->getHandle();
+	outputImageInfo.sampler = {};
 
-		VkWriteDescriptorSet writeOutputImage{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-		writeOutputImage.dstSet = raytracingDescriptorSet->getHandle();
-		writeOutputImage.dstBinding = 1u;
-		writeOutputImage.dstArrayElement = 0u;
-		writeOutputImage.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-		writeOutputImage.descriptorCount = 1u;
-		writeOutputImage.pImageInfo = &outputImageInfo;
-		writeOutputImage.pBufferInfo = nullptr;
-		writeOutputImage.pTexelBufferView = nullptr;
+	VkWriteDescriptorSet writeOutputImage{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+	writeOutputImage.dstSet = raytracingDescriptorSet->getHandle();
+	writeOutputImage.dstBinding = 1u;
+	writeOutputImage.dstArrayElement = 0u;
+	writeOutputImage.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+	writeOutputImage.descriptorCount = 1u;
+	writeOutputImage.pImageInfo = &outputImageInfo;
+	writeOutputImage.pBufferInfo = nullptr;
+	writeOutputImage.pTexelBufferView = nullptr;
 
-		vkUpdateDescriptorSets(device->getHandle(), 1, &writeOutputImage, 0, nullptr);
-	}
+	vkUpdateDescriptorSets(device->getHandle(), 1, &writeOutputImage, 0, nullptr);
 }
 
 // Pipeline for the ray tracer: all shaders, raygen, chit, miss
