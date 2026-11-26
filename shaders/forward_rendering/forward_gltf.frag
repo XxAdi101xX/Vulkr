@@ -74,10 +74,10 @@ layout (push_constant) uniform PushConstants {
 	int lightCount;
 } pushConstants;
 
-layout (location = 0) out vec4 outColor;
-// TODO populate and test ourColor and outVelocity!
-//layout(location = 1) out vec4 outColorCopy;
-//layout(location = 2) out vec4 outVelocity;
+layout(location = 0) out vec4 outColor;
+// glTF instances are not animated, so their motion vector is zero; the attachment still has to be written because
+// the pipeline has to use the same blend state for every color attachment (independent blending is not enabled)
+layout(location = 1) out vec4 outVelocity;
 
 
 // Encapsulate the various inputs used by the various functions in the shading equation
@@ -465,4 +465,6 @@ void main()
 				break;				
 		}
 	}
+
+	outVelocity = vec4(0.0, 0.0, 0.0, 1.0);
 }

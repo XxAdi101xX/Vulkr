@@ -60,8 +60,10 @@ void main() {
     vec4 currentClipPosUnjittered = currentFrameCameraBuffer.proj * currentFrameCameraBuffer.view * currentFrameModelMatrix * vec4(inPosition, 1.0f);
     currentFramePosition = currentClipPosUnjittered;
 
-    // jitter will be set to 0 if taa is disabled
-    vec4 currentClipPosJittered = currentClipPosUnjittered + vec4(pushConstant.jitter, 0.0f, 0.0f);    
+    // The jitter is specified in normalized device coordinates, so it must be scaled by w to stay a constant
+    // screen-space offset after the perspective divide. It is set to zero when TAA is disabled.
+    vec4 currentClipPosJittered = currentClipPosUnjittered;
+    currentClipPosJittered.xy += pushConstant.jitter * currentClipPosUnjittered.w;
     gl_Position = currentClipPosJittered;
 
     vec4 previousClipPositionUnjittered = previousFrameCameraBuffer.proj * previousFrameCameraBuffer.view * previousFrameModelMatrix * vec4(inPosition, 1.0f);

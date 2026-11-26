@@ -101,7 +101,8 @@ constexpr uint32_t maxFramesInFlight{ 2u };
  * Command buffer 4: Used for geometry buffer pass
  */
 constexpr uint32_t commandBufferCountForFrame{ 4u };
-constexpr uint32_t taaDepth{ 128u };
+constexpr uint32_t taaDepth{ 128u }; // Number of jitter samples in the Halton sequence
+constexpr uint32_t taaMaxHistoryFrames{ 15u }; // Frames the history accumulates before the blend weight stops increasing
 constexpr uint32_t maxObjInstanceCount{ 1000u };
 constexpr uint32_t maxGltfInstanceCount{ 1000u };
 constexpr uint32_t maxLightCount{ 100u };
@@ -238,6 +239,10 @@ struct TaaPushConstants
 struct PostProcessPushConstants
 {
 	glm::vec2 imageExtent;
+	glm::vec2 currentJitter;  // This frame's sub-pixel jitter in pixels (x right, y down)
+	glm::vec2 previousJitter; // Jitter used to render the history image, in pixels (x right, y down)
+	float historyWeight{ 0.0f }; // Weight of the history sample; 0 disables temporal accumulation
+	float blank{ 0.0f }; // Alignment
 } postProcessPushConstants;
 
 struct ComputePushConstants
@@ -259,6 +264,8 @@ struct GltfPushConstants
 	glm::vec3 cameraPos;
 	int materialIndex{ 0 };
 	int lightCount{ 0 };
+	int blank{ 0 }; // Alignment; std430 places the following vec2 at offset 24
+	glm::vec2 jitter{ glm::vec2(0.0f) }; // Sub-pixel jitter in normalized device coordinates
 } gltfPushConstants;
 
 struct MrtGeometryBufferPushConstants
@@ -416,8 +423,10 @@ private:
 	// Deferred rendering render passes
 	RenderPassData mrtGeometryBufferRenderPass;
 	RenderPassData deferredShadingRenderPass;
-	// Post processing render pass
+	// Post processing render pass (TAA resolve)
 	RenderPassData postRenderPass;
+	// UI composite render pass (ImGui is kept out of the TAA history)
+	RenderPassData postProcessUiRenderPass;
 
 	std::unique_ptr<DescriptorSetLayout> globalDescriptorSetLayout{ nullptr };
 	std::unique_ptr<DescriptorSetLayout> objectDescriptorSetLayout{ nullptr };
@@ -436,6 +445,7 @@ private:
 	std::unique_ptr<ImageView> depthImageView{ nullptr };
 	std::unique_ptr<Sampler> textureSampler{ nullptr };
 	std::unique_ptr<Sampler> gBufferSampler{ nullptr };
+	std::unique_ptr<Sampler> taaSampler{ nullptr }; // Linear filtering, clamped to edge; used to reproject the TAA history
 
 	std::unique_ptr<SemaphorePool> semaphorePool;
 	std::unique_ptr<FencePool> fencePool;
@@ -445,6 +455,7 @@ private:
 	std::unique_ptr<Timer> drawingTimer;
 
 	std::array<glm::vec2, taaDepth> haltonSequence;
+	glm::vec2 previousTaaJitter{ glm::vec2(0.0f) }; // Pixel jitter used to render the history image
 
 	struct FrameData
 	{
@@ -469,7 +480,6 @@ private:
 
 	// Clear values
 	std::vector<VkClearValue> offscreenFramebufferClearValues;
-	std::vector<VkClearValue> postProcessFramebufferClearValues;
 	std::vector<VkClearValue> geometryBufferFramebufferClearValues;
 	std::vector<VkClearValue> deferredShadingFramebufferClearValues;
 
@@ -489,7 +499,7 @@ private:
 	std::unique_ptr<ImageView> outputImageView;
 
 	// TAA related textures
-	std::unique_ptr<ImageView> copyOutputImageView;
+	std::unique_ptr<ImageView> postProcessImageView;
 	std::unique_ptr<ImageView> historyImageView;
 	std::unique_ptr<ImageView> velocityImageView;
 
@@ -569,6 +579,7 @@ private:
 	void createImageResourcesForFrames();
 	void createMainRenderPass();
 	void createPostRenderPass();
+	void createPostProcessUiRenderPass();
 	void createMrtGeometryBufferRenderPass();
 	void createDeferredShadingRenderPass();
 	void createDescriptorSetLayouts();
@@ -588,6 +599,7 @@ private:
 	std::unique_ptr<Image> createTextureImage(const std::string &filename); // Reads a texture file and populate the texture image with the contents
 	void createTextureSampler();
 	void createGBufferSampler();
+	void createTaaSampler();
 	void loadTextureImages(const std::vector<std::string> &textureFiles);
 	void copyBufferToBuffer(const Buffer &srcBuffer, const Buffer &dstBuffer, VkDeviceSize size);
 	void createVertexBuffer(ObjModelRenderingData &objModelRenderingData, const ObjLoader &objLoader);

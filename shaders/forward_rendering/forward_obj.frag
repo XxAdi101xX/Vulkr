@@ -21,8 +21,7 @@ layout(location = 6) in vec4 currentFramePosition;
 layout(location = 7) in vec4 previousFramePosition;
 
 layout(location = 0) out vec4 outColor;
-layout(location = 1) out vec4 outColorCopy;
-layout(location = 2) out vec4 outVelocity;
+layout(location = 1) out vec4 outVelocity;
 
 layout(buffer_reference, scalar) buffer Materials {WaveFrontMaterial m[]; }; // Array of all materials on an object
 layout(buffer_reference, scalar) buffer MaterialIndices {int i[]; }; // Material ID for each triangle
@@ -95,11 +94,17 @@ void main() {
         outputValue += vec3(lightIntensity * lightBuffer.lights[lightIndex].color * (diffuse + specular));
     }
     outColor = vec4(outputValue, 1);
-    outColorCopy = vec4(outputValue, 1);
 
-    // Populate the velocity image
-    vec2 newPos = (currentFramePosition.xy / currentFramePosition.w) * 0.5 + 0.5;
-	vec2 prePos = (previousFramePosition.xy / previousFramePosition.w) * 0.5 + 0.5;
-    vec2 velocity = newPos - prePos;
+    // Populate the velocity image. The motion vector is stored in normalized screen space with the y axis
+    // pointing down so that it can be turned into a pixel offset by scaling with the render target size.
+    // Positions are computed from the unjittered clip positions, so the motion vector is independent of the
+    // TAA jitter. Fragments behind the camera have no meaningful previous position.
+    vec2 velocity = vec2(0.0);
+    if (currentFramePosition.w > 0.0 && previousFramePosition.w > 0.0)
+    {
+        vec2 newPos = (currentFramePosition.xy / currentFramePosition.w) * 0.5 + 0.5;
+        vec2 prePos = (previousFramePosition.xy / previousFramePosition.w) * 0.5 + 0.5;
+        velocity = vec2(newPos.x - prePos.x, prePos.y - newPos.y);
+    }
     outVelocity = vec4(velocity, 0.0f, 1.0f);
 }

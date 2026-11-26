@@ -1,27 +1,10 @@
 #version 460
 
-#extension GL_GOOGLE_include_directive : enable
-
-#include "../common.glsl"
-#include "../random.glsl"
-
-layout(set = 0, binding = 0) uniform CurrentFrameCameraBuffer
+// The post process pass covers the entire render target with a single oversized triangle so that every
+// pixel is resolved, not just the pixels that happen to be covered by scene geometry. This also lets the
+// fragment shader run before ImGui is composited, keeping UI pixels out of the temporal history.
+void main()
 {
-    mat4 view;
-    mat4 proj;
-} camera;
-
-layout(std140, set = 0, binding = 1) readonly buffer CurrentFrameObjInstanceBuffer {
-	ObjInstance objInstances[];
-} currentFrameObjInstanceBuffer;
-
-layout(location = 0) in vec3 inPosition;
-layout(location = 1) in vec3 inNormal;
-layout(location = 2) in vec3 inColor;
-layout(location = 3) in vec2 inTexCoord;
-
-void main() {
-    mat4 modelMatrix = currentFrameObjInstanceBuffer.objInstances[gl_BaseInstance].transform;
-    vec4 clipPos = camera.proj * camera.view * modelMatrix * vec4(inPosition, 1.0f);
-    gl_Position = clipPos;
+	vec2 position = vec2(float((gl_VertexIndex << 1) & 2), float(gl_VertexIndex & 2));
+	gl_Position = vec4(position * 2.0 - 1.0, 0.0, 1.0);
 }

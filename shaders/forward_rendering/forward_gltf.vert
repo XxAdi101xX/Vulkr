@@ -36,6 +36,14 @@ layout (set = 3, binding = 0) uniform UBONode {
 	float jointCount;
 } node;
 
+layout(push_constant) uniform PushConstants {
+	vec3 cameraPos;
+	int materialIndex;
+	int lightCount;
+	int padding;
+	vec2 jitter;
+} pushConstants;
+
 layout (location = 0) out vec3 outWorldPos;
 layout (location = 1) out vec3 outNormal;
 layout (location = 2) out vec2 outUV0;
@@ -67,5 +75,9 @@ void main()
 	outWorldPos = locPos.xyz / locPos.w;
 	outUV0 = inUV0;
 	outUV1 = inUV1;
-	gl_Position =  currentFrameCameraBuffer.proj * currentFrameCameraBuffer.view * vec4(outWorldPos, 1.0); // Perspective divide is done early hence we pass in 1.0 so that when it's automatically done in rasterizer, the results are unchanged.
+	vec4 clipPos = currentFrameCameraBuffer.proj * currentFrameCameraBuffer.view * vec4(outWorldPos, 1.0); // Perspective divide is done early hence we pass in 1.0 so that when it's automatically done in rasterizer, the results are unchanged.
+	// The jitter is specified in normalized device coordinates, so it must be scaled by w to stay a constant
+	// screen-space offset after the perspective divide. It is set to zero when TAA is disabled.
+	clipPos.xy += pushConstants.jitter * clipPos.w;
+	gl_Position = clipPos;
 }

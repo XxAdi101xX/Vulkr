@@ -76,6 +76,8 @@ Device::Device(std::unique_ptr<PhysicalDevice> &&selectedPhysicalDevice, VkSurfa
 
 	VkPhysicalDeviceVulkan13Features vulkan13Features{
 		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
+		// Current glslc versions lower GLSL discard to OpDemoteToHelperInvocation, which requires this feature
+		.shaderDemoteToHelperInvocation = VK_TRUE,
 		.synchronization2 = VK_TRUE,
 		// Dynamic rendering lets us render without render passes
 		.dynamicRendering = VK_TRUE,

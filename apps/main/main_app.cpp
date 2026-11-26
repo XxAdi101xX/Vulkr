@@ -50,6 +50,7 @@ MainApp::~MainApp()
 
 	textureSampler.reset();
 	gBufferSampler.reset();
+	taaSampler.reset();
 
 	globalDescriptorSetLayout.reset();
 	objectDescriptorSetLayout.reset();
@@ -188,6 +189,14 @@ void MainApp::cleanupSwapchain()
 	postRenderPass.depthStencilAttachments.clear();
 	postRenderPass.preserveAttachments.clear();
 
+	postProcessUiRenderPass.renderPass.reset();
+	postProcessUiRenderPass.subpasses.clear();
+	postProcessUiRenderPass.inputAttachments.clear();
+	postProcessUiRenderPass.colorAttachments.clear();
+	postProcessUiRenderPass.resolveAttachments.clear();
+	postProcessUiRenderPass.depthStencilAttachments.clear();
+	postProcessUiRenderPass.preserveAttachments.clear();
+
 	// Swapchain
 	swapchain.reset();
 
@@ -215,7 +224,7 @@ void MainApp::cleanupSwapchain()
 
 	// Textures
 	outputImageView.reset();
-	copyOutputImageView.reset();
+	postProcessImageView.reset();
 	historyImageView.reset();
 	velocityImageView.reset();
 	positionImageView.reset();
@@ -304,6 +313,7 @@ void MainApp::prepare()
 	createDepthResources();
 	createMainRenderPass();
 	createPostRenderPass();
+	createPostProcessUiRenderPass();
 	createMrtGeometryBufferRenderPass();
 	createDeferredShadingRenderPass();
 	createFramebuffers();
@@ -320,6 +330,7 @@ void MainApp::prepare()
 	createDeferredShadingPipeline();
 	createTextureSampler();
 	createGBufferSampler();
+	createTaaSampler();
 	createUniformBuffers();
 	createSSBOs();
 	prepareParticleData();
@@ -394,17 +405,39 @@ void MainApp::update()
 		buildTlas(true);
 	}
 
-	// TODO check if this jitter value is correct
-	if (temporalAntiAliasingEnabled)
+	const bool taaActive = temporalAntiAliasingEnabled && activeRenderingTechnique == RenderingTechnique::FORWARD;
+	glm::vec2 jitterPixels{ 0.0f }; // Screen space jitter in pixels, x right and y up
+	if (taaActive)
 	{
-		taaPushConstants.jitter = haltonSequence[std::min(taaPushConstants.frameSinceViewChange, static_cast<int>(taaDepth - 1))];
-		taaPushConstants.jitter.x = (taaPushConstants.jitter.x / swapchain->getProperties().imageExtent.width) * 5.0f;
-		taaPushConstants.jitter.y = (taaPushConstants.jitter.y / swapchain->getProperties().imageExtent.height) * 5.0f;
+		// The history is invalid on the frame the view changed, so jittering it would only add sub-pixel wobble
+		// without any temporal samples to average. Subsequent frames cycle through the Halton sequence and
+		// accumulate, which is what turns the jitter into anti-aliasing.
+		const int historyFrames = std::max(taaPushConstants.frameSinceViewChange, 0);
+		if (historyFrames > 0)
+		{
+			jitterPixels = haltonSequence[historyFrames % static_cast<int>(taaDepth)];
+			const float extentX = static_cast<float>(swapchain->getProperties().imageExtent.width);
+			const float extentY = static_cast<float>(swapchain->getProperties().imageExtent.height);
+			// One pixel spans 2 units in normalized device coordinates
+			taaPushConstants.jitter = glm::vec2(jitterPixels.x * 2.0f / extentX, jitterPixels.y * 2.0f / extentY);
+		}
+		else
+		{
+			taaPushConstants.jitter = glm::vec2(0.0f);
+		}
+
+		// Ramp the current frame's contribution down as the history accumulates, but never below 1/(taaMaxHistoryFrames+1)
+		const int accumulatedFrames = std::min(historyFrames, static_cast<int>(taaMaxHistoryFrames));
+		postProcessPushConstants.historyWeight = 1.0f - 1.0f / static_cast<float>(accumulatedFrames + 1);
 	}
 	else
 	{
-		taaPushConstants.jitter = glm::vec2(0.0f, 0.0f);
+		taaPushConstants.jitter = glm::vec2(0.0f);
+		postProcessPushConstants.historyWeight = 0.0f;
 	}
+	// The shader works in framebuffer space, where y grows downwards
+	postProcessPushConstants.currentJitter = glm::vec2(jitterPixels.x, -jitterPixels.y);
+	postProcessPushConstants.previousJitter = previousTaaJitter;
 
 	// Begin command buffer for offscreen pass
 	frameData.commandBuffers[currentFrame][0]->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
@@ -611,17 +644,48 @@ void MainApp::update()
 	deferredShadingPassSubmitInfo.signalSemaphoreInfoCount = 1u;
 	deferredShadingPassSubmitInfo.pSignalSemaphoreInfos = &deferredShadingSignalSemaphoreSubmitInfo;
 
-	// Begin command buffer for post process pass
+	// Begin command buffer for the post process (TAA resolve) pass
 	frameData.commandBuffers[currentFrame][1]->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
 
-	// Post offscreen renderpass
-	frameData.commandBuffers[currentFrame][1]->beginRenderPass(*postRenderPass.renderPass, *(frameData.postProcessFramebuffers[currentFrame]), swapchain->getProperties().imageExtent, postProcessFramebufferClearValues, VK_SUBPASS_CONTENTS_INLINE);
-	if (temporalAntiAliasingEnabled)
-	{
-		postProcess();
-	}
-	ImGui::Render();
-	ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), frameData.commandBuffers[currentFrame][1]->getHandle());
+	VkImageSubresourceRange subresourceRange = {};
+	subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	subresourceRange.baseMipLevel = 0u;
+	subresourceRange.levelCount = 1u;
+	subresourceRange.baseArrayLayer = 0u;
+	subresourceRange.layerCount = 1u;
+
+	// Order the previous frame's history copy against the history reads below. The history image is written by
+	// the copy in an earlier submission, so a semaphore cannot order it; a barrier does since submissions to a
+	// queue are ordered.
+	VkImageMemoryBarrier2 historyReadBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+	historyReadBarrier.pNext = nullptr;
+	historyReadBarrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+	historyReadBarrier.srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT;
+	historyReadBarrier.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+	historyReadBarrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+	historyReadBarrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+	historyReadBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+	historyReadBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	historyReadBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	historyReadBarrier.image = historyImageView->getImage()->getHandle();
+	historyReadBarrier.subresourceRange = subresourceRange;
+
+	VkDependencyInfo historyReadDependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+	historyReadDependencyInfo.pNext = nullptr;
+	historyReadDependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+	historyReadDependencyInfo.memoryBarrierCount = 0u;
+	historyReadDependencyInfo.pMemoryBarriers = nullptr;
+	historyReadDependencyInfo.bufferMemoryBarrierCount = 0u;
+	historyReadDependencyInfo.pBufferMemoryBarriers = nullptr;
+	historyReadDependencyInfo.imageMemoryBarrierCount = 1u;
+	historyReadDependencyInfo.pImageMemoryBarriers = &historyReadBarrier;
+
+	vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame][1]->getHandle(), &historyReadDependencyInfo);
+
+	// The resolve pass runs unconditionally: when TAA is disabled it simply copies the scene color through to the
+	// post process image, which is the image that gets presented
+	frameData.commandBuffers[currentFrame][1]->beginRenderPass(*postRenderPass.renderPass, *(frameData.postProcessFramebuffers[currentFrame]), swapchain->getProperties().imageExtent, {}, VK_SUBPASS_CONTENTS_INLINE);
+	postProcess();
 	frameData.commandBuffers[currentFrame][1]->endRenderPass();
 
 	// End command buffer for post process pass
@@ -639,7 +703,9 @@ void MainApp::update()
 	postProcessWaitSemaphoreSubmitInfo.pNext = nullptr;
 	postProcessWaitSemaphoreSubmitInfo.semaphore = frameData.offscreenRenderingFinishedSemaphores[currentFrame];
 	postProcessWaitSemaphoreSubmitInfo.value = 0u; // Optional: ignored since this isn't a timeline semaphore
-	postProcessWaitSemaphoreSubmitInfo.stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+	// The resolve pass samples the scene color and velocity images in the fragment shader, so the wait has to cover
+	// the vertex and fragment stages rather than only color attachment output
+	postProcessWaitSemaphoreSubmitInfo.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
 	postProcessWaitSemaphoreSubmitInfo.deviceIndex = 0u; // replaces VkDeviceGroupSubmitInfo but we don't have that in our pNext chain so not used.
 
 	VkSemaphoreSubmitInfo postProcessSignalSemaphoreSubmitInfo{ VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
@@ -659,15 +725,8 @@ void MainApp::update()
 	postProcessPassSubmitInfo.signalSemaphoreInfoCount = 1u;
 	postProcessPassSubmitInfo.pSignalSemaphoreInfos = &postProcessSignalSemaphoreSubmitInfo;
 
-	// Begin command buffer for outputImage copy operations to swapchain and history buffer
+	// Begin command buffer for the post process output copies, the UI composite and the presentation copy
 	frameData.commandBuffers[currentFrame][2]->begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
-
-	VkImageSubresourceRange subresourceRange = {};
-	subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-	subresourceRange.baseMipLevel = 0u;
-	subresourceRange.levelCount = 1u;
-	subresourceRange.baseArrayLayer = 0u;
-	subresourceRange.layerCount = 1u;
 
 	// Prepare the current swapchain as a transfer destination
 	VkImageMemoryBarrier2 transitionSwapchainLayoutBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
@@ -686,8 +745,8 @@ void MainApp::update()
 	// Prepare the historyImage as a transfer destination
 	VkImageMemoryBarrier2 transitionHistoryImageLayoutBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
 	transitionHistoryImageLayoutBarrier.pNext = nullptr;
-	transitionHistoryImageLayoutBarrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT; // Wait for all reads during and before transfers before we write to it during the transfer phase
-	transitionHistoryImageLayoutBarrier.srcAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+	transitionHistoryImageLayoutBarrier.srcStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT; // Wait for the resolve pass to finish reading the history
+	transitionHistoryImageLayoutBarrier.srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
 	transitionHistoryImageLayoutBarrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
 	transitionHistoryImageLayoutBarrier.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
 	transitionHistoryImageLayoutBarrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
@@ -697,21 +756,29 @@ void MainApp::update()
 	transitionHistoryImageLayoutBarrier.image = historyImageView->getImage()->getHandle();
 	transitionHistoryImageLayoutBarrier.subresourceRange = subresourceRange;
 
-	// Note that the layout of the outputImage has already been transitioned from VK_IMAGE_LAYOUT_GENERAL to VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL as defined in the postProcessingRenderPass configuration, but we need the barrier for synchronization
-	VkImageMemoryBarrier2 outputImageLayoutBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
-	outputImageLayoutBarrier.pNext = nullptr;
-	outputImageLayoutBarrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT; // Wait for all writes during and before transfers before we read from it during the transfer phase
-	outputImageLayoutBarrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-	outputImageLayoutBarrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-	outputImageLayoutBarrier.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
-	outputImageLayoutBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-	outputImageLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-	outputImageLayoutBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	outputImageLayoutBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	outputImageLayoutBarrier.image = outputImageView->getImage()->getHandle();
-	outputImageLayoutBarrier.subresourceRange = subresourceRange;
+	// The post process image holds the resolve output and is the source of both the history snapshot and the copy
+	// to the swapchain image. The write being synchronized against is the layout transition performed at the end of
+	// the resolve render pass, which is covered by the global memory access mask rather than by the color
+	// attachment write scope alone.
+	VkImageMemoryBarrier2 postProcessImageLayoutBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+	postProcessImageLayoutBarrier.pNext = nullptr;
+	postProcessImageLayoutBarrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+	postProcessImageLayoutBarrier.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
+	postProcessImageLayoutBarrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+	postProcessImageLayoutBarrier.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+	postProcessImageLayoutBarrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+	postProcessImageLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+	postProcessImageLayoutBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	postProcessImageLayoutBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	postProcessImageLayoutBarrier.image = postProcessImageView->getImage()->getHandle();
+	postProcessImageLayoutBarrier.subresourceRange = subresourceRange;
 
-	std::array<VkImageMemoryBarrier2, 3> transitionImageBarriersForWrites{ transitionSwapchainLayoutBarrier, transitionHistoryImageLayoutBarrier, outputImageLayoutBarrier };
+	std::vector<VkImageMemoryBarrier2> transitionImageBarriersForWrites{ transitionSwapchainLayoutBarrier, postProcessImageLayoutBarrier };
+	if (taaActive)
+	{
+		transitionImageBarriersForWrites.push_back(transitionHistoryImageLayoutBarrier);
+	}
+
 	VkDependencyInfo dependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
 	dependencyInfo.pNext = nullptr;
 	dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
@@ -719,7 +786,7 @@ void MainApp::update()
 	dependencyInfo.pMemoryBarriers = nullptr;
 	dependencyInfo.bufferMemoryBarrierCount = 0u;
 	dependencyInfo.pBufferMemoryBarriers = nullptr;
-	dependencyInfo.imageMemoryBarrierCount = transitionImageBarriersForWrites.size();
+	dependencyInfo.imageMemoryBarrierCount = to_u32(transitionImageBarriersForWrites.size());
 	dependencyInfo.pImageMemoryBarriers = transitionImageBarriersForWrites.data();
 
 	vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame][2]->getHandle(), &dependencyInfo);
@@ -731,11 +798,14 @@ void MainApp::update()
 	outputImageCopyRegion.dstOffset = { 0, 0, 0 };
 	outputImageCopyRegion.extent = { swapchain->getProperties().imageExtent.width, swapchain->getProperties().imageExtent.height, 1u };
 
-	// Copy output image to swapchain image and history image (note that they can execute in any order due to lack of barriers)
-	vkCmdCopyImage(frameData.commandBuffers[currentFrame][2]->getHandle(), outputImageView->getImage()->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swapchain->getImages()[swapchainImageIndex]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &outputImageCopyRegion);
+	// Snapshot the resolved image before the UI is composited over it; the history must only ever contain scene
+	// color, otherwise moving windows leave trails behind
+	if (taaActive)
+	{
+		vkCmdCopyImage(frameData.commandBuffers[currentFrame][2]->getHandle(), postProcessImageView->getImage()->getHandle(), VK_IMAGE_LAYOUT_GENERAL, historyImageView->getImage()->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &outputImageCopyRegion);
+	}
 
-	vkCmdCopyImage(frameData.commandBuffers[currentFrame][2]->getHandle(), outputImageView->getImage()->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, historyImageView->getImage()->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &outputImageCopyRegion);
-
+	// Store the transforms used by this frame so next frame's velocity buffer can reproject against them
 	VkBufferCopy cameraBufferCopyRegion{};
 	cameraBufferCopyRegion.srcOffset = 0ull;
 	cameraBufferCopyRegion.dstOffset = 0ull;
@@ -748,7 +818,29 @@ void MainApp::update()
 	objectBufferCopyRegion.size = sizeof(ObjInstance) * maxObjInstanceCount;
 	vkCmdCopyBuffer(frameData.commandBuffers[currentFrame][2]->getHandle(), objInstanceBuffer->getHandle(), previousFrameObjInstanceBuffer->getHandle(), 1, &objectBufferCopyRegion);
 
-	// Transition the history image and output image back to the general layout
+	// Composite the UI over the resolved image, after the history snapshot
+	frameData.commandBuffers[currentFrame][2]->beginRenderPass(*postProcessUiRenderPass.renderPass, *(frameData.postProcessFramebuffers[currentFrame]), swapchain->getProperties().imageExtent, {}, VK_SUBPASS_CONTENTS_INLINE);
+	ImGui::Render();
+	ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), frameData.commandBuffers[currentFrame][2]->getHandle());
+	frameData.commandBuffers[currentFrame][2]->endRenderPass();
+
+	// Make the composited image readable by the presentation copy and return the history image to the layout the
+	// resolve pass expects on the next frame. As above, the end of render pass layout transition is part of the
+	// write being synchronized against.
+	VkImageMemoryBarrier2 postProcessImageReadBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+	postProcessImageReadBarrier.pNext = nullptr;
+	postProcessImageReadBarrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+	postProcessImageReadBarrier.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
+	postProcessImageReadBarrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+	postProcessImageReadBarrier.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+	postProcessImageReadBarrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+	postProcessImageReadBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+	postProcessImageReadBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	postProcessImageReadBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	postProcessImageReadBarrier.image = postProcessImageView->getImage()->getHandle();
+	postProcessImageReadBarrier.subresourceRange = subresourceRange;
+
+	// Transition the history image back to the general layout
 	transitionHistoryImageLayoutBarrier.pNext = nullptr;
 	transitionHistoryImageLayoutBarrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT; // Wait on transfer to finish
 	transitionHistoryImageLayoutBarrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
@@ -761,7 +853,26 @@ void MainApp::update()
 	transitionHistoryImageLayoutBarrier.image = historyImageView->getImage()->getHandle();
 	transitionHistoryImageLayoutBarrier.subresourceRange = subresourceRange;
 
-	// Transition the current swapchain image back for presentation
+	std::vector<VkImageMemoryBarrier2> transitionImageBarriers{ postProcessImageReadBarrier };
+	if (taaActive)
+	{
+		transitionImageBarriers.push_back(transitionHistoryImageLayoutBarrier);
+	}
+	dependencyInfo.pNext = nullptr;
+	dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+	dependencyInfo.memoryBarrierCount = 0u;
+	dependencyInfo.pMemoryBarriers = nullptr;
+	dependencyInfo.bufferMemoryBarrierCount = 0u;
+	dependencyInfo.pBufferMemoryBarriers = nullptr;
+	dependencyInfo.imageMemoryBarrierCount = to_u32(transitionImageBarriers.size());
+	dependencyInfo.pImageMemoryBarriers = transitionImageBarriers.data();
+
+	vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame][2]->getHandle(), &dependencyInfo);
+
+	// Copy the resolved image (now including the UI) to the swapchain image
+	vkCmdCopyImage(frameData.commandBuffers[currentFrame][2]->getHandle(), postProcessImageView->getImage()->getHandle(), VK_IMAGE_LAYOUT_GENERAL, swapchain->getImages()[swapchainImageIndex]->getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &outputImageCopyRegion);
+
+	// Transition the current swapchain image for presentation
 	transitionSwapchainLayoutBarrier.pNext = nullptr;
 	transitionSwapchainLayoutBarrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT; // Wait for transfer to finish
 	transitionSwapchainLayoutBarrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
@@ -774,31 +885,19 @@ void MainApp::update()
 	transitionSwapchainLayoutBarrier.image = swapchain->getImages()[swapchainImageIndex]->getHandle();
 	transitionSwapchainLayoutBarrier.subresourceRange = subresourceRange;
 
-	// Transition the output image and output image back to the general layout
-	VkImageMemoryBarrier2 transitionOutputImageLayoutBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
-	transitionOutputImageLayoutBarrier.pNext = nullptr;
-	transitionOutputImageLayoutBarrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT; // Wait on transfer to finish
-	transitionOutputImageLayoutBarrier.srcAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
-	transitionOutputImageLayoutBarrier.dstStageMask = VK_PIPELINE_STAGE_2_NONE;
-	transitionOutputImageLayoutBarrier.dstAccessMask = VK_ACCESS_2_NONE;
-	transitionOutputImageLayoutBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-	transitionOutputImageLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-	transitionOutputImageLayoutBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	transitionOutputImageLayoutBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	transitionOutputImageLayoutBarrier.image = outputImageView->getImage()->getHandle();
-	transitionOutputImageLayoutBarrier.subresourceRange = subresourceRange;
-
-	std::array<VkImageMemoryBarrier2, 3> transitionImageBarriers{ transitionHistoryImageLayoutBarrier, transitionSwapchainLayoutBarrier, transitionOutputImageLayoutBarrier };
 	dependencyInfo.pNext = nullptr;
 	dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
 	dependencyInfo.memoryBarrierCount = 0u;
 	dependencyInfo.pMemoryBarriers = nullptr;
 	dependencyInfo.bufferMemoryBarrierCount = 0u;
 	dependencyInfo.pBufferMemoryBarriers = nullptr;
-	dependencyInfo.imageMemoryBarrierCount = to_u32(transitionImageBarriers.size());
-	dependencyInfo.pImageMemoryBarriers = transitionImageBarriers.data();
+	dependencyInfo.imageMemoryBarrierCount = 1u;
+	dependencyInfo.pImageMemoryBarriers = &transitionSwapchainLayoutBarrier;
 
 	vkCmdPipelineBarrier2KHR(frameData.commandBuffers[currentFrame][2]->getHandle(), &dependencyInfo);
+
+	// Keep the remembered jitter in sync with the image that was just stored as history
+	previousTaaJitter = postProcessPushConstants.currentJitter;
 
 	// End command buffer for copy operations
 	frameData.commandBuffers[currentFrame][2]->end();
@@ -813,7 +912,7 @@ void MainApp::update()
 	outputImageTransferWaitSemaphoreSubmitInfo.pNext = nullptr;
 	outputImageTransferWaitSemaphoreSubmitInfo.semaphore = frameData.postProcessRenderingFinishedSemaphores[currentFrame];
 	outputImageTransferWaitSemaphoreSubmitInfo.value = 0ull; // Optional: ignored since this isn't a timeline semaphore
-	outputImageTransferWaitSemaphoreSubmitInfo.stageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+	outputImageTransferWaitSemaphoreSubmitInfo.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
 	outputImageTransferWaitSemaphoreSubmitInfo.deviceIndex = 0u; // replaces VkDeviceGroupSubmitInfo but we don't have that in our pNext chain so not used.
 
 	VkSemaphoreSubmitInfo outputImageTransferSemaphoreSubmitInfo{ VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
@@ -881,6 +980,7 @@ void MainApp::recreateSwapchain()
 	setupCamera();
 	createMainRenderPass();
 	createPostRenderPass();
+	createPostProcessUiRenderPass();
 	createMrtGeometryBufferRenderPass();
 	createDeferredShadingRenderPass();
 	createMainRasterizationPipeline();
@@ -1194,7 +1294,8 @@ void MainApp::renderNode(PipelineData *pipelineData, vulkr::gltf::Node *node, ui
 				gltfPushConstants.cameraPos = cameraController->getCamera()->getPosition();
 				gltfPushConstants.materialIndex = primitive->material.index;
 				gltfPushConstants.lightCount = static_cast<int>(sceneLights.size());
-				vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData->pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0u, sizeof(GltfPushConstants), &gltfPushConstants);
+				gltfPushConstants.jitter = taaPushConstants.jitter;
+				vkCmdPushConstants(frameData.commandBuffers[currentFrame][0]->getHandle(), pipelineData->pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0u, sizeof(GltfPushConstants), &gltfPushConstants);
 			}
 			else if (activeRenderingTechnique == RenderingTechnique::DEFERRED)
 			{
@@ -1375,23 +1476,23 @@ void MainApp::dataUpdatePerFrame()
 		haveLightsUpdated = false;
 	}
 
-	// TAA Check
-	if (!temporalAntiAliasingEnabled && activeRenderingTechnique != RenderingTechnique::RAY_TRACING)
+	// TAA bookkeeping; the frame counter drives both the jitter sequence and the history blend weight
+	const bool taaActive = temporalAntiAliasingEnabled && activeRenderingTechnique == RenderingTechnique::FORWARD;
+	if (taaActive)
 	{
-		raytracingPushConstants.frameSinceViewChange = 0; // TODO remove
-		taaPushConstants.frameSinceViewChange = 0;
-		taaPushConstants.jitter = glm::vec2(0.0f);
-	}
-	else
-	{
-		// If the camera has updated, we don't want to use the previous frame for anti aliasing
+		// Geometry revealed by a camera move cannot be reprojected out of the history, so start over for a frame
 		if (hasCameraUpdated)
 		{
 			resetFrameSinceViewChange();
 		}
-		raytracingPushConstants.frameSinceViewChange += 1;// TODO remove
 		taaPushConstants.frameSinceViewChange += 1;
-
+		raytracingPushConstants.frameSinceViewChange += 1; // TODO remove; unused
+	}
+	else
+	{
+		taaPushConstants.frameSinceViewChange = 0;
+		taaPushConstants.jitter = glm::vec2(0.0f);
+		raytracingPushConstants.frameSinceViewChange = 0; // TODO remove; unused
 	}
 }
 
@@ -1446,49 +1547,21 @@ void MainApp::rasterizeObj()
 
 void MainApp::postProcess()
 {
-	debugUtilBeginLabel(frameData.commandBuffers[currentFrame][1]->getHandle(), "Post Process");
+	debugUtilBeginLabel(frameData.commandBuffers[currentFrame][1]->getHandle(), "Temporal Anti-Aliasing Resolve");
 
 	PipelineData &pipelineData = pipelines.postProcess;
 
 	// Bind the pipeline
 	vkCmdBindPipeline(frameData.commandBuffers[currentFrame][1]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipeline->getHandle());
 
-	// Post processing descriptor
+	// History, velocity and scene color images
 	vkCmdBindDescriptorSets(frameData.commandBuffers[currentFrame][1]->getHandle(), pipelineData.pipeline->getBindPoint(), pipelineData.pipelineState->getPipelineLayout().getHandle(), 0, 1, &postProcessingDescriptorSet->getHandle(), 0, nullptr);
 
-	// Limit blending once enough frames have been occumulated (this optimization is commented out since it is only relavent for static scenes)
-	//float blendFactor = 0.0f;
-	//if (taaPushConstant.frameSinceViewChange < taaDepth)
-	//{
-	//    blendFactor = 1.0f / float(taaPushConstant.frameSinceViewChange + 1);
-	//}
-
-	// Blend constants (history buffer is set to 1 - blendFactor)
-	float blendFactor = 0.2f;
-	float blendConstants[4] = { blendFactor, blendFactor, blendFactor, blendFactor };
-	vkCmdSetBlendConstants(frameData.commandBuffers[currentFrame][1]->getHandle(), blendConstants);
-
-	// Push constants
+	// Push constants (image extent, jitter for this frame and the history frame, and the history weight)
 	vkCmdPushConstants(frameData.commandBuffers[currentFrame][1]->getHandle(), pipelineData.pipelineState->getPipelineLayout().getHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PostProcessPushConstants), &postProcessPushConstants);
 
-	// Bind vertices, indices and call the draw method
-	uint64_t lastObjIndex{ 0ull };
-	for (uint32_t index = 0u; index < objInstances.size(); index++)
-	{
-		ObjModelRenderingData &objModelRenderingData = objModelRenderingDataList[objInstances[index].objIndex];
-		// Bind the objModel if it's a different one from last one (we always bind the first time)
-		if (index == 0 || objInstances[index].objIndex != lastObjIndex)
-		{
-			VkBuffer vertexBuffers[] = { objModelRenderingData.vertexBuffer->getHandle() };
-			VkDeviceSize offsets[] = { 0ull };
-			vkCmdBindVertexBuffers(frameData.commandBuffers[currentFrame][1]->getHandle(), 0u, 1u, vertexBuffers, offsets);
-			vkCmdBindIndexBuffer(frameData.commandBuffers[currentFrame][1]->getHandle(), objModelRenderingData.indexBuffer->getHandle(), 0u, VK_INDEX_TYPE_UINT32);
-
-			lastObjIndex = objInstances[index].objIndex;
-		}
-
-		vkCmdDrawIndexed(frameData.commandBuffers[currentFrame][1]->getHandle(), to_u32(objModelRenderingData.indicesCount), 1u, 0u, 0, index);
-	}
+	// Fullscreen triangle; every pixel of the render target is resolved
+	vkCmdDraw(frameData.commandBuffers[currentFrame][1]->getHandle(), 3u, 1u, 0u, 0u);
 
 	debugUtilEndLabel(frameData.commandBuffers[currentFrame][1]->getHandle());
 }
@@ -1515,9 +1588,10 @@ float createHaltonSequence(uint32_t index, uint32_t base)
 
 void MainApp::initializeHaltonSequenceArray()
 {
+	// Centered samples in the [-0.5, 0.5] pixel range; a TAA jitter of a full pixel or more only blurs the image
 	for (int i = 0; i < taaDepth; ++i)
 	{
-		haltonSequence[i] = glm::vec2(createHaltonSequence(i + 1, 2), createHaltonSequence(i + 1, 3));
+		haltonSequence[i] = glm::vec2(createHaltonSequence(i + 1, 2), createHaltonSequence(i + 1, 3)) - glm::vec2(0.5f);
 	}
 }
 
@@ -1569,9 +1643,8 @@ void MainApp::createMainRenderPass()
 	outputImageAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 	outputImageAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
 	outputImageAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-	// We could set the finalLayout to VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL since the postProcessing step requires that but then we would have to add a
-	// layout transitions after a raytracing step to change the image from VK_IMAGE_LAYOUT_GENERAL to VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL. For simplicity,
-	// I've made it so that the finalLayout regardless of rasterization/raytracing is VK_IMAGE_LAYOUT_GENERAL
+	// The post processing pass samples this image, so it has to stay in the general layout for both the
+	// rasterization and raytracing paths instead of the optimal color attachment layout.
 	outputImageAttachment.finalLayout = VK_IMAGE_LAYOUT_GENERAL;
 	attachments.push_back(outputImageAttachment);
 
@@ -1581,24 +1654,6 @@ void MainApp::createMainRenderPass()
 	outputImageAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 	outputImageAttachmentRef.aspectMask = 0u;
 	mainRenderPass.colorAttachments.push_back(outputImageAttachmentRef);
-
-	Attachment copyOutputImageAttachment{}; // copyOutputImage
-	copyOutputImageAttachment.format = copyOutputImageView->getFormat();
-	copyOutputImageAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
-	copyOutputImageAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-	copyOutputImageAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-	copyOutputImageAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-	copyOutputImageAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-	copyOutputImageAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-	copyOutputImageAttachment.finalLayout = VK_IMAGE_LAYOUT_GENERAL;
-	attachments.push_back(copyOutputImageAttachment);
-
-	VkAttachmentReference2 copyOutputImageAttachmentRef{ VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2 };
-	copyOutputImageAttachmentRef.pNext = nullptr;
-	copyOutputImageAttachmentRef.attachment = 1u;
-	copyOutputImageAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-	copyOutputImageAttachmentRef.aspectMask = 0u;
-	mainRenderPass.colorAttachments.push_back(copyOutputImageAttachmentRef);
 
 	Attachment velocityImageAttachment{}; // velocityImage
 	velocityImageAttachment.format = velocityImageView->getFormat();
@@ -1613,7 +1668,7 @@ void MainApp::createMainRenderPass()
 
 	VkAttachmentReference2 velocityImageAttachmentRef{ VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2 };
 	velocityImageAttachmentRef.pNext = nullptr;
-	velocityImageAttachmentRef.attachment = 2u;
+	velocityImageAttachmentRef.attachment = 1u;
 	velocityImageAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 	velocityImageAttachmentRef.aspectMask = 0u;
 	mainRenderPass.colorAttachments.push_back(velocityImageAttachmentRef);
@@ -1631,7 +1686,7 @@ void MainApp::createMainRenderPass()
 
 	VkAttachmentReference2 depthAttachmentRef{ VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2 };
 	depthAttachmentRef.pNext = nullptr;
-	depthAttachmentRef.attachment = 3u;
+	depthAttachmentRef.attachment = 2u;
 	depthAttachmentRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 	depthAttachmentRef.aspectMask = 0u;
 	mainRenderPass.depthStencilAttachments.push_back(depthAttachmentRef);
@@ -1684,16 +1739,19 @@ void MainApp::createMainRenderPass()
 
 void MainApp::createPostRenderPass()
 {
+	// The TAA resolve pass draws a fullscreen triangle into the post process image. It has no depth or vertex
+	// input, and every pixel is written (the resolve either blends in the history or copies the scene color
+	// through), so the previous contents of the attachment do not need to be loaded.
 	std::vector<Attachment> attachments;
-	Attachment colorAttachment{}; // outputImage
-	colorAttachment.format = outputImageView->getFormat();
+	Attachment colorAttachment{}; // postProcessImage
+	colorAttachment.format = swapchain->getProperties().surfaceFormat.format;
 	colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
-	colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+	colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 	colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 	colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 	colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
 	colorAttachment.initialLayout = VK_IMAGE_LAYOUT_GENERAL;
-	colorAttachment.finalLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+	colorAttachment.finalLayout = VK_IMAGE_LAYOUT_GENERAL;
 	attachments.push_back(colorAttachment);
 
 	VkAttachmentReference2 colorAttachmentRef{ VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2 };
@@ -1702,24 +1760,6 @@ void MainApp::createPostRenderPass()
 	colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 	colorAttachmentRef.aspectMask = 0u;
 	postRenderPass.colorAttachments.push_back(colorAttachmentRef);
-
-	Attachment depthAttachment{};
-	depthAttachment.format = getSupportedDepthFormat(device->getPhysicalDevice().getHandle());
-	depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
-	depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-	depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-	depthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-	depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-	depthAttachment.initialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-	depthAttachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-	attachments.push_back(depthAttachment);
-
-	VkAttachmentReference2 depthAttachmentRef{ VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2 };
-	depthAttachmentRef.pNext = nullptr;
-	depthAttachmentRef.attachment = 1u;
-	depthAttachmentRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-	depthAttachmentRef.aspectMask = 0u;
-	postRenderPass.depthStencilAttachments.push_back(depthAttachmentRef);
 
 	postRenderPass.subpasses.emplace_back(
 		postRenderPass.inputAttachments,
@@ -1736,10 +1776,15 @@ void MainApp::createPostRenderPass()
 	VkMemoryBarrier2 memoryBarrierForFirstSubpassDependency = {
 	.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2_KHR,
 	.pNext = nullptr,
-	.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
-	.srcAccessMask = VK_ACCESS_2_NONE, // we don't have anything to flush
-	.dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
-	.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT // The clear on depth counts as a write operation I believe so we need appropriate access masks
+	// The previous frame's history snapshot read this attachment, so that read has to complete before the pass
+	// starts writing it again; the fragment shader's own reads of the history/velocity/scene color images are
+	// ordered by the semaphore and the explicit barrier in the command buffer
+	.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_2_TRANSFER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+	.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_SHADER_READ_BIT,
+	.dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+	// Matches the UI pass dependencies exactly: the two render passes share one framebuffer, and a framebuffer is
+	// only compatible with render passes whose subpass dependencies agree on their stage and access masks
+	.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT
 	};
 	dependencies[0].sType = VK_STRUCTURE_TYPE_SUBPASS_DEPENDENCY_2;
 	dependencies[0].pNext = &memoryBarrierForFirstSubpassDependency;
@@ -1765,6 +1810,75 @@ void MainApp::createPostRenderPass()
 
 	postRenderPass.renderPass = std::make_unique<RenderPass>(*device, attachments, postRenderPass.subpasses, dependencies);
 	setDebugUtilsObjectName(device->getHandle(), postRenderPass.renderPass->getHandle(), "postProcessRenderPass");
+}
+
+void MainApp::createPostProcessUiRenderPass()
+{
+	// ImGui is composited on top of the resolved image in a separate pass so that the TAA history (which is
+	// copied before this pass runs) never contains UI pixels.
+	std::vector<Attachment> attachments;
+	Attachment colorAttachment{};
+	colorAttachment.format = swapchain->getProperties().surfaceFormat.format;
+	colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+	colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+	colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	colorAttachment.initialLayout = VK_IMAGE_LAYOUT_GENERAL;
+	colorAttachment.finalLayout = VK_IMAGE_LAYOUT_GENERAL;
+	attachments.push_back(colorAttachment);
+
+	VkAttachmentReference2 colorAttachmentRef{ VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2 };
+	colorAttachmentRef.pNext = nullptr;
+	colorAttachmentRef.attachment = 0u;
+	colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+	colorAttachmentRef.aspectMask = 0u;
+	postProcessUiRenderPass.colorAttachments.push_back(colorAttachmentRef);
+
+	postProcessUiRenderPass.subpasses.emplace_back(
+		postProcessUiRenderPass.inputAttachments,
+		postProcessUiRenderPass.colorAttachments,
+		postProcessUiRenderPass.resolveAttachments,
+		postProcessUiRenderPass.depthStencilAttachments,
+		postProcessUiRenderPass.preserveAttachments,
+		VK_PIPELINE_BIND_POINT_GRAPHICS
+	);
+
+	std::vector<VkSubpassDependency2> dependencies;
+	dependencies.resize(2);
+
+	VkMemoryBarrier2 memoryBarrierForFirstSubpassDependency = {
+	.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2_KHR,
+	.pNext = nullptr,
+	// The resolve pass wrote the attachment and the history copy read it; both have to be ordered before this
+	// pass loads the resolved image and blends the UI over it
+	.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_2_TRANSFER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+	.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_SHADER_READ_BIT,
+	.dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+	.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT
+	};
+	dependencies[0].sType = VK_STRUCTURE_TYPE_SUBPASS_DEPENDENCY_2;
+	dependencies[0].pNext = &memoryBarrierForFirstSubpassDependency;
+	dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
+	dependencies[0].dstSubpass = 0u;
+	dependencies[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+
+	VkMemoryBarrier2 memoryBarrierForLastSubpassDependency = {
+		.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2_KHR,
+		.pNext = nullptr,
+		.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+		.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+		.dstStageMask = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT,
+		.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT
+	};
+	dependencies[1].sType = VK_STRUCTURE_TYPE_SUBPASS_DEPENDENCY_2;
+	dependencies[1].pNext = &memoryBarrierForLastSubpassDependency;
+	dependencies[1].srcSubpass = 0u;
+	dependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
+	dependencies[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+
+	postProcessUiRenderPass.renderPass = std::make_unique<RenderPass>(*device, attachments, postProcessUiRenderPass.subpasses, dependencies);
+	setDebugUtilsObjectName(device->getHandle(), postProcessUiRenderPass.renderPass->getHandle(), "postProcessUiRenderPass");
 }
 
 void MainApp::createMrtGeometryBufferRenderPass()
@@ -2070,44 +2184,30 @@ void MainApp::createDescriptorSetLayouts()
 	std::vector<VkDescriptorSetLayoutBinding> objectDescriptorSetLayoutBindings{ objInstanceBufferLayoutBinding, gltfInstanceBufferLayoutBinding };
 	objectDescriptorSetLayout = std::make_unique<DescriptorSetLayout>(*device, objectDescriptorSetLayoutBindings);
 
-	// Post processing descriptor set layout
-	VkDescriptorSetLayoutBinding currentFrameCameraBufferLayoutBindingForPost{};
-	currentFrameCameraBufferLayoutBindingForPost.binding = 0u;
-	currentFrameCameraBufferLayoutBindingForPost.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-	currentFrameCameraBufferLayoutBindingForPost.descriptorCount = 1u;
-	currentFrameCameraBufferLayoutBindingForPost.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-	currentFrameCameraBufferLayoutBindingForPost.pImmutableSamplers = nullptr;
-	VkDescriptorSetLayoutBinding currentFrameObjInstanceBufferLayoutBindingForPost{};
-	currentFrameObjInstanceBufferLayoutBindingForPost.binding = 1u;
-	currentFrameObjInstanceBufferLayoutBindingForPost.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-	currentFrameObjInstanceBufferLayoutBindingForPost.descriptorCount = 1u;
-	currentFrameObjInstanceBufferLayoutBindingForPost.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-	currentFrameObjInstanceBufferLayoutBindingForPost.pImmutableSamplers = nullptr;
+	// Post processing descriptor set layout: the TAA resolve samples the history, velocity and scene color images
 	VkDescriptorSetLayoutBinding historyImageLayoutBindingForPost{};
-	historyImageLayoutBindingForPost.binding = 2u;
-	historyImageLayoutBindingForPost.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+	historyImageLayoutBindingForPost.binding = 0u;
+	historyImageLayoutBindingForPost.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 	historyImageLayoutBindingForPost.descriptorCount = 1u;
 	historyImageLayoutBindingForPost.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 	historyImageLayoutBindingForPost.pImmutableSamplers = nullptr;
 	VkDescriptorSetLayoutBinding velocityImageLayoutBindingForPost{};
-	velocityImageLayoutBindingForPost.binding = 3u;
-	velocityImageLayoutBindingForPost.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+	velocityImageLayoutBindingForPost.binding = 1u;
+	velocityImageLayoutBindingForPost.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 	velocityImageLayoutBindingForPost.descriptorCount = 1u;
 	velocityImageLayoutBindingForPost.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 	velocityImageLayoutBindingForPost.pImmutableSamplers = nullptr;
-	VkDescriptorSetLayoutBinding copyOutputImageLayoutBindingForPost{};
-	copyOutputImageLayoutBindingForPost.binding = 4u;
-	copyOutputImageLayoutBindingForPost.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-	copyOutputImageLayoutBindingForPost.descriptorCount = 1u;
-	copyOutputImageLayoutBindingForPost.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-	copyOutputImageLayoutBindingForPost.pImmutableSamplers = nullptr;
+	VkDescriptorSetLayoutBinding sceneColorImageLayoutBindingForPost{};
+	sceneColorImageLayoutBindingForPost.binding = 2u;
+	sceneColorImageLayoutBindingForPost.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	sceneColorImageLayoutBindingForPost.descriptorCount = 1u;
+	sceneColorImageLayoutBindingForPost.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+	sceneColorImageLayoutBindingForPost.pImmutableSamplers = nullptr;
 
 	std::vector<VkDescriptorSetLayoutBinding> postProcessingDescriptorSetLayoutBindings{
-		currentFrameCameraBufferLayoutBindingForPost,
-		currentFrameObjInstanceBufferLayoutBindingForPost,
 		historyImageLayoutBindingForPost,
 		velocityImageLayoutBindingForPost,
-		copyOutputImageLayoutBindingForPost
+		sceneColorImageLayoutBindingForPost
 	};
 	postProcessingDescriptorSetLayout = std::make_unique<DescriptorSetLayout>(*device, postProcessingDescriptorSetLayoutBindings);
 
@@ -2320,7 +2420,6 @@ void MainApp::createMainRasterizationPipeline()
 	colorBlendState.logicOpEnable = VK_FALSE;
 	colorBlendState.logicOp = VK_LOGIC_OP_COPY;
 	colorBlendState.attachments.emplace_back(colorBlendAttachmentState); // No blending for output image
-	colorBlendState.attachments.emplace_back(colorBlendAttachmentState); // No blending for copy output image
 	colorBlendState.attachments.emplace_back(colorBlendAttachmentState); // No blending for velocity image
 	colorBlendState.blendConstants[0] = 0.0f;
 	colorBlendState.blendConstants[1] = 0.0f;
@@ -2492,7 +2591,6 @@ void MainApp::createPbrRasterizationPipeline()
 	colorBlendState.logicOpEnable = VK_FALSE;
 	colorBlendState.logicOp = VK_LOGIC_OP_COPY;
 	colorBlendState.attachments.emplace_back(colorBlendAttachmentState); // No blending for output image
-	colorBlendState.attachments.emplace_back(colorBlendAttachmentState); // No blending for copy output image
 	colorBlendState.attachments.emplace_back(colorBlendAttachmentState); // No blending for velocity image
 	colorBlendState.blendConstants[0] = 0.0f;
 	colorBlendState.blendConstants[1] = 0.0f;
@@ -2539,7 +2637,8 @@ void MainApp::createPbrRasterizationPipeline()
 	};
 
 	std::vector<VkPushConstantRange> pushConstantRangeHandles;
-	VkPushConstantRange pushConstantRange{ VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GltfPushConstants) };
+	// The vertex shader reads the jitter from the same block as the fragment shader's material data
+	VkPushConstantRange pushConstantRange{ VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GltfPushConstants) };
 	pushConstantRangeHandles.push_back(pushConstantRange);
 
 	std::unique_ptr<GraphicsPipelineState> pbrRasterizationPipelineState = std::make_unique<GraphicsPipelineState>(
@@ -2832,45 +2931,8 @@ void MainApp::createDeferredShadingPipeline()
 
 void MainApp::createPostProcessingPipeline()
 {
+	// Fullscreen triangle; the vertex shader derives its positions from gl_VertexIndex, so there is no vertex input
 	VertexInputState vertexInputState{};
-	vertexInputState.bindingDescriptions.reserve(1);
-	vertexInputState.attributeDescriptions.reserve(3);
-
-	VkVertexInputBindingDescription bindingDescription{};
-	bindingDescription.binding = 0;
-	bindingDescription.stride = sizeof(VertexObj);
-	bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-	vertexInputState.bindingDescriptions.emplace_back(bindingDescription);
-
-	// Position at location 0
-	VkVertexInputAttributeDescription positionAttributeDescription;
-	positionAttributeDescription.location = 0;
-	positionAttributeDescription.binding = 0;
-	positionAttributeDescription.format = VK_FORMAT_R32G32B32_SFLOAT;
-	positionAttributeDescription.offset = offsetof(VertexObj, position);
-	// Normal at location 1
-	VkVertexInputAttributeDescription normalAttributeDescription;
-	normalAttributeDescription.location = 1;
-	normalAttributeDescription.binding = 0;
-	normalAttributeDescription.format = VK_FORMAT_R32G32B32_SFLOAT;
-	normalAttributeDescription.offset = offsetof(VertexObj, normal);
-	// Color at location 2
-	VkVertexInputAttributeDescription colorAttributeDescription;
-	colorAttributeDescription.location = 2;
-	colorAttributeDescription.binding = 0;
-	colorAttributeDescription.format = VK_FORMAT_R32G32B32_SFLOAT;
-	colorAttributeDescription.offset = offsetof(VertexObj, color);
-	// TexCoord at location 3
-	VkVertexInputAttributeDescription textureCoordinateAttributeDescription;
-	textureCoordinateAttributeDescription.location = 3;
-	textureCoordinateAttributeDescription.binding = 0;
-	textureCoordinateAttributeDescription.format = VK_FORMAT_R32G32_SFLOAT;
-	textureCoordinateAttributeDescription.offset = offsetof(VertexObj, textureCoordinate);
-
-	vertexInputState.attributeDescriptions.emplace_back(positionAttributeDescription);
-	vertexInputState.attributeDescriptions.emplace_back(normalAttributeDescription);
-	vertexInputState.attributeDescriptions.emplace_back(colorAttributeDescription);
-	vertexInputState.attributeDescriptions.emplace_back(textureCoordinateAttributeDescription);
 
 	InputAssemblyState inputAssemblyState{};
 	inputAssemblyState.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
@@ -2888,7 +2950,7 @@ void MainApp::createPostProcessingPipeline()
 	rasterizationState.depthClampEnable = VK_FALSE;
 	rasterizationState.rasterizerDiscardEnable = VK_FALSE;
 	rasterizationState.polygonMode = VK_POLYGON_MODE_FILL;
-	rasterizationState.cullMode = VK_CULL_MODE_BACK_BIT;
+	rasterizationState.cullMode = VK_CULL_MODE_NONE; // The winding of the fullscreen triangle is irrelevant
 	rasterizationState.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
 	rasterizationState.lineWidth = 1.0f;
 	rasterizationState.depthBiasEnable = VK_FALSE;
@@ -2897,31 +2959,25 @@ void MainApp::createPostProcessingPipeline()
 	multisampleState.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
 	multisampleState.sampleShadingEnable = VK_FALSE;
 
+	// The post process render pass does not have a depth attachment
 	DepthStencilState depthStencilState{};
-	depthStencilState.depthTestEnable = VK_TRUE;
-	depthStencilState.depthWriteEnable = VK_TRUE;
-	// TODO: change this to VK_COMPARE_OP_GREATER: https://developer.nvidia.com/content/depth-precision-visualized , will need to also change the depthStencil clearValue to 0.0f instead of 1.0f
-	depthStencilState.depthCompareOp = VK_COMPARE_OP_LESS;
+	depthStencilState.depthTestEnable = VK_FALSE;
+	depthStencilState.depthWriteEnable = VK_FALSE;
+	depthStencilState.depthCompareOp = VK_COMPARE_OP_ALWAYS;
 	depthStencilState.depthBoundsTestEnable = VK_FALSE;
 	depthStencilState.stencilTestEnable = VK_FALSE;
 
+	// The resolve shader computes the blend between the current frame and the history itself
 	ColorBlendAttachmentState colorBlendAttachmentState{};
-	colorBlendAttachmentState.blendEnable = VK_TRUE;
-	colorBlendAttachmentState.srcColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_CONSTANT_COLOR; // The value of the history buffer is returned
-	colorBlendAttachmentState.dstColorBlendFactor = VK_BLEND_FACTOR_CONSTANT_COLOR; // The outputImage is the non-accumulated image
-	colorBlendAttachmentState.colorBlendOp = VK_BLEND_OP_ADD;
-	colorBlendAttachmentState.srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO; // Ignore the alpha value in the history buffer
-	colorBlendAttachmentState.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE; // Always take the alpha value of the most recent frame
-	colorBlendAttachmentState.alphaBlendOp = VK_BLEND_OP_ADD;
+	colorBlendAttachmentState.blendEnable = VK_FALSE;
 	colorBlendAttachmentState.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
 
 	ColorBlendState colorBlendState{};
 	colorBlendState.logicOpEnable = VK_FALSE;
 	colorBlendState.logicOp = VK_LOGIC_OP_COPY;
 	colorBlendState.attachments.emplace_back(colorBlendAttachmentState);
-	// Blend constants must be set dynamically since the dynamic state is defined
 
-	std::vector<VkDynamicState> dynamicStates{ VK_DYNAMIC_STATE_BLEND_CONSTANTS };
+	std::vector<VkDynamicState> dynamicStates;
 
 	std::shared_ptr<ShaderSource> postProcessVertexShader = std::make_shared<ShaderSource>("post_processing/postProcess.vert.spv");
 	VkSpecializationInfo postProcessVertexShaderSpecializationInfo;
@@ -3099,11 +3155,13 @@ void MainApp::createFramebuffers()
 {
 	for (uint32_t i = 0; i < maxFramesInFlight; ++i)
 	{
-		std::vector<VkImageView> offscreenAttachments{ outputImageView->getHandle(), copyOutputImageView->getHandle(), velocityImageView->getHandle(), depthImageView->getHandle() };
+		std::vector<VkImageView> offscreenAttachments{ outputImageView->getHandle(), velocityImageView->getHandle(), depthImageView->getHandle() };
 		frameData.offscreenFramebuffers[i] = std::make_unique<Framebuffer>(*device, *swapchain, *mainRenderPass.renderPass, offscreenAttachments);
 		setDebugUtilsObjectName(device->getHandle(), frameData.offscreenFramebuffers[i]->getHandle(), "outputImageFramebuffer for frame #" + std::to_string(i));
 
-		std::vector<VkImageView> postProcessingAttachments{ outputImageView->getHandle(), depthImageView->getHandle() };
+		// Shared by the TAA resolve and the UI composite passes; the two render passes are compatible because
+		// they only differ in their load operations
+		std::vector<VkImageView> postProcessingAttachments{ postProcessImageView->getHandle() };
 		frameData.postProcessFramebuffers[i] = std::make_unique<Framebuffer>(*device, *swapchain, *postRenderPass.renderPass, postProcessingAttachments);
 		setDebugUtilsObjectName(device->getHandle(), frameData.postProcessFramebuffers[i]->getHandle(), "postProcessingFramebuffer for frame #" + std::to_string(i));
 
@@ -3120,23 +3178,18 @@ void MainApp::createFramebuffers()
 		frameData.geometryBufferFramebuffers[i] = std::make_unique<Framebuffer>(*device, *swapchain, *mrtGeometryBufferRenderPass.renderPass, mrtGeometryBufferAttachments);
 		setDebugUtilsObjectName(device->getHandle(), frameData.geometryBufferFramebuffers[i]->getHandle(), "geometryBufferFramebuffer for frame #" + std::to_string(i));
 
-		// IMPORTANT TODO: this frame buffer should have the same attachements as the offscreen one, so we should eventually support copyOutput and velocity so that our post processing pipeline will work with deferred rendering
-		// maybe we eventually don't even need a different frame buffer for the deferred step vs forward rendering. in that case, we can delete deferredShadingFramebufferClearValues as well
-		std::vector<VkImageView> deferredShadingAttachments{ outputImageView->getHandle(), /*copyOutputImageView->getHandle(), velocityImageView->getHandle(),*/ depthImageView->getHandle() };
+		// The deferred shading pass only produces the scene color; the resolve pass samples it and the velocity
+		// target is left untouched (TAA is only applied to the forward path)
+		std::vector<VkImageView> deferredShadingAttachments{ outputImageView->getHandle(), depthImageView->getHandle() };
 		frameData.deferredShadingFramebuffers[i] = std::make_unique<Framebuffer>(*device, *swapchain, *deferredShadingRenderPass.renderPass, deferredShadingAttachments);
 		setDebugUtilsObjectName(device->getHandle(), frameData.deferredShadingFramebuffers[i]->getHandle(), "deferredShadingFramebuffers for frame #" + std::to_string(i));
 	}
 
 	// Set clear values
-	offscreenFramebufferClearValues.resize(4);
+	offscreenFramebufferClearValues.resize(3);
 	offscreenFramebufferClearValues[0].color = { 1.0f, 1.0f, 1.0f, 1.0f }; // outputImage
-	offscreenFramebufferClearValues[1].color = { 1.0f, 1.0f, 1.0f, 1.0f }; // copyOutputImage
-	offscreenFramebufferClearValues[2].color = { 0.0f, 0.0f, 0.0f, 0.0f }; // velocity buffer
-	offscreenFramebufferClearValues[3].depthStencil = { 1.0f, 0u };
-
-	postProcessFramebufferClearValues.resize(2);
-	postProcessFramebufferClearValues[0].color = { 1.0f, 1.0f, 1.0f, 1.0f }; // outputImage
-	postProcessFramebufferClearValues[1].depthStencil = { 1.0f, 0u };
+	offscreenFramebufferClearValues[1].color = { 0.0f, 0.0f, 0.0f, 0.0f }; // velocity buffer (no motion)
+	offscreenFramebufferClearValues[2].depthStencil = { 1.0f, 0u };
 
 	geometryBufferFramebufferClearValues.resize(7);
 	geometryBufferFramebufferClearValues[0].color = { 0.0f, 0.0f, 0.0f, 0.0f }; // positionBuffer
@@ -3417,6 +3470,30 @@ void MainApp::createGBufferSampler()
 	samplerInfo.maxLod = 0.0f;
 
 	gBufferSampler = std::make_unique<Sampler>(*device, samplerInfo);
+}
+
+void MainApp::createTaaSampler()
+{
+	// Linear filtering gives the history reprojection sub-pixel accuracy; clamping to the edge keeps
+	// out-of-range reprojection coordinates on the image instead of wrapping around to the opposite side
+	VkSamplerCreateInfo samplerInfo{ VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
+	samplerInfo.magFilter = VK_FILTER_LINEAR;
+	samplerInfo.minFilter = VK_FILTER_LINEAR;
+	samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+	samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+	samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+	samplerInfo.anisotropyEnable = VK_FALSE;
+	samplerInfo.maxAnisotropy = 1.0f;
+	samplerInfo.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK;
+	samplerInfo.unnormalizedCoordinates = VK_FALSE;
+	samplerInfo.compareEnable = VK_FALSE;
+	samplerInfo.compareOp = VK_COMPARE_OP_ALWAYS;
+	samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+	samplerInfo.mipLodBias = 0.0f;
+	samplerInfo.minLod = 0.0f;
+	samplerInfo.maxLod = 0.0f;
+
+	taaSampler = std::make_unique<Sampler>(*device, samplerInfo);
 }
 
 void MainApp::copyBufferToBuffer(const Buffer &srcBuffer, const Buffer &dstBuffer, VkDeviceSize size)
@@ -3867,54 +3944,32 @@ void MainApp::createDescriptorSets()
 	postProcessingDescriptorSet = std::make_unique<DescriptorSet>(*device, postProcessingDescriptorSetAllocateInfo);
 	setDebugUtilsObjectName(device->getHandle(), postProcessingDescriptorSet->getHandle(), "postProcessingDescriptorSet");
 
-	// Binding 0 is the camera buffer
-	std::array<VkDescriptorBufferInfo, 1> postProcessingUniformBufferInfos{ cameraBufferInfo };
-	VkWriteDescriptorSet writePostProcessingUniformBufferDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-	writePostProcessingUniformBufferDescriptorSet.dstSet = postProcessingDescriptorSet->getHandle();
-	writePostProcessingUniformBufferDescriptorSet.dstBinding = 0;
-	writePostProcessingUniformBufferDescriptorSet.dstArrayElement = 0;
-	writePostProcessingUniformBufferDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-	writePostProcessingUniformBufferDescriptorSet.descriptorCount = to_u32(postProcessingUniformBufferInfos.size());
-	writePostProcessingUniformBufferDescriptorSet.pBufferInfo = postProcessingUniformBufferInfos.data();
-	writePostProcessingUniformBufferDescriptorSet.pImageInfo = nullptr;
-	writePostProcessingUniformBufferDescriptorSet.pTexelBufferView = nullptr;
-
-	// Binding 1 is the currentFrameObjectBuffer
-	std::array<VkDescriptorBufferInfo, 1> postProcessingStorageBufferInfos{ currentFrameObjInstanceBufferInfo };
-	VkWriteDescriptorSet writePostProcessingStorageBufferDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-	writePostProcessingStorageBufferDescriptorSet.dstSet = postProcessingDescriptorSet->getHandle();
-	writePostProcessingStorageBufferDescriptorSet.dstBinding = 1;
-	writePostProcessingStorageBufferDescriptorSet.dstArrayElement = 0;
-	writePostProcessingStorageBufferDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-	writePostProcessingStorageBufferDescriptorSet.descriptorCount = to_u32(postProcessingStorageBufferInfos.size());
-	writePostProcessingStorageBufferDescriptorSet.pBufferInfo = postProcessingStorageBufferInfos.data();
-	writePostProcessingStorageBufferDescriptorSet.pImageInfo = nullptr;
-	writePostProcessingStorageBufferDescriptorSet.pTexelBufferView = nullptr;
-
-	// Bindings 2, 3 and 4 are the history image, velocity image and copy output image respectively
+	// Bindings 0, 1 and 2 are the history image, velocity image and scene color image respectively. They are
+	// sampled (not loaded/stored) so that the shader never has to declare a storage image format qualifier that
+	// might disagree with the swapchain-derived formats, and so the history can be filtered when it is reprojected.
 	VkDescriptorImageInfo historyImageInfo{};
-	historyImageInfo.sampler = VK_NULL_HANDLE;
+	historyImageInfo.sampler = taaSampler->getHandle();
 	historyImageInfo.imageView = historyImageView->getHandle();
 	historyImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 	VkDescriptorImageInfo velocityImageInfo{};
-	velocityImageInfo.sampler = VK_NULL_HANDLE;
+	velocityImageInfo.sampler = taaSampler->getHandle();
 	velocityImageInfo.imageView = velocityImageView->getHandle();
 	velocityImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-	VkDescriptorImageInfo copyOutputImageInfo{};
-	copyOutputImageInfo.sampler = VK_NULL_HANDLE;
-	copyOutputImageInfo.imageView = copyOutputImageView->getHandle();
-	copyOutputImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-	std::array<VkDescriptorImageInfo, 3> postProcessingStorageImageInfos{ historyImageInfo, velocityImageInfo, copyOutputImageInfo };
+	VkDescriptorImageInfo sceneColorImageInfo{};
+	sceneColorImageInfo.sampler = taaSampler->getHandle();
+	sceneColorImageInfo.imageView = outputImageView->getHandle();
+	sceneColorImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+	std::array<VkDescriptorImageInfo, 3> postProcessingImageInfos{ historyImageInfo, velocityImageInfo, sceneColorImageInfo };
 
-	VkWriteDescriptorSet writePostProcessingStorageImageDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-	writePostProcessingStorageImageDescriptorSet.dstSet = postProcessingDescriptorSet->getHandle();
-	writePostProcessingStorageImageDescriptorSet.dstBinding = 2;
-	writePostProcessingStorageImageDescriptorSet.dstArrayElement = 0;
-	writePostProcessingStorageImageDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-	writePostProcessingStorageImageDescriptorSet.descriptorCount = to_u32(postProcessingStorageImageInfos.size());
-	writePostProcessingStorageImageDescriptorSet.pImageInfo = postProcessingStorageImageInfos.data();
-	writePostProcessingStorageImageDescriptorSet.pBufferInfo = nullptr;
-	writePostProcessingStorageImageDescriptorSet.pTexelBufferView = nullptr;
+	VkWriteDescriptorSet writePostProcessingImageDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+	writePostProcessingImageDescriptorSet.dstSet = postProcessingDescriptorSet->getHandle();
+	writePostProcessingImageDescriptorSet.dstBinding = 0;
+	writePostProcessingImageDescriptorSet.dstArrayElement = 0;
+	writePostProcessingImageDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	writePostProcessingImageDescriptorSet.descriptorCount = to_u32(postProcessingImageInfos.size());
+	writePostProcessingImageDescriptorSet.pImageInfo = postProcessingImageInfos.data();
+	writePostProcessingImageDescriptorSet.pBufferInfo = nullptr;
+	writePostProcessingImageDescriptorSet.pTexelBufferView = nullptr;
 
 	// Taa Descriptor Set
 	VkDescriptorSetAllocateInfo taaDescriptorSetAllocateInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
@@ -4064,14 +4119,12 @@ void MainApp::createDescriptorSets()
 	writeGeometryStorageImageDescriptorSet.pBufferInfo = nullptr;
 	writeGeometryStorageImageDescriptorSet.pTexelBufferView = nullptr;
 
-	std::array<VkWriteDescriptorSet, 10> writeDescriptorSets
+	std::array<VkWriteDescriptorSet, 8> writeDescriptorSets
 	{
 		writeGlobalDescriptorSet,
 		writeObjectDescriptorSet,
 
-		writePostProcessingUniformBufferDescriptorSet,
-		writePostProcessingStorageBufferDescriptorSet,
-		writePostProcessingStorageImageDescriptorSet,
+		writePostProcessingImageDescriptorSet,
 
 		writeTaaUniformBufferDescriptorSet,
 		writeTaaStorageBufferDescriptorSet,
@@ -4686,7 +4739,7 @@ void MainApp::initializeImGui()
 	initInfo.Queue = m_graphicsQueue->getHandle();
 	initInfo.PipelineCache = VK_NULL_HANDLE;
 	initInfo.DescriptorPool = imguiPool->getHandle();
-	initInfo.PipelineInfoMain.RenderPass = postRenderPass.renderPass->getHandle();
+	initInfo.PipelineInfoMain.RenderPass = postProcessUiRenderPass.renderPass->getHandle();
 	initInfo.PipelineInfoMain.Subpass = 0u;
 	initInfo.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
 	initInfo.MinImageCount = swapchain->getProperties().imageCount;
@@ -4714,22 +4767,27 @@ void MainApp::createImageResourcesForFrames()
 	subresourceRange.baseArrayLayer = 0u;
 	subresourceRange.layerCount = 1u;
 
-	// Main output image
+	// Main output image. It is sampled by the TAA resolve, so it needs the sampled usage in addition to being
+	// a color attachment (rasterization and deferred shading) and a storage image (raytracing).
 	VkFormat outputImageFormat = swapchain->getProperties().surfaceFormat.format;
-	std::unique_ptr<Image> outputImage = std::make_unique<Image>(*device, outputImageFormat, extent, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+	std::unique_ptr<Image> outputImage = std::make_unique<Image>(*device, outputImageFormat, extent, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 	outputImageView = std::make_unique<ImageView>(std::move(outputImage), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, outputImageFormat);
 
-	// Images required for post processing
-	VkFormat copyOutputImageFormat = swapchain->getProperties().surfaceFormat.format;
-	std::unique_ptr<Image> copyOutputImage = std::make_unique<Image>(*device, copyOutputImageFormat, extent, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
-	copyOutputImageView = std::make_unique<ImageView>(std::move(copyOutputImage), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, copyOutputImageFormat);
+	// Output of the post processing pass; this is the image that is copied to the swapchain and, before the UI is
+	// composited, to the history image
+	VkFormat postProcessImageFormat = swapchain->getProperties().surfaceFormat.format;
+	std::unique_ptr<Image> postProcessImage = std::make_unique<Image>(*device, postProcessImageFormat, extent, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+	postProcessImageView = std::make_unique<ImageView>(std::move(postProcessImage), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, postProcessImageFormat);
 
+	// Previous frame's resolved color, reprojected by the TAA resolve
 	VkFormat historyImageFormat = swapchain->getProperties().surfaceFormat.format;
-	std::unique_ptr<Image> historyImage = std::make_unique<Image>(*device, historyImageFormat, extent, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+	std::unique_ptr<Image> historyImage = std::make_unique<Image>(*device, historyImageFormat, extent, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 	historyImageView = std::make_unique<ImageView>(std::move(historyImage), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, historyImageFormat);
 
-	VkFormat velocityImageFormat = swapchain->getProperties().surfaceFormat.format;
-	std::unique_ptr<Image> velocityImage = std::make_unique<Image>(*device, velocityImageFormat, extent, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+	// Screen space motion vectors. The format has to be signed and floating point: motion vectors are regularly
+	// negative, and an unorm target would clamp the negative half of the range away.
+	VkFormat velocityImageFormat = VK_FORMAT_R16G16B16A16_SFLOAT;
+	std::unique_ptr<Image> velocityImage = std::make_unique<Image>(*device, velocityImageFormat, extent, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 	velocityImageView = std::make_unique<ImageView>(std::move(velocityImage), VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, velocityImageFormat);
 
 	// Images required for deferred rendering
@@ -4760,8 +4818,8 @@ void MainApp::createImageResourcesForFrames()
 	// Set debug markers
 	setDebugUtilsObjectName(device->getHandle(), outputImageView->getImage()->getHandle(), "outputImage");
 	setDebugUtilsObjectName(device->getHandle(), outputImageView->getHandle(), "outputImageView");
-	setDebugUtilsObjectName(device->getHandle(), copyOutputImageView->getImage()->getHandle(), "copyOutputImage");
-	setDebugUtilsObjectName(device->getHandle(), copyOutputImageView->getHandle(), "copyOutputImageView");
+	setDebugUtilsObjectName(device->getHandle(), postProcessImageView->getImage()->getHandle(), "postProcessImage");
+	setDebugUtilsObjectName(device->getHandle(), postProcessImageView->getHandle(), "postProcessImageView");
 	setDebugUtilsObjectName(device->getHandle(), historyImageView->getImage()->getHandle(), "historyImage");
 	setDebugUtilsObjectName(device->getHandle(), historyImageView->getHandle(), "historyImageView");
 	setDebugUtilsObjectName(device->getHandle(), velocityImageView->getImage()->getHandle(), "velocityImage");
@@ -4803,7 +4861,7 @@ void MainApp::createImageResourcesForFrames()
 	transitionCopyOutputImageLayoutBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
 	transitionCopyOutputImageLayoutBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 	transitionCopyOutputImageLayoutBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	transitionCopyOutputImageLayoutBarrier.image = copyOutputImageView->getImage()->getHandle();
+	transitionCopyOutputImageLayoutBarrier.image = postProcessImageView->getImage()->getHandle();
 	transitionCopyOutputImageLayoutBarrier.subresourceRange = subresourceRange;
 
 	VkImageMemoryBarrier2 transitionHistoryImageLayoutBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
